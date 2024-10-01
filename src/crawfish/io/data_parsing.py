@@ -7,8 +7,8 @@ from __future__ import annotations
 from typing import Callable, Any
 import numpy as np
 from pathlib import Path
-from functools import wraps
 from numba import jit
+from crawfish.io.utils import get_text_with_key_in_bounds, read_file, format_file_path
 
 spintype_nspin = {"no-spin": 1, "spin-orbit": 2, "vector-spin": 2, "z-spin": 2}
 
@@ -492,44 +492,6 @@ def _normalized_token_parser(tokens: list[str]) -> np.ndarray:
     return out
 
 
-def check_file_exists(func: Callable) -> Any:
-    """Check if file exists.
-
-    Check if file exists (and continue normally) or raise an exception if
-    it does not.
-    """
-
-    @wraps(func)
-    def wrapper(filename: str) -> Any:
-        filepath = Path(filename)
-        if not filepath.is_file():
-            raise OSError(f"'{filename}' file doesn't exist!")
-        return func(filename)
-
-    return wrapper
-
-
-@check_file_exists
-def read_file(file_name: str) -> list[str]:
-    """
-    Read file into a list of str.
-
-    Parameters
-    ----------
-    filename: Path or str
-        name of file to read
-
-    Returns
-    -------
-    texts: list[str]
-        list of strings from file
-    """
-    with open(file_name, "r") as f:
-        texts = f.readlines()
-    f.close()
-    return texts
-
-
 def get_outfile_start_lines(
     texts: list[str],
     start_key: str = "*************** JDFTx",
@@ -606,40 +568,6 @@ def get_outfile_start_line(
     return get_outfile_slice_bounds(outfile, slice_idx=-1)[0]
 
 
-def get_text_with_key_in_bounds(filepath: str | Path, key: str, start: int, end: int) -> str:
-    """Return contents of file at line with key in bounds.
-
-    Return the line with the key in the file between the start and end lines.
-
-    Parameters
-    ----------
-    filepath : str | Path
-        Path to file.
-    key : str
-        Key to search for.
-    start : int
-        Start line.
-    end : int
-        End line.
-    """
-    rval = None
-    texts = read_file(filepath)
-    filelength = len(texts)
-    if start < 0:
-        start = filelength + start
-    if end < 0:
-        end = filelength + end
-    for line, text in enumerate(texts):
-        if line > start and line < end:
-            if key in text:
-                rval = text
-                break
-    if rval is not None:
-        return rval
-    else:
-        raise ValueError(f"Could not find {key} in {filepath} within bounds {start} and {end}")
-
-
 def get__from_bandfile_filepath(bandfile_filepath: Path | str, tok_idx: int) -> int:
     """Get arbitrary integer from header of bandprojections file.
 
@@ -712,3 +640,32 @@ def _complex_token_parser_jit(tokens, out):
     imags = tokens[1::2]
     out += reals + 1j * imags
     return out
+
+
+def _get_input_coord_vars_from_outfile(outfile_filepath: str | Path) -> tuple[list[str], list[np.ndarray], np.ndarray]:
+    path = format_file_path(outfile_filepath)
+    outfile = read_file(path)
+    start_line = get_outfile_start_line(outfile)
+    names = []
+    posns = []
+    R = np.zeros([3, 3])
+    lat_row = 0
+    active_lattice = False
+    for i, line in enumerate(outfile):
+        if i > start_line:
+            tokens = line.split()
+            if len(tokens) > 0:
+                if tokens[0] == "ion":
+                    names.append(tokens[1])
+                    posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
+                elif tokens[0] == "lattice":
+                    active_lattice = True
+                elif active_lattice:
+                    if lat_row < 3:
+                        R[lat_row, :] = [float(x) for x in tokens[:3]]
+                        lat_row += 1
+                    else:
+                        active_lattice = False
+                elif "Initializing the Grid" in line:
+                    break
+    return names, posns, R

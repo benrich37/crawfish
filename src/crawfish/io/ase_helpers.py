@@ -1,64 +1,143 @@
+"""Module for methods to create ASE objects from files."""
+
 from os.path import join as opj
 from ase.io import read
-from shutil import copy as cp
 import numpy as np
-from crawfish.io.data_parsing import read_file, get_outfile_start_lines
+from crawfish.io.data_parsing import (
+    get_outfile_start_lines,
+    _get_input_coord_vars_from_outfile,
+)
+from ase.units import Bohr
+from ase import Atoms, Atom
+from crawfish.io.utils import format_dir_path, format_file_path, check_file_exists, read_file
+from pathlib import Path
 
 
-def get_atoms_poscar(path):
-    atoms = read(opj(path, "POSCAR"), format="vasp")
+@check_file_exists
+def _read_vasp(path: Path | str) -> Atoms:
+    """Read atoms object from VASP POSCAR-like file.
+
+    Read atoms object from VASP POSCAR-like file.
+
+    Parameters
+    ----------
+    path : str | Path
+        Path to VASP POSCAR-like file.
+    """
+    atoms = read(path, format="vasp")
     return atoms
 
 
-def get_atoms_contcar(path):
-    atoms = read(opj(path, "CONTCAR"), format="vasp")
+@check_file_exists
+def _read_gaussian(path):
+    """Read atoms object from gaussian-input-formatted file.
+
+    Read atoms object from gaussian-input-formatted file.
+
+    Parameters
+    ----------
+    path : str | Path
+        Path to gaussian-input-formatted file.
+    """
+    atoms = read(path, format="gaussian-in")
     return atoms
 
 
-def get_atoms_poscar_gjf(path):
-    atoms = read(opj(path, "POSCAR.gjf"), format="gaussian-in")
+def get_atoms_poscar(calc_dir: Path | str) -> Atoms:
+    """Return Atoms object from POSCAR file in path.
+
+    Return Atoms object from POSCAR file in path.
+
+    Parameters
+    ----------
+    calc_dir : str | Path
+        Path to calculation directory.
+    """
+    path = format_dir_path(calc_dir)
+    atoms = _read_vasp(opj(path, "POSCAR"))
     return atoms
 
 
-def get_atoms_contcar_gjf(path):
-    atoms = read(opj(path, "CONTCAR.gjf"), format="gaussian-in")
+def get_atoms_contcar(calc_dir: Path | str) -> Atoms:
+    """Return Atoms object from CONTCAR file in path.
+
+    Return Atoms object from CONTCAR file in path.
+
+    Parameters
+    ----------
+    calc_dir : str | Path
+        Path to calculation directory.
+    """
+    path = format_dir_path(calc_dir)
+    atoms = _read_vasp(opj(path, "CONTCAR"))
     return atoms
 
 
-def get_atoms_from_calc_dir(path):
+def get_atoms_poscar_gjf(calc_dir: Path | str) -> Atoms:
+    """Return Atoms object from POSCAR.gjf file in path.
+
+    Return Atoms object from POSCAR file in path.
+
+    Parameters
+    ----------
+    calc_dir : str | Path
+        Path to calculation directory.
+    """
+    path = format_dir_path(calc_dir)
+    atoms = _read_gaussian(opj(path, "POSCAR.gjf"))
+    return atoms
+
+
+def get_atoms_contcar_gjf(calc_dir: Path | str) -> Atoms:
+    """Return Atoms object from POSCAR.gjf file in path.
+
+    Return Atoms object from POSCAR file in path.
+
+    Parameters
+    ----------
+    calc_dir : str | Path
+        Path to calculation directory.
+    """
+    path = format_dir_path(calc_dir)
+    atoms = _read_gaussian(opj(path, "CONTCAR.gjf"))
+    return atoms
+
+
+def get_atoms_from_calc_dir(calc_dir: Path | str) -> Atoms:
+    """Return Atoms object from calculation directory.
+
+    Return Atoms object from calculation directory. For finished calculations, the Atoms object is retrieved from
+    the out file. If the out file is not present, the Atoms object is retrieved from the following files in order:
+    - CONTCAR
+    - POSCAR
+    - CONTCAR.gjf
+    - POSCAR.gjf
+
+    Parameters
+    ----------
+    calc_dir : str | Path
+        Path to calculation directory.
+    """
     atoms = None
     try:
-        atoms = get_atoms_from_out(opj(path, "out"))
-    except ValueError as err:
+        atoms = get_atoms_from_outfile_filepath(opj(calc_dir, "out"))
+    except ValueError:
         pass
     if atoms is None:
-        try:
-            cp(opj(path, "out"), opj(path, "out_read"))
-            fix_out_file(opj(path, "out_read"))
-            atoms = get_atoms_from_out(opj(path, "out_read"))
-        except:
-            pass
-        if atoms is not None:
-            cp(opj(path, "out_read"), opj(path, "out"))
-        if atoms is None:
-            for ga_func in [get_atoms_contcar_gjf, get_atoms_contcar, get_atoms_poscar_gjf, get_atoms_poscar]:
-                try:
-                    atoms = ga_func(path)
-                except:
-                    pass
-                if atoms is not None:
-                    break
+        for ga_func in [get_atoms_contcar_gjf, get_atoms_contcar, get_atoms_poscar_gjf, get_atoms_poscar]:
+            try:
+                atoms = ga_func(calc_dir)
+            except OSError:
+                pass
+            if atoms is not None:
+                break
     if atoms is None:
-        raise ValueError(f"Could not retrieve atoms object from files within {path}")
+        raise ValueError(f"Could not retrieve atoms object from files within {calc_dir}")
     return atoms
 
 
-def get_atoms(path):
-    atoms = get_atoms_from_out(opj(path, "out"))
-    return atoms
-
-
-def get_atoms_from_outfile_data(names, posns, R, charges=None, E=0, momenta=None):
+def _get_atoms_from_outfile_data(names, posns, R, charges=None, E=0, momenta=None):
+    # Construct Atoms object from data parsed from out file.
     atoms = Atoms()
     posns *= Bohr
     R = R.T * Bohr
@@ -74,12 +153,23 @@ def get_atoms_from_outfile_data(names, posns, R, charges=None, E=0, momenta=None
     return atoms
 
 
-def get_atoms_from_out(outfile):
-    atoms_list = get_atoms_list_from_out(outfile)
+def get_atoms_from_outfile_filepath(outfile_filepath: str | Path) -> Atoms:
+    """Return Atoms object from outfile.
+
+    Return Atoms object from outfile.
+
+    Parameters
+    ----------
+    outfile_filepath : str | Path
+        Path to outfile.
+    """
+    path = format_file_path(outfile_filepath)
+    atoms_list = get_atoms_list_from_out(path)
     return atoms_list[-1]
 
 
-def get_atoms_list_from_out_reset_vars(nAtoms=100, _def=100):
+def _get_atoms_list_from_out_reset_vars(nAtoms=100, _def=100):
+    # Ad-hoc method to reset variables for get_atoms_list_from_out.
     R = np.zeros([3, 3])
     posns = []
     names = []
@@ -123,7 +213,8 @@ def get_atoms_list_from_out_reset_vars(nAtoms=100, _def=100):
     )
 
 
-def get_atoms_list_from_out_slice(outfile_filepath, i_start, i_end):
+def _get_atoms_list_from_out_slice(outfile: list[str], i_start: int, i_end: int):
+    # Construct an Atoms object from a slice of an out file.
     charge_key = "oxidation-state"
     opts = []
     nAtoms = None
@@ -147,8 +238,9 @@ def get_atoms_list_from_out_slice(outfile_filepath, i_start, i_end):
         forces,
         active_forces,
         coords_forces,
-    ) = get_atoms_list_from_out_reset_vars()
-    outfile = read_file(outfile_filepath)
+    ) = _get_atoms_list_from_out_reset_vars()
+    # path = format_file_path(outfile_filepath)
+    # outfile = read_file(path)
     for i, line in enumerate(outfile):
         if i > i_start and i < i_end:
             if new_posn:
@@ -212,14 +304,14 @@ def get_atoms_list_from_out_slice(outfile_filepath, i_start, i_end):
                         log_vars = True
                 elif log_vars:
                     if np.sum(R) == 0.0:
-                        R = get_input_coord_vars_from_outfile(outfile)[2]
+                        R = _get_input_coord_vars_from_outfile(outfile)[2]
                     if coords != "cartesian":
                         posns = np.dot(posns, R)
                     if len(forces) == 0:
                         forces = np.zeros([nAtoms, 3])
                     if coords_forces.lower() != "cartesian":
                         forces = np.dot(forces, R)
-                    opts.append(get_atoms_from_outfile_data(names, posns, R, charges=charges, E=E, momenta=forces))
+                    opts.append(_get_atoms_from_outfile_data(names, posns, R, charges=charges, E=E, momenta=forces))
                     (
                         R,
                         posns,
@@ -240,19 +332,29 @@ def get_atoms_list_from_out_slice(outfile_filepath, i_start, i_end):
                         forces,
                         active_forces,
                         coords_forces,
-                    ) = get_atoms_list_from_out_reset_vars(nAtoms=nAtoms)
+                    ) = _get_atoms_list_from_out_reset_vars(nAtoms=nAtoms)
             elif "Computing DFT-D3 correction:" in line:
                 new_posn = True
     return opts
 
 
-def get_atoms_list_from_out(outfile_filepath):
-    outfile = read_file(outfile_filepath)
+def get_atoms_list_from_out(outfile_filepath: str | Path) -> list[Atoms]:
+    """Return list of Atoms objects from outfile.
+
+    Return list of Atoms objects from outfile.
+
+    Parameters
+    ----------
+    outfile_filepath : str | Path
+        Path to outfile.
+    """
+    path = format_file_path(outfile_filepath)
+    outfile = read_file(path)
     start_lines = get_outfile_start_lines(outfile, add_end=True)
     for i in range(len(start_lines) - 1):
         i_start = start_lines[::-1][i + 1]
         i_end = start_lines[::-1][i]
-        atoms_list = get_atoms_list_from_out_slice(outfile, i_start, i_end)
+        atoms_list = _get_atoms_list_from_out_slice(outfile, i_start, i_end)
         if type(atoms_list) is list:
             if len(atoms_list):
                 return atoms_list
