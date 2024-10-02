@@ -9,7 +9,7 @@ from crawfish.io.data_parsing import (
 )
 from ase.units import Bohr
 from ase import Atoms, Atom
-from crawfish.io.utils import format_dir_path, format_file_path, check_file_exists, read_file
+from crawfish.io.general import format_dir_path, format_file_path, check_file_exists, read_file
 from pathlib import Path
 
 

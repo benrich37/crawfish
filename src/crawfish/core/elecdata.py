@@ -216,7 +216,7 @@ class ElecData:
         return self._occ_sabcj
 
     @property
-    def orbs_idx_dict(self) -> dict:
+    def orbs_idx_dict(self) -> dict[str, int]:
         """Return dictionary mapping orbital indices to atom labels.
 
         Return dictionary mapping each atom (using key of format 'el #n' (str)) to indices

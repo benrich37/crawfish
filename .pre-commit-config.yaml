@@ -33,7 +33,6 @@ repos:
         stages: [commit, commit-msg]
         exclude_types: [html]
         additional_dependencies: [tomli] # needed to read pyproject.toml below py3.11
-        exclude: src/pymatgen/analysis/aflow_prototypes.json
 
   - repo: https://github.com/MarcoGorelli/cython-lint
     rev: v0.16.2
@@ -68,4 +67,5 @@ repos:
     rev: 6.1.1  # Choose the latest version of pydocstyle
     hooks:
       - id: pydocstyle
-        args: ["--convention=pep257"]
+        args: ["--convention=pep257", "--match-dir"]
+        exclude: "^tests/.*"

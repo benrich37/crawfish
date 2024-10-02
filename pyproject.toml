@@ -29,5 +29,8 @@ reportMissingModuleSource = false
 reportInvalidTypeForm = false
 exclude = ["**/tests"]
 
+[tool.pydocstyle]
+exclude = ["**/tests"]
+
 [tool.ruff.format]
 docstring-code-format = true

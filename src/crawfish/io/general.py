@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Callable, Any
-from wrapper import wraps
+from functools import wraps
 
 
 def format_dir_path(path: Path | str) -> Path:
@@ -39,7 +39,7 @@ def format_file_path(path: Path | str) -> Path:
     return path
 
 
-def get_text_with_key_in_bounds(filepath: str | Path, key: str, start: int, end: int) -> str:
+def get_text_with_key_in_bounds(filepath: str | Path | list[str], key: str, start: int, end: int) -> str:
     """Return contents of file at line with key in bounds.
 
     Return the line with the key in the file between the start and end lines.
@@ -56,7 +56,10 @@ def get_text_with_key_in_bounds(filepath: str | Path, key: str, start: int, end:
         End line.
     """
     rval = None
-    texts = read_file(filepath)
+    if isinstance(filepath, list):
+        texts = filepath
+    else:
+        texts = read_file(filepath)
     filelength = len(texts)
     if start < 0:
         start = filelength + start

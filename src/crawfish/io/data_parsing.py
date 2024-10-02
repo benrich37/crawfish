@@ -8,7 +8,7 @@ from typing import Callable, Any
 import numpy as np
 from pathlib import Path
 from numba import jit
-from crawfish.io.utils import get_text_with_key_in_bounds, read_file, format_file_path
+from crawfish.io.general import get_text_with_key_in_bounds, read_file
 
 spintype_nspin = {"no-spin": 1, "spin-orbit": 2, "vector-spin": 2, "z-spin": 2}
 
@@ -31,10 +31,8 @@ def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) 
         Number of spins.
     """
     outfile = read_file(outfile_filepath)
-    start = get_outfile_start_line(outfile)
     key = "spintype"
     rval = None
-    outfile = read_file(outfile_filepath)
     start, end = get_outfile_slice_bounds(outfile, slice_idx=slice_idx)
     text = get_text_with_key_in_bounds(outfile, key, start, end)
     tokens = text.strip().split()
@@ -312,55 +310,6 @@ def _get_kpts_info_handler(
     return kpts_info
 
 
-def get_input_coord_vars_from_outfile_filepath(
-    outfile_filepath: str | Path, slice_idx=-1
-) -> tuple[list[str], list[np.ndarray], np.ndarray]:
-    """Get input coordinates from output file.
-
-    Get the input coordinates from the output file.
-
-    Parameters
-    ----------
-    outfile_filepath : str | Path
-        Path to output file.
-
-    Returns
-    -------
-    names: list[str]
-        List of atom names.
-    posns: np.ndarray
-        Array of atomic positions.
-    lattice_matrix: np.ndarray
-        Lattice vectors.
-    """
-    outfile = read_file(outfile_filepath)
-    start, end = get_outfile_slice_bounds(outfile, slice_idx=slice_idx)
-    names = []
-    posns = []
-    lattice_matrix = np.zeros([3, 3])
-    lat_row = 0
-    active_lattice = False
-    for line, text in enumerate(outfile):
-        if line > start:
-            tokens = text.split()
-            if len(tokens) > 0:
-                if tokens[0] == "ion":
-                    names.append(tokens[1])
-                    posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
-                elif tokens[0] == "lattice":
-                    active_lattice = True
-                elif active_lattice:
-                    if lat_row < 3:
-                        lattice_matrix[lat_row, :] = [float(x) for x in tokens[:3]]
-                        lat_row += 1
-                    else:
-                        active_lattice = False
-                elif "Initializing the Grid" in text:
-                    break
-    posns = np.array(posns)
-    return names, posns, lattice_matrix
-
-
 def get_e_sabcj_helper(
     eigfile_filepath: str | Path, nspin: int, nbands: int, kfolding: list[int] | np.ndarray[int]
 ) -> np.ndarray:
@@ -463,12 +412,16 @@ def _parse_bandfile_normalized(bandfile_filepath: str | Path) -> np.ndarray:
 
 
 def _parse_bandfile_reader(bandfile_filepath: str | Path, dtype: type, token_parser: Callable) -> np.ndarray:
-    bandfile = read_file(bandfile_filepath)
     nstates = get_nstates_from_bandfile_filepath(bandfile_filepath)
     nbands = get_nbands_from_bandfile_filepath(bandfile_filepath)
     nproj = get_nproj_from_bandfile_filepath(bandfile_filepath)
     nspecies = get_nspecies_from_bandfile_filepath(bandfile_filepath)
     get_norbsperatom_from_bandfile_filepath(bandfile_filepath)
+    # Header of length 3, and then each states occupies 1 (header) + nbands lineas
+    bandfile = read_file(bandfile_filepath)
+    expected_length = 3 + (nstates * (1 + nbands))
+    if not expected_length == len(bandfile):
+        raise RuntimeError("Bandprojections file does not match expected length - ensure no edits have been made.")
     proj_tju = np.zeros((nstates, nbands, nproj), dtype=dtype)
     for line, text in enumerate(bandfile):
         tokens = text.split()
@@ -489,6 +442,14 @@ def _complex_token_parser(tokens: list[str]) -> np.ndarray:
 
 def _normalized_token_parser(tokens: list[str]) -> np.ndarray:
     out = np.array(tokens, dtype=float)
+    return out
+
+
+@jit(nopython=True)
+def _complex_token_parser_jit(tokens, out):
+    reals = tokens[::2]
+    imags = tokens[1::2]
+    out += reals + 1j * imags
     return out
 
 
@@ -541,7 +502,7 @@ def get_outfile_slice_bounds(
     --------
     tuple[int, int]
     """
-    start_lines = get_outfile_start_lines(outfile)
+    start_lines = get_outfile_start_lines(outfile, add_end=True)
     outfile_bounds_list = [[start_lines[i], start_lines[i + 1]] for i in range(len(start_lines) - 1)]
     if slice_idx >= len(outfile_bounds_list):
         raise ValueError(f"Slice index {slice_idx} out of bounds.")
@@ -634,38 +595,30 @@ def get_kfolding_from_kpts(kptsfile_filepath: str | Path, nk: int) -> list[int]:
     return kfolding
 
 
-@jit(nopython=True)
-def _complex_token_parser_jit(tokens, out):
-    reals = tokens[::2]
-    imags = tokens[1::2]
-    out += reals + 1j * imags
-    return out
-
-
-def _get_input_coord_vars_from_outfile(outfile_filepath: str | Path) -> tuple[list[str], list[np.ndarray], np.ndarray]:
-    path = format_file_path(outfile_filepath)
-    outfile = read_file(path)
-    start_line = get_outfile_start_line(outfile)
-    names = []
-    posns = []
-    R = np.zeros([3, 3])
-    lat_row = 0
-    active_lattice = False
-    for i, line in enumerate(outfile):
-        if i > start_line:
-            tokens = line.split()
-            if len(tokens) > 0:
-                if tokens[0] == "ion":
-                    names.append(tokens[1])
-                    posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
-                elif tokens[0] == "lattice":
-                    active_lattice = True
-                elif active_lattice:
-                    if lat_row < 3:
-                        R[lat_row, :] = [float(x) for x in tokens[:3]]
-                        lat_row += 1
-                    else:
-                        active_lattice = False
-                elif "Initializing the Grid" in line:
-                    break
-    return names, posns, R
+# def _get_input_coord_vars_from_outfile(outfile_filepath: str | Path) -> tuple[list[str], list[np.ndarray], np.ndarray]:
+#     path = format_file_path(outfile_filepath)
+#     outfile = read_file(path)
+#     start_line = get_outfile_start_line(outfile)
+#     names = []
+#     posns = []
+#     R = np.zeros([3, 3])
+#     lat_row = 0
+#     active_lattice = False
+#     for i, line in enumerate(outfile):
+#         if i > start_line:
+#             tokens = line.split()
+#             if len(tokens) > 0:
+#                 if tokens[0] == "ion":
+#                     names.append(tokens[1])
+#                     posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
+#                 elif tokens[0] == "lattice":
+#                     active_lattice = True
+#                 elif active_lattice:
+#                     if lat_row < 3:
+#                         R[lat_row, :] = [float(x) for x in tokens[:3]]
+#                         lat_row += 1
+#                     else:
+#                         active_lattice = False
+#                 elif "Initializing the Grid" in line:
+#                     break
+#     return names, posns, R
