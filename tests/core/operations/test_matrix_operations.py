@@ -2,7 +2,7 @@ import pytest
 
 
 def test_get_p_uvjsabc():
-    from crawfish.core.matrix_operations import get_p_uvjsabc
+    from crawfish.core.operations.matrix import get_p_uvjsabc
     import numpy as np
 
     nproj = 3

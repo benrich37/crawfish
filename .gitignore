@@ -3,3 +3,5 @@
 launch.json
 .DS_Store
 *cpython*
+.coverage
+coverage.xml

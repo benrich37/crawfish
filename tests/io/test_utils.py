@@ -7,7 +7,7 @@ excddir = Path(EXAMPLE_CALC_DIRS_DIR)
 
 
 def test_format_path():
-    from crawfish.io.utils import format_dir_path, format_file_path
+    from crawfish.io.general import format_dir_path, format_file_path
 
     outfile_str = str(exfdir / "out")
     example_dir_str = str(exfdir)
@@ -21,7 +21,7 @@ def test_format_path():
 
 
 def test_read_file():
-    from crawfish.io.utils import read_file
+    from crawfish.io.general import read_file
 
     with pytest.raises(OSError):
         read_file("nonexistent")
@@ -29,7 +29,7 @@ def test_read_file():
 
 
 def test_get_text_with_key_in_bounds():
-    from crawfish.io.utils import get_text_with_key_in_bounds
+    from crawfish.io.general import get_text_with_key_in_bounds
 
     nonoccuring_key = "nonoccuring_key"
     outfile_filepath = exfdir / "out"
