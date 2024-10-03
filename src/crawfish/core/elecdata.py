@@ -88,8 +88,6 @@ class ElecData:
         """
         if self._nspin is None:
             self._nspin = get_nspin_from_outfile_filepath(self.outfile_filepath)
-        if self._nspin is None:
-            raise ValueError("nspin could not be determined from bandprojections file")
         return self._nspin
 
     @property
@@ -110,8 +108,6 @@ class ElecData:
         """
         if self._nbands is None:
             self._nbands = get_nbands_from_bandfile_filepath(self.bandfile_filepath)
-        # if self._nbands is None:
-        #     raise ValueError("nbands could not be determined from bandprojections file")
         return self._nbands
 
     @property
@@ -122,8 +118,6 @@ class ElecData:
         """
         if self._nproj is None:
             self._nproj = get_nproj_from_bandfile_filepath(self.bandfile_filepath)
-        # if self._nproj is None:
-        #     raise ValueError("nproj could not be determined from bandprojections file")
         return self._nproj
 
     @property
@@ -134,8 +128,6 @@ class ElecData:
         """
         if self._norbsperatom is None:
             self._norbsperatom = get_norbsperatom_from_bandfile_filepath(self.bandfile_filepath)
-        # if self._norbsperatom is None:
-        #     raise ValueError("norbsperatom could not be determined from bandprojections file")
         return self._norbsperatom
 
     @property

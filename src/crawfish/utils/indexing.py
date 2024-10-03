@@ -64,9 +64,9 @@ def get_atom_orb_labels_dict(bandfile_filepath: str | Path) -> dict[str, list[st
     Return a dictionary mapping each atom symbol to all atomic orbital projection string representations.
     (eg
     {
-    "H": ["0s", "0px", "0py", "0pz"],
-    "O": ["0s", "0px", "0py", "0pz", "0dxy", "0dxz", "0dyz", "0dx2y2", "0dz2"],
-    "Pt": ["0s", "1s", "0px", "0py", "0pz", "1px", "1py", "1pz", "0dxy", "0dxz", "0dyz", "0dx2y2", "0dz2", "0fx3-3xy2", "0fyx2-yz2", "0fxz2", "0fz3", "0fyz2", "0fxyz", "0f3yx2-y3"]
+    "H": ["s"],
+    "O": ["s", "px", "py", "pz", "dxy", "dxz", "dyz", "dx2y2", "dz2"],
+    "Pt": ["0s", "1s", "0px", "0py", "0pz", "1px", "1py", "1pz", "dxy", "dxz", "dyz", "dx2y2", "dz2", "fx3-3xy2", "fyx2-yz2", "fxz2", "fz3", "fyz2", "fxyz", "f3yx2-y3"]
     }, where the numbers are needed when using pseudopotentials with multiple valence shells of the same angular momentum
     are are NOT REPRESENTATIVE OF THE TRUE PRINCIPAL QUANTUM NUMBER.
     )

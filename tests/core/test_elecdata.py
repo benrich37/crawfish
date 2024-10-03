@@ -20,10 +20,18 @@ def test_elecdata_properties():
     exdir_path = excddir / "N2_bare_min"
     edata = ElecData(exdir_path)
     for intprop in ["nspin", "nstates", "nbands", "nproj"]:
+        setattr(edata, f"_{intprop}", None)
         assert hasattr(edata, intprop)
         val = getattr(edata, intprop)
         assert val is not None
         assert isinstance(val, int)
+    for listintprop in ["norbsperatom"]:
+        setattr(edata, f"_{listintprop}", None)
+        assert hasattr(edata, listintprop)
+        val = getattr(edata, listintprop)
+        assert val is not None
+        assert isinstance(val, list)
+        assert all(isinstance(v, int) for v in val)
     for floatprop in ["mu"]:
         assert hasattr(edata, floatprop)
         val = getattr(edata, floatprop)
@@ -51,10 +59,12 @@ def test_elecdata_properties():
         val = getattr(edata, filepath)
         assert val is not None
         assert isinstance(val, Path)
-    proj = edata.proj_sabcju
-    assert proj is not None
-    assert isinstance(proj, np.ndarray)
-    if edata.bandprojfile_is_complex:
-        assert proj.dtype == COMPLEX_DTYPE
-    else:
-        assert proj.dtype == REAL_DTYPE
+    for proj_var in ["proj_sabcju", "proj_tju"]:
+        proj = getattr(edata, proj_var)
+        assert proj is not None
+        assert isinstance(proj, np.ndarray)
+        if edata.bandprojfile_is_complex:
+            assert proj.dtype == COMPLEX_DTYPE
+        else:
+            assert proj.dtype == REAL_DTYPE
+        assert len(proj.shape) == len(proj_var.split("_")[-1])
