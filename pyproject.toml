@@ -8,7 +8,8 @@ authors = [{ name = "Ben Rich", email = "benjamin.rich@colorado.edu" }]
 dependencies = [
     "matplotlib>=3.8",
     "numpy>=1.25.0,<3",
-    "numba>=0.55"
+    "numba>=0.55",
+    "ase>=3.23.0"
 ]
 
 [tool.ruff]

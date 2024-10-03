@@ -595,30 +595,28 @@ def get_kfolding_from_kpts(kptsfile_filepath: str | Path, nk: int) -> list[int]:
     return kfolding
 
 
-# def _get_input_coord_vars_from_outfile(outfile_filepath: str | Path) -> tuple[list[str], list[np.ndarray], np.ndarray]:
-#     path = format_file_path(outfile_filepath)
-#     outfile = read_file(path)
-#     start_line = get_outfile_start_line(outfile)
-#     names = []
-#     posns = []
-#     R = np.zeros([3, 3])
-#     lat_row = 0
-#     active_lattice = False
-#     for i, line in enumerate(outfile):
-#         if i > start_line:
-#             tokens = line.split()
-#             if len(tokens) > 0:
-#                 if tokens[0] == "ion":
-#                     names.append(tokens[1])
-#                     posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
-#                 elif tokens[0] == "lattice":
-#                     active_lattice = True
-#                 elif active_lattice:
-#                     if lat_row < 3:
-#                         R[lat_row, :] = [float(x) for x in tokens[:3]]
-#                         lat_row += 1
-#                     else:
-#                         active_lattice = False
-#                 elif "Initializing the Grid" in line:
-#                     break
-#     return names, posns, R
+def _get_input_coord_vars_from_outfile(outfile: list[str]) -> tuple[list[str], list[np.ndarray], np.ndarray]:
+    start_line = get_outfile_start_line(outfile)
+    names = []
+    posns = []
+    R = np.zeros([3, 3])
+    lat_row = 0
+    active_lattice = False
+    for i, line in enumerate(outfile):
+        if i > start_line:
+            tokens = line.split()
+            if len(tokens) > 0:
+                if tokens[0] == "ion":
+                    names.append(tokens[1])
+                    posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
+                elif tokens[0] == "lattice":
+                    active_lattice = True
+                elif active_lattice:
+                    if lat_row < 3:
+                        R[lat_row, :] = [float(x) for x in tokens[:3]]
+                        lat_row += 1
+                    else:
+                        active_lattice = False
+                elif "Initializing the Grid" in line:
+                    break
+    return names, posns, R

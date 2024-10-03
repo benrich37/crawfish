@@ -90,10 +90,7 @@ def _get_gauss_smear_spectrum_jit(
 
 
 def get_uneven_integrated_array(
-    e_sabcj: np.ndarray[np.float32],
-    weights_sabcj: np.ndarray[np.float32] | np.ndarray[[np.complex64]],
-    wk_sabcj: np.ndarray[np.float32],
-    occ_sabcj: np.ndarray[np.float32],
+    e_sabcj: np.ndarray[np.float32], weights_sabcj: np.ndarray[np.float32] | np.ndarray[[np.complex64]]
 ) -> tuple[np.ndarray[np.float32], np.ndarray[np.float32] | np.ndarray[np.complex64]]:
     """Integrate the unevenly spaced array of energies and weights.
 
@@ -106,10 +103,6 @@ def get_uneven_integrated_array(
         The set of eigenvalues for the system of interest
     weights_sabcj : np.ndarray
         The weights at the eigenvalues
-    wk_sabcj : np.ndarray
-        The set of k-point weights at the eigenvalues
-    occ_sabcj : np.ndarray
-        The fillings at the eigenvalues
 
     Returns
     -------
@@ -118,15 +111,12 @@ def get_uneven_integrated_array(
     integrated : np.ndarray
         The integrated weights at the eigenvalues
     """
-    check_arr_typing([e_sabcj, weights_sabcj, wk_sabcj, occ_sabcj])
+    check_arr_typing([e_sabcj, weights_sabcj])
     e_flat = e_sabcj.flatten()
     idcs = np.argsort(e_flat)
     e = e_flat[idcs]
     pw = weights_sabcj.flatten()[idcs]
-    kw = wk_sabcj.flatten()[idcs]
-    occ = occ_sabcj.flatten()[idcs]
-    rawvals = pw * kw * occ
-    _integrated = np.zeros(len(rawvals) + 1)
-    _integrated[1:] = np.cumsum(rawvals)
+    _integrated = np.zeros(len(pw) + 1)
+    _integrated[1:] = np.cumsum(pw)
     integrated = _integrated[1:]
     return e, integrated

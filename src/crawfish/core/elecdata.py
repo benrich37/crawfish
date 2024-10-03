@@ -16,7 +16,7 @@ from crawfish.io.data_parsing import (
     get_nproj_from_bandfile_filepath,
     get_norbsperatom_from_bandfile_filepath,
     get_e_sabcj_helper,
-    get_kpts_info_handler,
+    _get_kpts_info_handler,
     get_proj_sabcju_helper,
 )
 from crawfish.io.ase_helpers import (
@@ -185,7 +185,7 @@ class ElecData:
         """
         if self._proj_sabcju is None:
             self._proj_sabcju = get_proj_sabcju_helper(
-                self.bandfile_filepath, self.nspin, self.kfolding, self.nstates, self.nbands, self.nproj
+                self.bandfile_filepath, self.nspin, self.kfolding, self.nbands, self.nproj
             )
         return self._proj_sabcju
 
@@ -209,7 +209,7 @@ class ElecData:
             return None
         if self._occ_sabcj is None:
             occ_shape = [self.nspin]
-            occ_shape += self.kfolding
+            occ_shape += list(self.kfolding)
             occ_shape += [self.nbands]
             fillings = np.fromfile(self.fillingsfile_filepath)
             self._occ_sabcj = fillings.reshape(occ_shape)
@@ -279,7 +279,7 @@ class ElecData:
         return self._lti_allowed
 
     @classmethod
-    def from_calc_dir(cls, calc_dir: Path, prefix: str | None = None):
+    def from_calc_dir(cls, calc_dir: Path, prefix: str | None = None, alloc_elec_data=True):
         """Create ElecData instance from calculation directory.
 
         Create ElecData instance from calculation directory.
@@ -291,7 +291,7 @@ class ElecData:
         prefix : str, optional
             Prefix of files in calculation directory, by default None
         """
-        instance = ElecData(calc_dir=Path(calc_dir), prefix=prefix)
+        instance = ElecData(calc_dir=Path(calc_dir), prefix=prefix, alloc_elec_data=alloc_elec_data)
         return instance
 
     def __init__(self, calc_dir: Path, prefix: str | None = None, alloc_elec_data=True):
@@ -325,7 +325,7 @@ class ElecData:
     def _alloc_kpt_data(self):
         self._kfolding = get_kfolding_from_outfile_filepath(self.outfile_filepath)
         self._nspin = get_nspin_from_outfile_filepath(self.outfile_filepath)
-        kinfo = get_kpts_info_handler(self.nspin, self.kfolding, self.kptsfile_filepath, self.nstates)
+        kinfo = _get_kpts_info_handler(self.nspin, self.kfolding, self.kptsfile_filepath, self.nstates)
         wk_sabc = kinfo["wk_sabc"]
 
         self._wk_sabc = wk_sabc

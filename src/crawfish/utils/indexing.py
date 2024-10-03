@@ -5,7 +5,7 @@ Methods for indexing atoms and orbitals in a system.
 
 from __future__ import annotations
 from pathlib import Path
-from crawfish.io.utils import format_file_path, read_file
+from crawfish.io.general import format_file_path, read_file
 from crawfish.core.elecdata import ElecData
 from ase import Atoms
 
