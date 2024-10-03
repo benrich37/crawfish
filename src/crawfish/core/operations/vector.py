@@ -9,14 +9,15 @@ import numpy as np
 from crawfish.core.operations.scalar import gauss
 from crawfish.utils.typing import check_arr_typing
 from numba import jit
+from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 
 def get_lti_spectrum(
-    e_sabcj: np.ndarray[np.float32],
-    erange: np.ndarray[np.float32],
-    weights_sabcj: np.ndarray[np.float32],
-    lattice: np.ndarray[np.float32],
-) -> list[np.ndarray[np.float32]]:
+    e_sabcj: np.ndarray[REAL_DTYPE],
+    erange: np.ndarray[REAL_DTYPE],
+    weights_sabcj: np.ndarray[REAL_DTYPE],
+    lattice: np.ndarray[REAL_DTYPE],
+) -> list[np.ndarray[REAL_DTYPE]]:
     """Return the linear tetrahedron integration spectrum for a given set of energies, weights, and lattice.
 
     Return the linear tetrahedron integration spectrum for a given set of energies, weights, and lattice.
@@ -41,10 +42,10 @@ def get_lti_spectrum(
 
 
 def get_gauss_smear_spectrum(
-    erange: np.ndarray[np.float32],
-    e_sabcj: np.ndarray[np.float32],
-    weights_sabcj: np.ndarray[np.float32] | np.ndarray[[np.complex64]],
-    sig: np.float32,
+    erange: np.ndarray[REAL_DTYPE],
+    e_sabcj: np.ndarray[REAL_DTYPE],
+    weights_sabcj: np.ndarray[REAL_DTYPE] | np.ndarray[[COMPLEX_DTYPE]],
+    sig: REAL_DTYPE,
 ) -> list[np.ndarray]:
     """Return the Gaussian smeared spectrum for a given set of energies, weights, and sigma smearing parameter.
 
@@ -78,11 +79,11 @@ def get_gauss_smear_spectrum(
 
 @jit(nopython=True)
 def _get_gauss_smear_spectrum_jit(
-    erange: np.ndarray[np.float32],
-    eflat: np.ndarray[np.float32],
-    wflat: np.ndarray[np.float32] | np.ndarray[[np.complex64]],
-    cflat: np.ndarray[np.float32] | np.ndarray[[np.complex64]],
-    sig: np.float32,
+    erange: np.ndarray[REAL_DTYPE],
+    eflat: np.ndarray[REAL_DTYPE],
+    wflat: np.ndarray[REAL_DTYPE] | np.ndarray[[COMPLEX_DTYPE]],
+    cflat: np.ndarray[REAL_DTYPE] | np.ndarray[[COMPLEX_DTYPE]],
+    sig: REAL_DTYPE,
 ) -> np.ndarray:
     for i in range(len(eflat)):
         cflat += gauss(erange, eflat[i], sig) * wflat[i]
@@ -90,8 +91,8 @@ def _get_gauss_smear_spectrum_jit(
 
 
 def get_uneven_integrated_array(
-    e_sabcj: np.ndarray[np.float32], weights_sabcj: np.ndarray[np.float32] | np.ndarray[[np.complex64]]
-) -> tuple[np.ndarray[np.float32], np.ndarray[np.float32] | np.ndarray[np.complex64]]:
+    e_sabcj: np.ndarray[REAL_DTYPE], weights_sabcj: np.ndarray[REAL_DTYPE] | np.ndarray[[COMPLEX_DTYPE]]
+) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE]]:
     """Integrate the unevenly spaced array of energies and weights.
 
     Integrate the unevenly spaced array of energies and weights. Used for efficient representation integrated

@@ -1,5 +1,6 @@
 import pytest
 from crawfish.utils.testing import EXAMPLE_FILES_DIR, EXAMPLE_CALC_DIRS_DIR
+from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from pathlib import Path
 
 exfdir = Path(EXAMPLE_FILES_DIR)
@@ -51,9 +52,9 @@ def test_token_parsers():
 
     out1 = _complex_token_parser(["1", "1"])
     assert len(out1) == 1
-    assert isinstance(out1[0], complex)
+    assert isinstance(out1[0], COMPLEX_DTYPE)
     assert out1[0] == pytest.approx(1 + 1j)
     out2 = _normalized_token_parser(["1", "1"])
     assert len(out2) == 2
-    assert isinstance(out2[0], float)
+    assert isinstance(out2[0], REAL_DTYPE)
     assert out2[0] == pytest.approx(1)

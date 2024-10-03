@@ -6,10 +6,11 @@ Module for common methods yielding matrices/tensors
 from __future__ import annotations
 import numpy as np
 from numba import jit
+from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 
 def get_p_uvjsabc(
-    proj_sabcju: np.ndarray[np.float32], orbs_u: list[int] | None = None, orbs_v: list[int] | None = None
+    proj_sabcju: np.ndarray[REAL_DTYPE], orbs_u: list[int] | None = None, orbs_v: list[int] | None = None
 ) -> np.ndarray:
     r"""Return the projection matrix P_{uv}^{j,s,a,b,c} = <\phi_{j,s,a,b,c}^j | u><v | \phi_{j,s,a,b,c}>.
 
@@ -35,7 +36,7 @@ def get_p_uvjsabc(
         orbs_u = list(range(nproj))
     if orbs_v is None:
         orbs_v = list(range(nproj))
-    p_uvjsabc = np.zeros([nproj, nproj, nbands, nspin, nka, nkb, nkc], dtype=np.float32)
+    p_uvjsabc = np.zeros([nproj, nproj, nbands, nspin, nka, nkb, nkc], dtype=REAL_DTYPE)
     orbs_u = np.asarray(orbs_u)
     orbs_v = np.asarray(orbs_v)
     p_uvjsabc = _get_p_uvjsabc_jit(proj_sabcju, p_uvjsabc, nproj, nbands, nka, nkb, nkc, nspin, orbs_u, orbs_v)
@@ -44,8 +45,8 @@ def get_p_uvjsabc(
 
 @jit(nopython=True)
 def _get_p_uvjsabc_jit(
-    proj_sabcju: np.ndarray[np.complex64],
-    p_uvjsabc: np.ndarray[np.float32],
+    proj_sabcju: np.ndarray[COMPLEX_DTYPE],
+    p_uvjsabc: np.ndarray[REAL_DTYPE],
     nproj: int,
     nbands: int,
     nka: int,
@@ -70,9 +71,9 @@ def _get_p_uvjsabc_jit(
 
 @jit(nopython=True)
 def _get_h_uvsabc_jit(
-    h_uvsabc: np.ndarray[np.float32],
-    p_uvjsabc: np.ndarray[np.float32],
-    e_sabcj: np.ndarray[np.float32],
+    h_uvsabc: np.ndarray[REAL_DTYPE],
+    p_uvjsabc: np.ndarray[REAL_DTYPE],
+    e_sabcj: np.ndarray[REAL_DTYPE],
     nproj: int,
     nbands: int,
     nka: int,
@@ -94,8 +95,8 @@ def _get_h_uvsabc_jit(
 
 
 def get_h_uvsabc(
-    p_uvjsabc: np.ndarray[np.float32],
-    e_sabcj: np.ndarray[np.float32],
+    p_uvjsabc: np.ndarray[REAL_DTYPE],
+    e_sabcj: np.ndarray[REAL_DTYPE],
     orbs_u: list[int] | None = None,
     orbs_v: list[int] | None = None,
 ):
@@ -122,7 +123,7 @@ def get_h_uvsabc(
     nka = shape[4]
     nkb = shape[5]
     nkc = shape[6]
-    h_uvsabc = np.zeros([nproj, nproj, nspin, nka, nkb, nkc], dtype=np.float32)
+    h_uvsabc = np.zeros([nproj, nproj, nspin, nka, nkb, nkc], dtype=REAL_DTYPE)
     if orbs_u is None:
         orbs_u = list(range(nproj))
     if orbs_v is None:
@@ -139,10 +140,10 @@ def _get_pcohp_sabcj_jit(
     nbands: int,
     orbs_u: list[int],
     orbs_v: list[int],
-    p_uvjsabc: np.ndarray[np.float32],
-    h_uvsabc: np.ndarray[np.float32],
-    wk_sabc: np.ndarray[np.float32],
-    pcohp_sabcj: np.ndarray[np.float32],
+    p_uvjsabc: np.ndarray[REAL_DTYPE],
+    h_uvsabc: np.ndarray[REAL_DTYPE],
+    wk_sabc: np.ndarray[REAL_DTYPE],
+    pcohp_sabcj: np.ndarray[REAL_DTYPE],
 ) -> np.ndarray:
     for s in range(nspin):
         for a in range(nka):
@@ -161,11 +162,11 @@ def _get_pcohp_sabcj_jit(
 
 
 def get_pcohp_sabcj(
-    p_uvjsabc: np.ndarray[np.float32],
-    h_uvsabc: np.ndarray[np.float32],
+    p_uvjsabc: np.ndarray[REAL_DTYPE],
+    h_uvsabc: np.ndarray[REAL_DTYPE],
     orbs_u: list[int],
     orbs_v: list[int],
-    wk_sabc: np.ndarray[np.float32] | None = None,
+    wk_sabc: np.ndarray[REAL_DTYPE] | None = None,
 ) -> np.ndarray:
     r"""Return the pCOHP tensor pCOHP_{s,a,b,c,j} = Sum_{u,v} P_{u,v}^{j,s,a,b,c} H_{u,v}^{s,a,b,c} w_{s,a,b,c}.
 
@@ -191,7 +192,7 @@ def get_pcohp_sabcj(
     nka = shape[4]
     nkb = shape[5]
     nkc = shape[6]
-    pcohp_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=np.float32)
+    pcohp_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE)
     if wk_sabc is None:
         wk_sabc = np.ones([nspin, nka, nkb, nkc])
     return _get_pcohp_sabcj_jit(nspin, nka, nkb, nkc, nbands, orbs_u, orbs_v, p_uvjsabc, h_uvsabc, wk_sabc, pcohp_sabcj)
@@ -206,9 +207,9 @@ def _get_pcoop_sabcj_jit(
     nbands: int,
     orbs_u: list[int],
     orbs_v: list[int],
-    p_uvjsabc: np.ndarray[np.float32],
-    wk_sabc: np.ndarray[np.float32],
-    pcoop_sabcj: np.ndarray[np.float32],
+    p_uvjsabc: np.ndarray[REAL_DTYPE],
+    wk_sabc: np.ndarray[REAL_DTYPE],
+    pcoop_sabcj: np.ndarray[REAL_DTYPE],
 ) -> np.ndarray:
     for s in range(nspin):
         for a in range(nka):
@@ -226,11 +227,11 @@ def _get_pcoop_sabcj_jit(
 
 
 def get_pcoop_sabcj(
-    p_uvjsabc: np.ndarray[np.float32],
+    p_uvjsabc: np.ndarray[REAL_DTYPE],
     orbs_u: list[int],
     orbs_v: list[int],
-    wk_sabc: np.ndarray[np.float32] | None = None,
-) -> np.ndarray[np.float32]:
+    wk_sabc: np.ndarray[REAL_DTYPE] | None = None,
+) -> np.ndarray[REAL_DTYPE]:
     r"""Return the pCOOP tensor pCOOP_{s,a,b,c,j} = Sum_{u,v} P_{u,v}^{j,s,a,b,c} w_{s,a,b,c}.
 
     Return the pCOOP tensor pCOOP_{s,a,b,c,j} = Sum_{u,v} P_{u,v}^{j,s,a,b,c} w_{s,a,b,c}.
@@ -253,15 +254,15 @@ def get_pcoop_sabcj(
     nka = shape[4]
     nkb = shape[5]
     nkc = shape[6]
-    pcoop_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=np.float32)
+    pcoop_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE)
     if wk_sabc is None:
         wk_sabc = np.ones([nspin, nka, nkb, nkc])
     return _get_pcoop_sabcj_jit(nspin, nka, nkb, nkc, nbands, orbs_u, orbs_v, p_uvjsabc, wk_sabc, pcoop_sabcj)
 
 
 def get_pdos_sabcj(
-    proj_sabcju: np.ndarray[np.complex64], orbs: list[int], wk_sabc: np.ndarray[np.float32] | None = None
-) -> np.ndarray[np.float32]:
+    proj_sabcju: np.ndarray[COMPLEX_DTYPE], orbs: list[int], wk_sabc: np.ndarray[REAL_DTYPE] | None = None
+) -> np.ndarray[REAL_DTYPE]:
     r"""Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
 
     Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
@@ -277,8 +278,8 @@ def get_pdos_sabcj(
         The k-point weight tensor w_{s,a,b,c}
     """
     if wk_sabc is None:
-        wk_sabc = np.ones(np.shape(proj_sabcju)[:4], dtype=np.float32)
-    pdos_sabcj = np.zeros(np.shape(proj_sabcju)[:5], dtype=np.float32)
+        wk_sabc = np.ones(np.shape(proj_sabcju)[:4], dtype=REAL_DTYPE)
+    pdos_sabcj = np.zeros(np.shape(proj_sabcju)[:5], dtype=REAL_DTYPE)
     for orb in orbs:
         pdos_sabcj += np.abs(proj_sabcju[:, :, :, :, :, orb]) ** 2
     pdos_sabcj *= wk_sabc
@@ -286,14 +287,14 @@ def get_pdos_sabcj(
 
 
 def mod_weights_for_ebounds(
-    weights_sabcj: np.ndarray[np.float32], e_sabcj: np.ndarray[np.float32], ebounds: list[np.float32]
+    weights_sabcj: np.ndarray[REAL_DTYPE], e_sabcj: np.ndarray[REAL_DTYPE], ebounds: list[REAL_DTYPE]
 ) -> np.ndarray:
     """Modify the weights array for the energy bounds of interest.
 
     Modify the weights array for the energy bounds of interest. Entries within the weights array
     are set to zero if the corresponding energy is not within the bounds.
 
-    All arrays must be real (np.float32).
+    All arrays must be real (REAL_DTYPE).
 
     Parameters
     ----------
@@ -312,7 +313,7 @@ def mod_weights_for_ebounds(
 
 @jit(nopython=True)
 def _mod_weights_for_ebounds_jit(
-    _weights_sabcj: np.ndarray[np.float32],
+    _weights_sabcj: np.ndarray[REAL_DTYPE],
     sabcj_shape: list[int] | tuple[int, int, int, int, int],
     bool_arr: np.ndarray[bool],
 ) -> np.ndarray:
@@ -326,14 +327,14 @@ def _mod_weights_for_ebounds_jit(
     return _weights_sabcj
 
 
-def get_ebound_arr(ebounds: list[float], arr: np.ndarray[np.float32]) -> np.ndarray[bool]:
+def get_ebound_arr(ebounds: list[REAL_DTYPE], arr: np.ndarray[REAL_DTYPE]) -> np.ndarray[bool]:
     """Return a boolean array for the energy bounds of interest.
 
     Return a boolean array for the energy bounds of interest. Entries within the boolean
     array are True if the corresponding argument entry is within the bounds, and False otherwise.
 
     Ebounds must even length (such that the boundaries are paired).
-    Ebounds and arr must be real (np.float32)
+    Ebounds and arr must be real (REAL_DTYPE)
 
     Parameters
     ----------

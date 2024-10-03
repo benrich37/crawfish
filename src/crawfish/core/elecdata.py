@@ -18,10 +18,12 @@ from crawfish.io.data_parsing import (
     get_e_sabcj_helper,
     _get_kpts_info_handler,
     get_proj_sabcju_helper,
+    is_complex_bandfile_filepath,
 )
 from crawfish.io.ase_helpers import (
     get_atoms_from_calc_dir,
 )
+from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from pathlib import Path
 from numba import jit
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
@@ -60,10 +62,10 @@ class ElecData:
     _nbands: int | None = None
     _nproj: int | None = None
     _nspin: int | None = None
-    _e_sabcj: np.ndarray | None = None
-    _proj_sabcju: np.ndarray | None = None
-    _occ_sabcj: np.ndarray | None = None
-    _mu: float | None = None
+    _e_sabcj: np.ndarray[REAL_DTYPE] | None = None
+    _proj_sabcju: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE] | None = None
+    _occ_sabcj: np.ndarray[REAL_DTYPE] | None = None
+    _mu: REAL_DTYPE | None = None
     _atoms: ase.Atoms | None = None
     _norbsperatom: list[int] | None = None
     _orbs_idx_dict: dict | None = None
@@ -71,8 +73,8 @@ class ElecData:
     _complex_bandprojs: bool | None = None
     _norm: int | None = None
     #
-    _wk_sabc: np.ndarray | None = None
-    _ks_sabc: np.ndarray | None = None
+    _wk_sabc: np.ndarray[REAL_DTYPE] | None = None
+    _ks_sabc: np.ndarray[REAL_DTYPE] | None = None
     _kfolding: list[int] | None = None
     _lti_allowed: bool | None = None
     #
@@ -156,7 +158,7 @@ class ElecData:
         return atoms.get_chemical_symbols()
 
     @property
-    def mu(self) -> float:
+    def mu(self) -> REAL_DTYPE:
         """Return chemical potential of calculation.
 
         Return chemical potential (fermi level) of calculation.
@@ -166,7 +168,7 @@ class ElecData:
         return self._mu
 
     @property
-    def e_sabcj(self) -> np.ndarray:
+    def e_sabcj(self) -> np.ndarray[REAL_DTYPE]:
         """Return eigenvalues of calculation.
 
         Return eigenvalues of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
@@ -176,7 +178,7 @@ class ElecData:
         return self._e_sabcj
 
     @property
-    def proj_sabcju(self) -> np.ndarray:
+    def proj_sabcju(self) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
         """Return projections of calculation.
 
         Return projections of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands, nproj).
@@ -188,7 +190,7 @@ class ElecData:
         return self._proj_sabcju
 
     @property
-    def proj_tju(self) -> np.ndarray:
+    def proj_tju(self) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
         """Return projections of calculation.
 
         Return projections of calculation in shape (nstates, nbands, nproj).
@@ -196,7 +198,7 @@ class ElecData:
         return self.proj_sabcju.reshape(self.nstates, self.nbands, self.nproj)
 
     @property
-    def occ_sabcj(self) -> np.ndarray | None:
+    def occ_sabcj(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return occupations of calculation.
 
         Return occupations of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
@@ -210,6 +212,8 @@ class ElecData:
             occ_shape += list(self.kfolding)
             occ_shape += [self.nbands]
             fillings = np.fromfile(self.fillingsfile_filepath)
+            fillings = np.array(fillings, dtype=REAL_DTYPE)
+            # fillings = np.fromfile(self.fillingsfile_filepath, dtype=REAL_DTYPE)
             self._occ_sabcj = fillings.reshape(occ_shape)
         return self._occ_sabcj
 
@@ -227,7 +231,7 @@ class ElecData:
         return self._orbs_idx_dict
 
     @property
-    def wk_sabc(self) -> np.ndarray:
+    def wk_sabc(self) -> np.ndarray[REAL_DTYPE]:
         """Return kpoint weights.
 
         Return kpoint weights in shape (kfolding[0], kfolding[1], kfolding[2]).
@@ -239,7 +243,7 @@ class ElecData:
         return self._wk_sabc
 
     @property
-    def ks_sabc(self) -> np.ndarray:
+    def ks_sabc(self) -> np.ndarray[REAL_DTYPE]:
         """Return kpoint coordinates.
 
         Return kpoint coordinates in shape (kfolding[0], kfolding[1], kfolding[2], 3).
@@ -261,6 +265,16 @@ class ElecData:
         if self._kfolding is None:
             raise ValueError("Could not determine kpoint folding")
         return self._kfolding
+
+    @property
+    def bandprojfile_is_complex(self) -> bool:
+        """Return if band projections are complex.
+
+        Return if band projections are complex. (required for coop/cohp analysis)
+        """
+        if self._complex_bandprojs is None:
+            self._complex_bandprojs = is_complex_bandfile_filepath(self.bandfile_filepath)
+        return self._complex_bandprojs
 
     @property
     def lti_allowed(self) -> bool:

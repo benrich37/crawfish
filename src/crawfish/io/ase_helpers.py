@@ -11,6 +11,7 @@ from ase.units import Bohr
 from ase import Atoms, Atom
 from crawfish.io.general import format_dir_path, format_file_path, check_file_exists, read_file
 from pathlib import Path
+from crawfish.utils.typing import REAL_DTYPE
 
 
 @check_file_exists
@@ -186,7 +187,7 @@ def _get_atoms_list_from_out_reset_vars(nAtoms=100, _def=100):
     E = 0
     if nAtoms is None:
         nAtoms = _def
-    charges = np.zeros(nAtoms, dtype=float)
+    charges = np.zeros(nAtoms, dtype=REAL_DTYPE)
     forces = []
     active_forces = False
     coords_forces = None
@@ -256,7 +257,7 @@ def _get_atoms_list_from_out_slice(outfile: list[str], i_start: int, i_end: int)
                     active_posns = True
                 elif active_lattice:
                     if lat_row < 3:
-                        R[lat_row, :] = [float(x) for x in line.split()[1:-1]]
+                        R[lat_row, :] = [REAL_DTYPE(x) for x in line.split()[1:-1]]
                         lat_row += 1
                     else:
                         active_lattice = False
@@ -265,7 +266,7 @@ def _get_atoms_list_from_out_slice(outfile: list[str], i_start: int, i_end: int)
                     tokens = line.split()
                     if len(tokens) and tokens[0] == "ion":
                         names.append(tokens[1])
-                        posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
+                        posns.append(np.array([REAL_DTYPE(tokens[2]), REAL_DTYPE(tokens[3]), REAL_DTYPE(tokens[4])]))
                         if tokens[1] not in idxMap:
                             idxMap[tokens[1]] = []
                         idxMap[tokens[1]].append(j)
@@ -280,21 +281,21 @@ def _get_atoms_list_from_out_slice(outfile: list[str], i_start: int, i_end: int)
                 elif active_forces:
                     tokens = line.split()
                     if len(tokens) and tokens[0] == "force":
-                        forces.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
+                        forces.append(np.array([REAL_DTYPE(tokens[2]), REAL_DTYPE(tokens[3]), REAL_DTYPE(tokens[4])]))
                     else:
                         forces = np.array(forces)
                         active_forces = False
                 ##########
                 elif "Minimize: Iter:" in line:
                     if "F: " in line:
-                        E = float(line[line.index("F: ") :].split(" ")[1])
+                        E = REAL_DTYPE(line[line.index("F: ") :].split(" ")[1])
                     elif "G: " in line:
-                        E = float(line[line.index("G: ") :].split(" ")[1])
+                        E = REAL_DTYPE(line[line.index("G: ") :].split(" ")[1])
                 elif active_lowdin:
                     if charge_key in line:
                         look = line.rstrip("\n")[line.index(charge_key) :].split(" ")
                         symbol = str(look[1])
-                        line_charges = [float(val) for val in look[2:]]
+                        line_charges = [REAL_DTYPE(val) for val in look[2:]]
                         chargeDir[symbol] = line_charges
                         for atom in list(chargeDir.keys()):
                             for k, idx in enumerate(idxMap[atom]):

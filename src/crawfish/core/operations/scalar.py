@@ -8,27 +8,28 @@ from __future__ import annotations
 import numpy as np
 from crawfish.utils.typing import check_arr_typing
 from numba import jit
+from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 
 @jit(nopython=True)
-def gauss(x: np.float32, mu: np.float32, sig: np.float32) -> np.float32:
+def gauss(x: REAL_DTYPE, mu: REAL_DTYPE, sig: REAL_DTYPE) -> REAL_DTYPE:
     """Return the Gaussian function evaluated at a given point.
 
     Return the Gaussian function evaluated at a given point.
 
     Parameters
     ----------
-    x : np.float32
+    x : REAL_DTYPE
         The point at which to evaluate the Gaussian
-    mu : np.float32
+    mu : REAL_DTYPE
         The mean of the Gaussian
-    sig : np.float32
+    sig : REAL_DTYPE
         The standard deviation of the Gaussian
     """
     return np.exp(-((x - mu) ** 2) / sig)
 
 
-def integrate(occ_sabcj: np.ndarray, weights_sabcj: np.ndarray, wk_sabc: np.ndarray) -> np.float32 | np.complex64:
+def integrate(occ_sabcj: np.ndarray, weights_sabcj: np.ndarray, wk_sabc: np.ndarray) -> REAL_DTYPE | COMPLEX_DTYPE:
     """Integrate the product of the weights and the k-point weights and occupations.
 
     Integrate the product of the weights and the k-point weights and occupations.
@@ -58,15 +59,15 @@ def integrate(occ_sabcj: np.ndarray, weights_sabcj: np.ndarray, wk_sabc: np.ndar
 
 @jit(nopython=True)
 def _integrate_jit(
-    weights_sabcj: np.ndarray[np.float32] | np.ndarray[np.complex64],
-    wk_sabc: np.ndarray[np.float32],
+    weights_sabcj: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE],
+    wk_sabc: np.ndarray[REAL_DTYPE],
     nspin: int,
     nka: int,
     nkb: int,
     nkc: int,
     nbands: int,
-    integrand: np.float32 | np.complex64,
-) -> np.float32 | np.complex64:
+    integrand: REAL_DTYPE | COMPLEX_DTYPE,
+) -> REAL_DTYPE | COMPLEX_DTYPE:
     for s in range(nspin):
         for a in range(nka):
             for b in range(nkb):

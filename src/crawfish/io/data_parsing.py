@@ -9,6 +9,7 @@ import numpy as np
 from pathlib import Path
 from numba import jit
 from crawfish.io.general import get_text_with_key_in_bounds, read_file
+from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 spintype_nspin = {"no-spin": 1, "spin-orbit": 2, "vector-spin": 2, "z-spin": 2}
 
@@ -46,7 +47,7 @@ def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) 
         raise ValueError(f"Unrecognized spintype {val}")
 
 
-def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> float:
+def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> REAL_DTYPE:
     """Get the Fermi level from the output file.
 
     Get the Fermi level from the output file.
@@ -67,7 +68,7 @@ def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> 
     outfile = read_file(outfile_filepath)
     start, end = get_outfile_slice_bounds(outfile, slice_idx=slice_idx)
     text = get_text_with_key_in_bounds(outfile_filepath, lookkey, start, end)
-    mu = float(text.split(lookkey)[1].strip().split()[0])
+    mu = REAL_DTYPE(text.split(lookkey)[1].strip().split()[0])
     return mu
 
 
@@ -231,7 +232,7 @@ def is_complex_bandfile_filepath(bandfile_filepath: str | Path) -> bool:
     return val
 
 
-def parse_kptsfile(kptsfile: str | Path) -> tuple[list[float], list[np.ndarray], int]:
+def parse_kptsfile(kptsfile: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndarray[REAL_DTYPE]], int]:
     """Parse kpts file.
 
     Parse the kpts file.
@@ -243,22 +244,22 @@ def parse_kptsfile(kptsfile: str | Path) -> tuple[list[float], list[np.ndarray],
 
     Returns
     -------
-    wk_list: list[float]
+    wk_list: list[REAL_DTYPE]
         List of weights for each kpoint
-    k_points_list: list[np.ndarray]
+    k_points_list: list[np.ndarray[REAL_DTYPE]]
         List of k-points.
     nStates: int
         Number of states.
 
     """
-    wk_list: list[float] = []
-    k_points_list: list[list[float]] = []
+    wk_list: list[REAL_DTYPE] = []
+    k_points_list: list[list[REAL_DTYPE]] = []
     with open(kptsfile, "r") as f:
         for line in f:
             k_points = line.split("[")[1].split("]")[0].strip().split()
-            k_points_floats: list[float] = [float(v) for v in k_points]
+            k_points_floats: list[REAL_DTYPE] = [REAL_DTYPE(v) for v in k_points]
             k_points_list.append(k_points_floats)
-            wk = float(line.split("]")[1].strip().split()[0])
+            wk = REAL_DTYPE(line.split("]")[1].strip().split()[0])
             wk_list.append(wk)
     nstates = len(wk_list)
     return wk_list, k_points_list, nstates
@@ -312,7 +313,7 @@ def _get_kpts_info_handler(
 
 def get_e_sabcj_helper(
     eigfile_filepath: str | Path, nspin: int, nbands: int, kfolding: list[int] | np.ndarray[int]
-) -> np.ndarray:
+) -> np.ndarray[REAL_DTYPE]:
     """Return eigenvalues from file.
 
     Return eigenvalues from file. Returns a numpy array of shape
@@ -338,6 +339,7 @@ def get_e_sabcj_helper(
     if not eigfile_filepath.exists():
         raise ValueError(f"Eigenvalues file {eigfile_filepath} does not exist.")
     e = np.fromfile(eigfile_filepath)
+    e = np.array(e, dtype=REAL_DTYPE)
     eshape = [nspin, kfolding[0], kfolding[1], kfolding[2], nbands]
     e_sabcj = e.reshape(eshape)
     return e_sabcj
@@ -345,7 +347,7 @@ def get_e_sabcj_helper(
 
 def get_proj_sabcju_helper(
     bandfile_filepath: Path | str, nspin: int, kfolding: list[int] | np.ndarray[int], nbands: int, nproj: int
-) -> np.ndarray:
+) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
     """Return projections from file in sabcju shape.
 
     Return projections from file in (spin, kpt_a, kpt_b, kpt_c, band, proj) shape.
@@ -375,7 +377,7 @@ def get_proj_sabcju_helper(
     return proj_sabcju
 
 
-def get_proj_tju_from_file(bandfile_filepath: Path | str) -> np.ndarray:
+def get_proj_tju_from_file(bandfile_filepath: Path | str) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
     """Return projections from file in tju shape.
 
     Return projections from file in (state, band, proj) shape. Collected in this shape
@@ -399,19 +401,21 @@ def get_proj_tju_from_file(bandfile_filepath: Path | str) -> np.ndarray:
     return proj
 
 
-def _parse_bandfile_complex(bandfile_filepath: str | Path) -> np.ndarray:
-    dtype = complex
+def _parse_bandfile_complex(bandfile_filepath: str | Path) -> np.ndarray[COMPLEX_DTYPE]:
+    dtype = COMPLEX_DTYPE
     token_parser = _complex_token_parser
     return _parse_bandfile_reader(bandfile_filepath, dtype, token_parser)
 
 
-def _parse_bandfile_normalized(bandfile_filepath: str | Path) -> np.ndarray:
-    dtype = float
+def _parse_bandfile_normalized(bandfile_filepath: str | Path) -> np.ndarray[REAL_DTYPE]:
+    dtype = REAL_DTYPE
     token_parser = _normalized_token_parser
     return _parse_bandfile_reader(bandfile_filepath, dtype, token_parser)
 
 
-def _parse_bandfile_reader(bandfile_filepath: str | Path, dtype: type, token_parser: Callable) -> np.ndarray:
+def _parse_bandfile_reader(
+    bandfile_filepath: str | Path, dtype: type, token_parser: Callable
+) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
     nstates = get_nstates_from_bandfile_filepath(bandfile_filepath)
     nbands = get_nbands_from_bandfile_filepath(bandfile_filepath)
     nproj = get_nproj_from_bandfile_filepath(bandfile_filepath)
@@ -433,20 +437,22 @@ def _parse_bandfile_reader(bandfile_filepath: str | Path, dtype: type, token_par
     return proj_tju
 
 
-def _complex_token_parser(tokens: list[str]) -> np.ndarray:
-    out = np.zeros(int(len(tokens) / 2), dtype=complex)
-    tokens = np.array(tokens, dtype=float)
+def _complex_token_parser(tokens: list[str]) -> np.ndarray[COMPLEX_DTYPE]:
+    out = np.zeros(int(len(tokens) / 2), dtype=COMPLEX_DTYPE)
+    tokens = np.array(tokens, dtype=REAL_DTYPE)
     out = _complex_token_parser_jit(tokens, out)
     return out
 
 
-def _normalized_token_parser(tokens: list[str]) -> np.ndarray:
-    out = np.array(tokens, dtype=float)
+def _normalized_token_parser(tokens: list[str]) -> np.ndarray[REAL_DTYPE]:
+    out = np.array(tokens, dtype=REAL_DTYPE)
     return out
 
 
 @jit(nopython=True)
-def _complex_token_parser_jit(tokens, out):
+def _complex_token_parser_jit(
+    tokens: np.ndarray[REAL_DTYPE], out: np.ndarray[COMPLEX_DTYPE]
+) -> np.ndarray[COMPLEX_DTYPE]:
     reals = tokens[::2]
     imags = tokens[1::2]
     out += reals + 1j * imags
@@ -595,7 +601,9 @@ def get_kfolding_from_kpts(kptsfile_filepath: str | Path, nk: int) -> list[int]:
     return kfolding
 
 
-def _get_input_coord_vars_from_outfile(outfile: list[str]) -> tuple[list[str], list[np.ndarray], np.ndarray]:
+def _get_input_coord_vars_from_outfile(
+    outfile: list[str],
+) -> tuple[list[str], list[np.ndarray[REAL_DTYPE]], np.ndarray[REAL_DTYPE]]:
     start_line = get_outfile_start_line(outfile)
     names = []
     posns = []
@@ -608,12 +616,12 @@ def _get_input_coord_vars_from_outfile(outfile: list[str]) -> tuple[list[str], l
             if len(tokens) > 0:
                 if tokens[0] == "ion":
                     names.append(tokens[1])
-                    posns.append(np.array([float(tokens[2]), float(tokens[3]), float(tokens[4])]))
+                    posns.append(np.array([REAL_DTYPE(tokens[2]), REAL_DTYPE(tokens[3]), REAL_DTYPE(tokens[4])]))
                 elif tokens[0] == "lattice":
                     active_lattice = True
                 elif active_lattice:
                     if lat_row < 3:
-                        R[lat_row, :] = [float(x) for x in tokens[:3]]
+                        R[lat_row, :] = [REAL_DTYPE(x) for x in tokens[:3]]
                         lat_row += 1
                     else:
                         active_lattice = False
