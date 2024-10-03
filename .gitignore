@@ -5,3 +5,4 @@ launch.json
 *cpython*
 .coverage
 coverage.xml
+codecov
