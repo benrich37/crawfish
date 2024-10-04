@@ -78,7 +78,8 @@ class ElecData:
     _kfolding: list[int] | None = None
     _lti_allowed: bool | None = None
     #
-    norm: int | None = None
+    norm_idx: int | None = None
+    xs_bands_muted: bool = False
 
     @property
     def nspin(self) -> int:
@@ -387,7 +388,7 @@ class ElecData:
         """
         self._proj_sabcju = None
         _ = self.proj_sabcju
-        self.norm = None
+        self.norm_idx = None
         return None
 
     def norm_projs_t1(self, mute_excess_bands=False) -> None:
@@ -403,7 +404,7 @@ class ElecData:
             Set all projection values for bands beyond nProj to zero, by default False.
             (Helpful to set up 1:1 basis change between bands and orbitals)
         """
-        if self.norm is None:
+        if self.norm_idx is None:
             proj_tju = self.proj_tju
             _norm_projs_for_bands(
                 proj_tju, self.nstates, self.nbands, self.nproj, restrict_band_norm_to_nproj=mute_excess_bands
@@ -411,8 +412,8 @@ class ElecData:
             proj_shape = list(np.shape(self.e_sabcj))
             proj_shape.append(self.nproj)
             self._proj_sabcju = proj_tju.reshape(proj_shape)
-            self.norm = 1
-        elif self.norm != 1:
+            self.norm_idx = 1
+        elif self.norm_idx != 1 or not mute_excess_bands == self.xs_bands_muted:
             self.unnorm_projs()
             self.norm_projs_t1(mute_excess_bands=mute_excess_bands)
         return None
@@ -424,7 +425,7 @@ class ElecData:
         nstates is chosen somewhat arbitrarily as the normalization factor for each orbital
         to make the orbitals equivalent to bands after a basis change.
         """
-        if self.norm is None:
+        if self.norm_idx is None:
             proj_tju = self.proj_tju
             proj_tju = _norm_projs_for_orbs(
                 proj_tju, self.nstates, self.nbands, self.nproj, mute_excess_bands=mute_excess_bands
@@ -432,10 +433,10 @@ class ElecData:
             proj_shape = list(np.shape(self.e_sabcj))
             proj_shape.append(self.nproj)
             self._proj_sabcju = proj_tju.reshape(proj_shape)
-            self.norm = 2
-        elif self.norm != 2:
+            self.norm_idx = 2
+        elif self.norm_idx != 2 or not mute_excess_bands == self.xs_bands_muted:
             self.unnorm_projs()
-            self.norm_projs_t2()
+            self.norm_projs_t2(mute_excess_bands=mute_excess_bands)
         return None
 
 

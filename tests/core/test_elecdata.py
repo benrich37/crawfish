@@ -186,3 +186,9 @@ def test_norm_projs_t2():
     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
     for u in range(edata.nproj):
         assert np.sum(proj_tju_2[:, :, u]) == pytest.approx(edata.nstates)
+    edata.norm_projs_t2(mute_excess_bands=True)
+    proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
+    for u in range(edata.nproj):
+        assert np.sum(proj_tju_2[:, :, u]) == pytest.approx(edata.nstates)
+    for j in range(edata.nproj, edata.nbands):
+        assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(0)
