@@ -16,9 +16,9 @@ from crawfish.io.data_parsing import (
     get_nproj_from_bandfile_filepath,
     get_norbsperatom_from_bandfile_filepath,
     get_e_sabcj_helper,
-    _get_kpts_info_handler,
     get_proj_sabcju_helper,
     is_complex_bandfile_filepath,
+    _get_kpts_info_handler_astuple,
 )
 from crawfish.io.ase_helpers import (
     get_atoms_from_calc_dir,
@@ -329,21 +329,14 @@ class ElecData:
     def _alloc_kpt_data(self):
         self._kfolding = get_kfolding_from_outfile_filepath(self.outfile_filepath)
         self._nspin = get_nspin_from_outfile_filepath(self.outfile_filepath)
-        kinfo = _get_kpts_info_handler(self.nspin, self.kfolding, self.kptsfile_filepath, self.nstates)
-        wk_sabc = kinfo["wk_sabc"]
-
+        kfolding, ks_sabc, wk_sabc, lti = _get_kpts_info_handler_astuple(
+            self.nspin, self.kfolding, self.kptsfile_filepath, self.nstates
+        )
         self._wk_sabc = wk_sabc
-        ks_sabc = kinfo["ks_sabc"]
-        if ks_sabc is None:
-            raise ValueError("Could not determine kpoint coordinates")
-        kfolding = kinfo["kfolding"]
-        if kfolding is None:
-            raise ValueError("Could not determine kpoint folding")
         self._ks_sabc = ks_sabc
-        lti = kinfo["lti"]
-        if lti is None:
-            raise ValueError("Could not determine if LTI is allowed")
         self._lti_allowed = lti
+        # In case new information is gathered about kfolding
+        self._kfolding = kfolding
 
     def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings"]):
         if self.fprefix is None:
@@ -379,7 +372,9 @@ class ElecData:
 
     def _alloc_elec_data(self):
         _ = self.proj_sabcju
-        _ = self.occ_sabcj
+        if self.fillingsfile_filepath is not None:
+            _ = self.occ_sabcj
+        # _ = self.occ_sabcj
         _ = self.e_sabcj
         _ = self.mu
 

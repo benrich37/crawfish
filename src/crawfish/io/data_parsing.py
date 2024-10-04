@@ -4,7 +4,7 @@ This module contains functions for parsing data from JDFTx output files.
 """
 
 from __future__ import annotations
-from typing import Callable, Any
+from typing import Callable
 import numpy as np
 from pathlib import Path
 from numba import jit
@@ -265,21 +265,21 @@ def parse_kptsfile(kptsfile: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndar
     return wk_list, k_points_list, nstates
 
 
-def _get_kpts_info_handler(
+def _get_kpts_info_handler_astuple(
     nspin: int, kfolding: list[int] | np.ndarray[int], kptsfile_filepath: Path | str | None, nstates: int
-) -> dict:
-    kpts_info: dict[str, Any] = {}
+) -> tuple[list[int], np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE], bool]:
     _nk = int(np.prod(kfolding))
     nk = int(np.prod(kfolding))
+    lti = None
     if nspin != int(nstates / _nk):
         print("WARNING: Internal inconsistency found with respect to input parameters (nSpin * nk-pts != nStates).")
         print("No safety net for this which allows for tetrahedral integration currently implemented.")
         if kptsfile_filepath is None:
             print("k-folding will be changed to arbitrary length 3 array to satisfy shaping criteria.")
-        kpts_info["lti"] = False
+        lti = False
         nk = int(nstates / nspin)
     else:
-        kpts_info["lti"] = True
+        lti = True
     if kptsfile_filepath is None:
         if nk != _nk:
             kfolding = _get_arbitrary_kfolding(nk)
@@ -305,10 +305,53 @@ def _get_kpts_info_handler(
                 wk *= 1 / nk
     wk_sabc = wk.reshape([nspin, kfolding[0], kfolding[1], kfolding[2]])
     ks_sabc = ks.reshape([nspin, kfolding[0], kfolding[1], kfolding[2], 3])
-    kpts_info["wk_sabc"] = wk_sabc
-    kpts_info["ks_sabc"] = ks_sabc
-    kpts_info["kfolding"] = kfolding
-    return kpts_info
+    return kfolding, ks_sabc, wk_sabc, lti
+
+
+# def _get_kpts_info_handler_asdict(
+#     nspin: int, kfolding: list[int] | np.ndarray[int], kptsfile_filepath: Path | str | None, nstates: int
+# ) -> dict:
+#     kpts_info: dict[str, Any] = {}
+#     _nk = int(np.prod(kfolding))
+#     nk = int(np.prod(kfolding))
+#     if nspin != int(nstates / _nk):
+#         print("WARNING: Internal inconsistency found with respect to input parameters (nSpin * nk-pts != nStates).")
+#         print("No safety net for this which allows for tetrahedral integration currently implemented.")
+#         if kptsfile_filepath is None:
+#             print("k-folding will be changed to arbitrary length 3 array to satisfy shaping criteria.")
+#         kpts_info["lti"] = False
+#         nk = int(nstates / nspin)
+#     else:
+#         kpts_info["lti"] = True
+#     if kptsfile_filepath is None:
+#         if nk != _nk:
+#             kfolding = _get_arbitrary_kfolding(nk)
+#         ks = np.ones([nk * nspin, 3]) * np.nan
+#         wk = np.ones(nk * nspin)
+#         wk *= 1 / nk
+#     else:
+#         if isinstance(kptsfile_filepath, str):
+#             kptsfile_filepath = Path(kptsfile_filepath)
+#         if not kptsfile_filepath.exists():
+#             raise ValueError("Kpts file provided does not exist.")
+#         # TODO: Write a function that can un-reduce a reduced kpts mesh
+#         wk, ks, nstates = parse_kptsfile(kptsfile_filepath)
+#         wk = np.array(wk)
+#         ks = np.array(ks)
+#         if nk != _nk:
+#             if len(ks) == nk:  # length of kpt data matches interpolated nk value
+#                 kfolding = get_kfolding_from_kpts(kptsfile_filepath, nk)
+#             else:
+#                 kfolding = _get_arbitrary_kfolding(nk)
+#                 ks = np.ones([nk * nspin, 3]) * np.nan
+#                 wk = np.ones(nk * nspin)
+#                 wk *= 1 / nk
+#     wk_sabc = wk.reshape([nspin, kfolding[0], kfolding[1], kfolding[2]])
+#     ks_sabc = ks.reshape([nspin, kfolding[0], kfolding[1], kfolding[2], 3])
+#     kpts_info["wk_sabc"] = wk_sabc
+#     kpts_info["ks_sabc"] = ks_sabc
+#     kpts_info["kfolding"] = kfolding
+#     return kpts_info
 
 
 def get_e_sabcj_helper(

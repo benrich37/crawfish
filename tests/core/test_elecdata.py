@@ -98,6 +98,29 @@ def test_set_file_paths():
         with pytest.raises(FileNotFoundError):
             ElecData(tmp_dir)
         copy(src_file, dst_file)
+    # Values returning None
+    for optional, opt_vars in [("fillings", ["fillingsfile_filepath"]), ("kPts", ["kptsfile_filepath"])]:
+        src_file = exdir_path / optional
+        dst_file = tmp_dir / optional
+        if dst_file.exists():
+            remove(dst_file)
+        edata = ElecData(tmp_dir)
+        for opt_var in opt_vars:
+            assert getattr(edata, opt_var) is None
+        if src_file.exists():
+            copy(src_file, dst_file)
+    # Values returning None with warning
+    for optional, opt_vars in [("fillings", ["occ_sabcj"])]:
+        src_file = exdir_path / optional
+        dst_file = tmp_dir / optional
+        if dst_file.exists():
+            remove(dst_file)
+        edata = ElecData(tmp_dir)
+        for opt_var in opt_vars:
+            with pytest.warns(Warning):
+                getattr(edata, opt_var)
+        if src_file.exists():
+            copy(src_file, dst_file)
     rmtree(tmp_dir)
 
 
