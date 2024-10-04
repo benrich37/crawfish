@@ -417,7 +417,7 @@ class ElecData:
             proj_shape.append(self.nproj)
             self._proj_sabcju = proj_tju.reshape(proj_shape)
             self.norm = 1
-        elif self.norm != 2:
+        elif self.norm != 1:
             self.unnorm_projs()
             self.norm_projs_t1(mute_excess_bands=mute_excess_bands)
         return None
