@@ -319,8 +319,8 @@ class ElecData:
             self._alloc_elec_data()
 
     def _parse_bandfile_header(self):
-        if self.bandfile_filepath is None:
-            raise FileNotFoundError("bandprojections files not found")
+        # if self.bandfile_filepath is None:
+        #     raise FileNotFoundError("bandprojections files not found")
         self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_filepath)
         self._nbands = get_nbands_from_bandfile_filepath(self.bandfile_filepath)
         self._nproj = get_nproj_from_bandfile_filepath(self.bandfile_filepath)
@@ -395,30 +395,52 @@ class ElecData:
         self.norm = None
         return None
 
-    def norm_projs_t1(self) -> None:
-        """Normalize projections such that sum of projections on each band = 1.
+    def norm_projs_t1(self, mute_excess_bands=False) -> None:
+        """Normalize projections for bands.
 
-        Normalize projections such that sum of projections on each band = 1.
+        Normalize projections for bands. (np.sum(np.abs(proj_tju) ** 2[:,j,:]) = nstates)
+        nStates is chosen as the normalization factor for each band as bands that are completely
+        covered by the projections will have a sum of nStates after orthonormalization.
+
+        Parameters
+        ----------
+        mute_excess_bands : bool, optional
+            Set all projection values for bands beyond nProj to zero, by default False.
+            (Helpful to set up 1:1 basis change between bands and orbitals)
         """
-        proj_tju = self.proj_tju
-        _norm_projs_for_bands(proj_tju, self.nstates, self.nbands, self.nproj)
-        proj_shape = list(np.shape(self.e_sabcj))
-        proj_shape.append(self.nproj)
-        self._proj_sabcju = proj_tju.reshape(proj_shape)
-        self.norm = 1
+        if self.norm is None:
+            proj_tju = self.proj_tju
+            _norm_projs_for_bands(
+                proj_tju, self.nstates, self.nbands, self.nproj, restrict_band_norm_to_nproj=mute_excess_bands
+            )
+            proj_shape = list(np.shape(self.e_sabcj))
+            proj_shape.append(self.nproj)
+            self._proj_sabcju = proj_tju.reshape(proj_shape)
+            self.norm = 1
+        elif self.norm != 2:
+            self.unnorm_projs()
+            self.norm_projs_t1(mute_excess_bands=mute_excess_bands)
         return None
 
-    def norm_projs_t2(self) -> None:
-        """Normalize projections such that sum of projections on each orbital = 1.
+    def norm_projs_t2(self, mute_excess_bands=False) -> None:
+        """Normalize projections for orbitals.
 
-        Normalize projections such that sum of projections on each orbital = 1.
+        Normalize projections for orbitals. (np.sum(np.abs(proj_tju) ** 2[:,:,u]) = nstates)
+        nstates is chosen somewhat arbitrarily as the normalization factor for each orbital
+        to make the orbitals equivalent to bands after a basis change.
         """
-        proj_tju = self.proj_tju()
-        proj_tju = _norm_projs_for_orbs(proj_tju, self.nstates, self.nbands, self.nproj)
-        proj_shape = list(np.shape(self.e_sabcj))
-        proj_shape.append(self.nproj)
-        self._proj_sabcju = proj_tju.reshape(proj_shape)
-        self.norm = 2
+        if self.norm is None:
+            proj_tju = self.proj_tju
+            proj_tju = _norm_projs_for_orbs(
+                proj_tju, self.nstates, self.nbands, self.nproj, mute_excess_bands=mute_excess_bands
+            )
+            proj_shape = list(np.shape(self.e_sabcj))
+            proj_shape.append(self.nproj)
+            self._proj_sabcju = proj_tju.reshape(proj_shape)
+            self.norm = 2
+        elif self.norm != 2:
+            self.unnorm_projs()
+            self.norm_projs_t2()
         return None
 
 
@@ -451,9 +473,9 @@ def _norm_projs_for_bands_jit_helper_1(nProj, nStates, nBands, proj_tju, j_sums)
 
 
 @jit(nopython=True)
-def _norm_projs_for_bands_jit_helper_2(nProj, nBands, proj_tju):
-    for _j in range(nBands - nProj):
-        proj_tju[:, _j + 1 + nProj, :] *= 0
+def _mute_xs_bands(nProj, nBands, proj_tju):
+    for j in range(nProj, nBands):
+        proj_tju[:, j, :] *= 0
     return proj_tju
 
 
@@ -461,7 +483,7 @@ def _norm_projs_for_bands(proj_tju, nStates, nBands, nProj, restrict_band_norm_t
     j_sums = np.zeros(nBands)
     proj_tju = _norm_projs_for_bands_jit_helper_1(nProj, nStates, nBands, proj_tju, j_sums)
     if restrict_band_norm_to_nproj:
-        proj_tju = _norm_projs_for_bands_jit_helper_2(nProj, nBands, proj_tju)
+        proj_tju = _mute_xs_bands(nProj, nBands, proj_tju)
     return proj_tju
 
 
@@ -473,13 +495,19 @@ def _norm_projs_for_orbs_jit_helper(nProj, nStates, nBands, proj_tju, u_sums):
                 u_sums[u] += abs(np.conj(proj_tju[t, j, u]) * proj_tju[t, j, u])
     for u in range(nProj):
         proj_tju[:, :, u] *= 1 / np.sqrt(u_sums[u])
-    proj_tju *= np.sqrt(2)
+    proj_tju *= np.sqrt(nStates)
+    # proj_tju *= np.sqrt(2)
     # proj_tju *= np.sqrt(nStates*nBands/nProj)
     return proj_tju
 
 
-def _norm_projs_for_orbs(proj_tju, nStates, nBands, nProj):
+def _norm_projs_for_orbs(proj_tju, nStates, nBands, nProj, mute_excess_bands=False):
+    if mute_excess_bands:
+        proj_tju = _mute_xs_bands(nProj, nBands, proj_tju)
     u_sums = np.zeros(nProj)
+    # TODO: Identify the error types raised by division by zero within a jitted function
+    # (if certain orbitals are only represented by bands above nProj, this error should
+    # be clarified to the user)
     proj_tju = _norm_projs_for_orbs_jit_helper(nProj, nStates, nBands, proj_tju, u_sums)
     return proj_tju
 
