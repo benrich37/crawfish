@@ -10,6 +10,7 @@ from pathlib import Path
 from numba import jit
 from crawfish.io.general import get_text_with_key_in_bounds, read_file
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
+import warnings
 
 spintype_nspin = {"no-spin": 1, "spin-orbit": 2, "vector-spin": 2, "z-spin": 2}
 
@@ -265,53 +266,202 @@ def parse_kptsfile(kptsfile: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndar
     return wk_list, k_points_list, nstates
 
 
-def _get_kpts_info_handler_astuple(
-    nspin: int, kfolding: list[int] | np.ndarray[int], kptsfile_filepath: Path | str | None, nstates: int
-) -> tuple[list[int], np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE], bool]:
-    _nk = int(np.prod(kfolding))
-    nk = int(np.prod(kfolding))
-    lti = None
-    if nspin != int(nstates / _nk):
-        print("WARNING: Internal inconsistency found with respect to input parameters (nSpin * nk-pts != nStates).")
-        print("No safety net for this which allows for tetrahedral integration currently implemented.")
-        if kptsfile_filepath is None:
-            print("k-folding will be changed to arbitrary length 3 array to satisfy shaping criteria.")
-        lti = False
+# def get_kfolding_from_kpts_reader(kptsfile_filepath: str | Path) -> list[int] | None:
+#     """Get kpt folding from kpts file.
+
+#     Get the kpt folding from the kpts file.
+
+#     Parameters
+#     ----------
+#     kptsfile_filepath : str | Path
+#         Path to kpts file.
+#     """
+#     wk_list, k_points_list, nstates = parse_kptsfile(kptsfile_filepath)
+#     unique_vals: list[list[REAL_DTYPE]] = [[], [], []]
+#     for arr in k_points_list:
+#         for i, val in enumerate(arr):
+#             if not True in [np.isclose(val, uval) for uval in unique_vals[i]]:
+#                 unique_vals[i].append(val)
+#     est_kfold = [len(uvals) for uvals in unique_vals]
+#     if not np.prod(est_kfold) == len(arrs):
+#         warnings.warn("Kpts file does not have a consistent kpt mesh.", stacklevel=2)
+#         est_kfold = None
+#     return est_kfold
+
+
+# def get_kfolding_from_kptsfile_filepath(kptsfile_filepath: str | Path, nk: int) -> list[int]:
+#     """Get the kfolding from the kpts file.
+
+#     Get the kpt folding from the kpts file.
+
+#     Parameters
+#     ----------
+#     kptsfile_filepath : str | Path
+#         Path to kpts file.
+#     nk : int
+#         Number of kpoints.
+#     """
+#     kfolding = get_kfolding_from_kpts_reader(kptsfile_filepath)
+#     if kfolding is None:
+#         kfolding = _get_arbitrary_kfolding(nk)
+#     return kfolding
+
+
+def get_kfolding(lti: bool, outfile_filepath: str | Path, nspin: int, nstates: int) -> list[int]:
+    """Get the k-point folding.
+
+    Get the k-point folding.
+
+    Parameters
+    ----------
+    lti : bool
+        Whether or not the nSpin * nk-pts == nStates.
+    outfile_filepath : str | Path
+        Path to output file.
+    nspin : int
+        Number of spins.
+    nstates : int
+        Number of states.
+    """
+    if lti:
+        kfolding = get_kfolding_from_outfile_filepath(outfile_filepath)
+    else:
         nk = int(nstates / nspin)
+        kfolding = _get_arbitrary_kfolding(nk)
+    return kfolding
+
+
+def _get_lti_allowed(bandfile_filepath: str | Path, outfile_filepath: str | Path) -> bool:
+    nspin = get_nspin_from_outfile_filepath(outfile_filepath)
+    nstates = get_nstates_from_bandfile_filepath(bandfile_filepath)
+    kfolding = get_kfolding_from_outfile_filepath(outfile_filepath)
+    _nk = int(np.prod(kfolding))
+    if nspin != int(nstates / _nk):
+        warning_str = (
+            "WARNING: Internal inconsistency found with respect to input parameters (nSpin * nk-pts != nStates)."
+        )
+        "No safety net for this which allows for tetrahedral integration currently implemented."
+        warnings.warn(warning_str, stacklevel=2)
+        lti = False
     else:
         lti = True
+    return lti
+
+
+def _get_arbitrary_wk(nk: int, nspin: int) -> np.ndarray[REAL_DTYPE]:
+    wk = np.ones(nk * nspin)
+    wk *= 1 / nk
+    return wk
+
+
+def get_wk_sabc(
+    kptsfile_filepath: Path | str | None, nspin: int, kfolding: list[int], lti: bool
+) -> np.ndarray[REAL_DTYPE]:
+    """Return weights for k-points.
+
+    Return weights for k-points.
+
+    Parameters
+    ----------
+    kfolding : list[int]
+        kpt folding (after correction if k-point mesh was reduced)
+    kptsfile_filepath : Path | str | None
+        Path to kpts file. (None to signify non-existence)
+    nspin : int
+        Number of spins.
+    lti : bool
+        Whether or not the nSpin * nk-pts == nStates.
+    """
+    nk = np.prod(kfolding)
     if kptsfile_filepath is None:
-        if nk != _nk:
-            kfolding = _get_arbitrary_kfolding(nk)
-        ks = np.ones([nk * nspin, 3]) * np.nan
-        wk = np.ones(nk * nspin)
-        wk *= 1 / nk
+        wk = _get_arbitrary_wk(nk, nspin)
     else:
-        if isinstance(kptsfile_filepath, str):
-            kptsfile_filepath = Path(kptsfile_filepath)
-        if not kptsfile_filepath.exists():
-            raise ValueError("Kpts file provided does not exist.")
-        # TODO: Write a function that can un-reduce a reduced kpts mesh
         wk, ks, nstates = parse_kptsfile(kptsfile_filepath)
-        wk = np.array(wk)
-        ks = np.array(ks)
-        if nk != _nk:
-            if len(ks) == nk:  # length of kpt data matches interpolated nk value
-                kfolding = get_kfolding_from_kpts(kptsfile_filepath, nk)
-            else:
-                kfolding = _get_arbitrary_kfolding(nk)
-                ks = np.ones([nk * nspin, 3]) * np.nan
-                wk = np.ones(nk * nspin)
-                wk *= 1 / nk
+        wk = np.array(wk, dtype=REAL_DTYPE)
+        if not lti:
+            if not len(wk) == nk:
+                warnings.warn(
+                    "Kpts file does not match expected number of k-points. k-point weights will be meaningless.",
+                    stacklevel=2,
+                )
+                wk = _get_arbitrary_wk(nk, nspin)
     wk_sabc = wk.reshape([nspin, kfolding[0], kfolding[1], kfolding[2]])
+    return wk_sabc
+
+
+# def _get_ks_sabc(kfolding: list[int], kptsfile_filepath: Path | str | None, nspin: int, lti: bool) -> np.ndarray[REAL_DTYPE]:
+#     """ Return the k-point coordinates.
+
+#     Return the k-point coordinates.
+
+#     Parameters
+#     ----------
+#     kfolding : list[int]
+#         kpt folding (after correction if k-point mesh was reduced)
+#     kptsfile_filepath : Path | str | None
+#         Path to kpts file. (None to signify non-existence)
+#     nspin : int
+#         Number of spins.
+#     lti : bool
+#         Whether or not the nSpin * nk-pts == nStates.
+#     """
+#     if kptsfile_filepath is None or not lti:
+#         ks = np.ones([nk * nspin, 3]) * np.nan
+#     else:
+#         wk, ks, nstates = parse_kptsfile(kptsfile_filepath)
+#         ks = np.array(ks, dtype=REAL_DTYPE)
+#     ks_sabc = ks.reshape([nspin, kfolding[0], kfolding[1], kfolding[2], 3])
+#     return ks_sabc
+
+
+# def _get_ks_sabc(kfolding: list[int], kptsfile_filepath: Path | str | None, nspin: int, lti: bool) -> np.ndarray[REAL_DTYPE]:
+#     """ Return the k-point coordinates.
+
+#     Return the k-point coordinates.
+
+#     Parameters
+#     ----------
+#     kfolding : list[int]
+#         kpt folding (after correction if k-point mesh was reduced)
+#     kptsfile_filepath : Path | str | None
+#         Path to kpts file. (None to signify non-existence)
+#     nspin : int
+#         Number of spins.
+#     lti : bool
+#         Whether or not the nSpin * nk-pts == nStates.
+#     """
+#     if kptsfile_filepath is None or not lti:
+#         ks = np.ones([nk * nspin, 3]) * np.nan
+#     else:
+#         wk, ks, nstates = parse_kptsfile(kptsfile_filepath)
+#         ks = np.array(ks, dtype=REAL_DTYPE)
+#     ks_sabc = ks.reshape([nspin, kfolding[0], kfolding[1], kfolding[2], 3])
+#     return ks_sabc
+
+
+def get_ks_sabc(kptsfile_filepath: Path | str, nspin: int, kfolding: list[int]) -> np.ndarray[REAL_DTYPE]:
+    """Return the k-point coordinates.
+
+    Return the k-point coordinates. Assumes k-point file exists and mesh is regular.
+
+    Parameters
+    ----------
+    kptsfile_filepath : Path | str
+        Path to kpts file.
+    nspin : int
+        Number of spins.
+    kfolding : list[int]
+        kpt folding
+    """
+    wk, _ks, nstates = parse_kptsfile(kptsfile_filepath)
+    ks = np.array(_ks, dtype=REAL_DTYPE)
     ks_sabc = ks.reshape([nspin, kfolding[0], kfolding[1], kfolding[2], 3])
-    return kfolding, ks_sabc, wk_sabc, lti
+    return ks_sabc
 
 
-# def _get_kpts_info_handler_asdict(
+# def _get_kpts_info_handler_astuple(
 #     nspin: int, kfolding: list[int] | np.ndarray[int], kptsfile_filepath: Path | str | None, nstates: int
-# ) -> dict:
-#     kpts_info: dict[str, Any] = {}
+# ) -> tuple[list[int], np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE], bool]:
 #     _nk = int(np.prod(kfolding))
 #     nk = int(np.prod(kfolding))
 #     if nspin != int(nstates / _nk):
@@ -319,10 +469,10 @@ def _get_kpts_info_handler_astuple(
 #         print("No safety net for this which allows for tetrahedral integration currently implemented.")
 #         if kptsfile_filepath is None:
 #             print("k-folding will be changed to arbitrary length 3 array to satisfy shaping criteria.")
-#         kpts_info["lti"] = False
+#         lti = False
 #         nk = int(nstates / nspin)
 #     else:
-#         kpts_info["lti"] = True
+#         lti = True
 #     if kptsfile_filepath is None:
 #         if nk != _nk:
 #             kfolding = _get_arbitrary_kfolding(nk)
@@ -340,7 +490,7 @@ def _get_kpts_info_handler_astuple(
 #         ks = np.array(ks)
 #         if nk != _nk:
 #             if len(ks) == nk:  # length of kpt data matches interpolated nk value
-#                 kfolding = get_kfolding_from_kpts(kptsfile_filepath, nk)
+#                 kfolding = get_kfolding_from_kptsfile_filepath(kptsfile_filepath, nk)
 #             else:
 #                 kfolding = _get_arbitrary_kfolding(nk)
 #                 ks = np.ones([nk * nspin, 3]) * np.nan
@@ -348,10 +498,7 @@ def _get_kpts_info_handler_astuple(
 #                 wk *= 1 / nk
 #     wk_sabc = wk.reshape([nspin, kfolding[0], kfolding[1], kfolding[2]])
 #     ks_sabc = ks.reshape([nspin, kfolding[0], kfolding[1], kfolding[2], 3])
-#     kpts_info["wk_sabc"] = wk_sabc
-#     kpts_info["ks_sabc"] = ks_sabc
-#     kpts_info["kfolding"] = kfolding
-#     return kpts_info
+#     return kfolding, ks_sabc, wk_sabc, lti
 
 
 def get_e_sabcj_helper(
@@ -609,38 +756,6 @@ def get__from_bandfile_filepath(bandfile_filepath: Path | str, tok_idx: int) -> 
 
 def _get_arbitrary_kfolding(nK: int) -> list[int]:
     kfolding = [1, 1, nK]
-    return kfolding
-
-
-def get_kfolding_from_kpts_reader(kptsfile_filepath: str | Path) -> list[int] | None:
-    """Get kpt folding from kpts file.
-
-    Get the kpt folding from the kpts file.
-
-    Parameters
-    ----------
-    kptsfile_filepath : str | Path
-        Path to kpts file.
-    """
-    # TODO: Implement this function
-    return None
-
-
-def get_kfolding_from_kpts(kptsfile_filepath: str | Path, nk: int) -> list[int]:
-    """Get the kfolding from the kpts file.
-
-    Get the kpt folding from the kpts file.
-
-    Parameters
-    ----------
-    kptsfile_filepath : str | Path
-        Path to kpts file.
-    nk : int
-        Number of kpoints.
-    """
-    kfolding = get_kfolding_from_kpts_reader(kptsfile_filepath)
-    if kfolding is None:
-        kfolding = _get_arbitrary_kfolding(nk)
     return kfolding
 
 

@@ -10,7 +10,6 @@ import ase
 from crawfish.io.data_parsing import (
     get_nspin_from_outfile_filepath,
     get_mu_from_outfile_filepath,
-    get_kfolding_from_outfile_filepath,
     get_nstates_from_bandfile_filepath,
     get_nbands_from_bandfile_filepath,
     get_nproj_from_bandfile_filepath,
@@ -18,7 +17,10 @@ from crawfish.io.data_parsing import (
     get_e_sabcj_helper,
     get_proj_sabcju_helper,
     is_complex_bandfile_filepath,
-    _get_kpts_info_handler_astuple,
+    _get_lti_allowed,
+    get_kfolding,
+    get_ks_sabc,
+    get_wk_sabc,
 )
 from crawfish.io.ase_helpers import (
     get_atoms_from_calc_dir,
@@ -206,7 +208,6 @@ class ElecData:
             occ_shape += [self.nbands]
             fillings = np.fromfile(self.fillingsfile_filepath)
             fillings = np.array(fillings, dtype=REAL_DTYPE)
-            # fillings = np.fromfile(self.fillingsfile_filepath, dtype=REAL_DTYPE)
             self._occ_sabcj = fillings.reshape(occ_shape)
         return self._occ_sabcj
 
@@ -230,21 +231,17 @@ class ElecData:
         Return kpoint weights in shape (kfolding[0], kfolding[1], kfolding[2]).
         """
         if self._wk_sabc is None:
-            self._alloc_kpt_data()
-        if self._wk_sabc is None:
-            raise ValueError("Could not determine kpoint weights")
+            self._wk_sabc = get_wk_sabc(self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed)
         return self._wk_sabc
 
     @property
-    def ks_sabc(self) -> np.ndarray[REAL_DTYPE]:
+    def ks_sabc(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return kpoint coordinates.
 
-        Return kpoint coordinates in shape (kfolding[0], kfolding[1], kfolding[2], 3).
+        Return kpoint coordinates in shape (nspin, kfolding[0], kfolding[1], kfolding[2], 3).
         """
-        if self._ks_sabc is None:
-            self._alloc_kpt_data()
-        if self._ks_sabc is None:
-            raise ValueError("Could not determine kpoint coordinates")
+        if self._ks_sabc is None and (self.lti_allowed and self.kptsfile_filepath is not None):
+            self._ks_sabc = get_ks_sabc(self.kptsfile_filepath, self.nspin, self.kfolding)
         return self._ks_sabc
 
     @property
@@ -254,9 +251,7 @@ class ElecData:
         Return kpoint folding as a list of 3 integers.
         """
         if self._kfolding is None:
-            self._alloc_kpt_data()
-        if self._kfolding is None:
-            raise ValueError("Could not determine kpoint folding")
+            self._kfolding = get_kfolding(self.lti_allowed, self.outfile_filepath, self.nspin, self.nstates)
         return self._kfolding
 
     @property
@@ -278,9 +273,7 @@ class ElecData:
         to refer to).
         """
         if self._lti_allowed is None:
-            self._alloc_kpt_data()
-        if self._lti_allowed is None:
-            raise ValueError("Could not determine if LTI is allowed")
+            self._lti_allowed = _get_lti_allowed(self.bandfile_filepath, self.outfile_filepath)
         return self._lti_allowed
 
     @classmethod
@@ -314,30 +307,10 @@ class ElecData:
         self.fprefix = self._get_fprefix(prefix)
         self.calc_dir = Path(calc_dir)
         self._set_files_paths()
-        self._parse_bandfile_header()
-        self._alloc_kpt_data()
+        # self._parse_bandfile_header()
+        # self._alloc_kpt_data()
         if alloc_elec_data:
             self._alloc_elec_data()
-
-    def _parse_bandfile_header(self):
-        # if self.bandfile_filepath is None:
-        #     raise FileNotFoundError("bandprojections files not found")
-        self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_filepath)
-        self._nbands = get_nbands_from_bandfile_filepath(self.bandfile_filepath)
-        self._nproj = get_nproj_from_bandfile_filepath(self.bandfile_filepath)
-        self._norbsperatom = get_norbsperatom_from_bandfile_filepath(self.bandfile_filepath)
-
-    def _alloc_kpt_data(self):
-        self._kfolding = get_kfolding_from_outfile_filepath(self.outfile_filepath)
-        self._nspin = get_nspin_from_outfile_filepath(self.outfile_filepath)
-        kfolding, ks_sabc, wk_sabc, lti = _get_kpts_info_handler_astuple(
-            self.nspin, self.kfolding, self.kptsfile_filepath, self.nstates
-        )
-        self._wk_sabc = wk_sabc
-        self._ks_sabc = ks_sabc
-        self._lti_allowed = lti
-        # In case new information is gathered about kfolding
-        self._kfolding = kfolding
 
     def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings"]):
         if self.fprefix is None:
@@ -375,9 +348,7 @@ class ElecData:
         _ = self.proj_sabcju
         if self.fillingsfile_filepath is not None:
             _ = self.occ_sabcj
-        # _ = self.occ_sabcj
         _ = self.e_sabcj
-        _ = self.mu
 
     #################
 
@@ -581,5 +552,5 @@ def _get_data_and_path(data: ElecData | None, calc_dir: Path | str | None):
         if data.calc_dir != calc_dir:
             raise ValueError("calc_dir and data.calc_dir must be the same")
     else:
-        raise ValueError("Must provide at least a calc_dir or a data=ElecData (both cannot be none")
+        raise ValueError("Must provide at least a calc_dir or a data=ElecData (both cannot be none)")
     return data, calc_dir

@@ -5,6 +5,7 @@ import numpy as np
 from os import remove
 from shutil import rmtree, copy
 import pytest
+import re
 
 exfdir = Path(EXAMPLE_FILES_DIR)
 excddir = Path(EXAMPLE_CALC_DIRS_DIR)
@@ -192,3 +193,23 @@ def test_norm_projs_t2():
         assert np.sum(proj_tju_2[:, :, u]) == pytest.approx(edata.nstates)
     for j in range(edata.nproj, edata.nbands):
         assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(0)
+
+
+def test__get_data_and_path():
+    from crawfish.core.elecdata import ElecData, _get_data_and_path
+
+    exdir_path = excddir / "N2_bare_min"
+    edata = ElecData(exdir_path)
+    for data, path in [(edata, exdir_path), (edata, None), (None, exdir_path)]:
+        outdata, outpath = _get_data_and_path(data, path)
+        assert outdata is not None
+        assert outpath is not None
+        assert isinstance(outdata, ElecData)
+        assert outpath == exdir_path
+        assert outdata.calc_dir == outpath
+    with pytest.raises(ValueError, match="calc_dir and data.calc_dir must be the same"):
+        outdata, outpath = _get_data_and_path(edata, exdir_path.parent)
+    with pytest.raises(
+        ValueError, match=re.escape("Must provide at least a calc_dir or a data=ElecData (both cannot be none)")
+    ):
+        outdata, outpath = _get_data_and_path(None, None)
