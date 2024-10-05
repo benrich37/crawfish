@@ -230,3 +230,19 @@ def test_mod_weights_for_ebounds():
         assert all(np.isclose(w_sabcj[:, :, :, :, j].flatten(), 0.0))
     for j in [1]:
         assert all(np.isclose(w_sabcj[:, :, :, :, j].flatten(), 1.0))
+
+
+def test_get_ebound_arr():
+    from crawfish.core.operations.matrix import get_ebound_arr
+
+    nspin = 1
+    nka = 1
+    nkb = 1
+    nkc = 1
+    nbands = 3
+    e_sabcj = np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE) * (-1)
+    e_sabcj[:, :, :, :, 0] -= 1
+    e_sabcj[:, :, :, :, -1] += 1
+    ebounds = [-1.1, -0.1, 0.0]
+    with pytest.raises(ValueError, match="The ebounds list must have an even number of elements."):
+        get_ebound_arr(ebounds, e_sabcj)
