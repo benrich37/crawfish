@@ -171,7 +171,9 @@ def test_get_pcohp_sabcj():
 
 
 def test_get_pdos_sabcj():
-    nproj = 2
+    from crawfish.core.operations.matrix import get_pdos_sabcj
+
+    nproj = 1
     nspin = 1
     nka = 1
     nkb = 1
@@ -183,3 +185,28 @@ def test_get_pdos_sabcj():
     proj_sabcju = np.zeros([nspin, nka, nkb, nkc, nbands, nproj], dtype=COMPLEX_DTYPE)
     proj_sabcju += np.ones([nspin, nka, nkb, nkc, nbands, nproj])
     proj_sabcju += 1j * np.ones([nspin, nka, nkb, nkc, nbands, nproj])
+    orb_idx = 0
+    pdos_sabcj = get_pdos_sabcj(proj_sabcju, [orb_idx])
+    for s in range(nspin):
+        for a in range(nka):
+            for b in range(nkb):
+                for c in range(nkc):
+                    for j in range(nbands):
+                        _v1 = proj_sabcju[s, a, b, c, j, orb_idx]
+                        v1 = np.conj(_v1) * _v1
+                        v2 = pdos_sabcj[s, a, b, c, j]
+                        assert v1 == pytest.approx(v2)
+    proj_sabcju[:, :, :, :, -1, :] *= 0
+    pdos_sabcj = get_pdos_sabcj(proj_sabcju, [orb_idx])
+    for s in range(nspin):
+        for a in range(nka):
+            for b in range(nkb):
+                for c in range(nkc):
+                    for j in range(nbands):
+                        if j < nbands - 1:
+                            _v1 = proj_sabcju[s, a, b, c, j, orb_idx]
+                            v1 = np.conj(_v1) * _v1
+                            v2 = pdos_sabcj[s, a, b, c, j]
+                            assert v1 == pytest.approx(v2)
+                        else:
+                            assert pdos_sabcj[s, a, b, c, j] == pytest.approx(0.0)
