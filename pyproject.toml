@@ -9,7 +9,8 @@ dependencies = [
     "matplotlib>=3.8",
     "numpy>=1.25.0,<3",
     "numba>=0.55",
-    "ase>=3.23.0"
+    "ase>=3.23.0",
+    "pymatgen@git+https://github.com/benrich37/pymatgen.git",
 ]
 
 [tool.ruff]

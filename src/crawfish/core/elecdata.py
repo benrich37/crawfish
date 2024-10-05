@@ -6,9 +6,7 @@ electronic data from JDFTx calculations.
 
 from __future__ import annotations
 import numpy as np
-import ase
 from crawfish.io.data_parsing import (
-    get_nspin_from_outfile_filepath,
     get_mu_from_outfile_filepath,
     get_nstates_from_bandfile_filepath,
     get_nbands_from_bandfile_filepath,
@@ -22,10 +20,11 @@ from crawfish.io.data_parsing import (
     get_ks_sabc,
     get_wk_sabc,
 )
-from crawfish.io.ase_helpers import (
-    get_atoms_from_calc_dir,
-)
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
+from pymatgen.electronic_structure.bandstructure import BandStructure
+from pymatgen.io.jdftx.jdftxinfile import JDFTXInfile
+from pymatgen.io.jdftx.jdftxoutfile import JDFTXOutfile
+from pymatgen.core.structure import Structure
 from pathlib import Path
 from numba import jit
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
@@ -68,7 +67,6 @@ class ElecData:
     _proj_sabcju: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE] | None = None
     _occ_sabcj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
-    _atoms: ase.Atoms | None = None
     _norbsperatom: list[int] | None = None
     _orbs_idx_dict: dict | None = None
     _kmap: list[str] | None = None
@@ -84,13 +82,45 @@ class ElecData:
     xs_bands_muted: bool = False
 
     @property
+    def infile(self) -> JDFTXInfile:
+        """Return JDFTx input file object from calculation.
+
+        Return JDFTx input file object from calculation.
+        """
+        return JDFTXInfile.from_file(self.calc_dir / f"{self.fprefix}in")
+
+    @property
+    def outfile(self) -> JDFTXOutfile:
+        """Return JDFTx output file object from calculation.
+
+        Return JDFTx output file object from calculation.
+        """
+        return JDFTXOutfile.from_file(self.outfile_filepath)
+
+    @property
+    def bandstructure(self) -> BandStructure:
+        """Return band structure object from calculation.
+
+        Return band structure object from calculation.
+        """
+        raise NotImplementedError("BandStructure object not yet implemented")
+
+    @property
+    def structure(self) -> Structure:
+        """Return pymatgen structure object from calculation.
+
+        Return pymatgen structure object from calculation.
+        """
+        return self.outfile.slices[-1].structure
+
+    @property
     def nspin(self) -> int:
         """Return number of spins in calculation.
 
         Return number of spins in calculation.
         """
         if self._nspin is None:
-            self._nspin = get_nspin_from_outfile_filepath(self.outfile_filepath)
+            self._nspin = self.outfile.nspin
         return self._nspin
 
     @property
@@ -134,23 +164,12 @@ class ElecData:
         return self._norbsperatom
 
     @property
-    def atoms(self) -> ase.Atoms:
-        """Return atoms object from calculation directory.
-
-        Return atoms object from calculation directory.
-        """
-        if self._atoms is None:
-            self._atoms = get_atoms_from_calc_dir(self.calc_dir)
-        return self._atoms
-
-    @property
     def ion_names(self) -> list[str]:
         """Return list of atom labels in calculation.
 
         Return list of atom labels in calculation.
         """
-        atoms = self.atoms
-        return atoms.get_chemical_symbols()
+        return [specie.name for specie in self.structure.species]
 
     @property
     def mu(self) -> REAL_DTYPE:

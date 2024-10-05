@@ -7,7 +7,6 @@ from __future__ import annotations
 from pathlib import Path
 from crawfish.io.general import format_file_path, read_file
 from crawfish.core.elecdata import ElecData
-from ase import Atoms
 
 
 def fidcs(idcs: list[int] | int) -> list[int]:
@@ -40,9 +39,9 @@ def get_el_orb_u_dict(edata: ElecData, aidcs: list[int]) -> dict[str, dict[str, 
     aidcs : list[int]
         The list of indices for atoms of interest
     """
-    syms = edata.atoms.get_chemical_symbols()
+    syms = edata.ion_names
     els = [syms[i] for i in aidcs]
-    kmap = get_kmap_from_atoms(edata.atoms)
+    kmap = get_kmap_from_edata(edata)
     labels_dict: dict[str, list[str]] = get_atom_orb_labels_dict(edata.bandfile_filepath)
     el_orbs_dict: dict[str, dict[str, list[int]]] = {}
     orbs_idx_dict = edata.orbs_idx_dict
@@ -101,7 +100,7 @@ def get_atom_orb_labels_dict(bandfile_filepath: str | Path) -> dict[str, list[st
     return labels_dict
 
 
-def get_kmap_from_atoms(atoms: Atoms) -> list[str]:
+def get_kmap_from_edata(edata: ElecData) -> list[str]:
     """Return a list of strings mapping ion index to element symbol and ion number.
 
     Return a list of strings mapping ion index to element symbol and ion number.
@@ -109,18 +108,40 @@ def get_kmap_from_atoms(atoms: Atoms) -> list[str]:
 
     Parameters
     ----------
-    atoms : ase.Atoms
-        The Atoms object of the system of interest
+    edata: ElecData
+        The ElecData object of the system of interest
     """
     el_counter_dict = {}
     idx_to_key_map = []
-    els = atoms.get_chemical_symbols()
+    els = edata.ion_names
     for i, el in enumerate(els):
         if el not in el_counter_dict:
             el_counter_dict[el] = 0
         el_counter_dict[el] += 1
         idx_to_key_map.append(f"{el} #{el_counter_dict[el]}")
     return idx_to_key_map
+
+
+# def get_kmap_from_atoms(atoms: Atoms) -> list[str]:
+#     """Return a list of strings mapping ion index to element symbol and ion number.
+
+#     Return a list of strings mapping ion index to element symbol and ion number.
+#     (e.g. ["H #1", "H #2", "O #1", "O #2)
+
+#     Parameters
+#     ----------
+#     atoms : ase.Atoms
+#         The Atoms object of the system of interest
+#     """
+#     el_counter_dict = {}
+#     idx_to_key_map = []
+#     els = atoms.get_chemical_symbols()
+#     for i, el in enumerate(els):
+#         if el not in el_counter_dict:
+#             el_counter_dict[el] = 0
+#         el_counter_dict[el] += 1
+#         idx_to_key_map.append(f"{el} #{el_counter_dict[el]}")
+#     return idx_to_key_map
 
 
 orb_ref_list = [
