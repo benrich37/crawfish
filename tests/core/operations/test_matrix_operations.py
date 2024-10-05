@@ -168,3 +168,18 @@ def test_get_pcohp_sabcj():
                             assert pcohp_sabcj[s, a, b, c, j] == pytest.approx(expected_bonding)
                         else:
                             assert pcohp_sabcj[s, a, b, c, j] == pytest.approx(expected_antibonding)
+
+
+def test_get_pdos_sabcj():
+    nproj = 2
+    nspin = 1
+    nka = 1
+    nkb = 1
+    nkc = 1
+    nbands = 3
+    e_sabcj = np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE) * (-1)
+    e_sabcj[:, :, :, :, 0] -= 1
+    e_sabcj[:, :, :, :, 0] += 1
+    proj_sabcju = np.zeros([nspin, nka, nkb, nkc, nbands, nproj], dtype=COMPLEX_DTYPE)
+    proj_sabcju += np.ones([nspin, nka, nkb, nkc, nbands, nproj])
+    proj_sabcju += 1j * np.ones([nspin, nka, nkb, nkc, nbands, nproj])

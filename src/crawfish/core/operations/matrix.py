@@ -144,7 +144,6 @@ def _get_pcohp_sabcj_jit(
     orbs_v: np.ndarray[int],
     p_uvjsabc: np.ndarray[REAL_DTYPE],
     h_uvsabc: np.ndarray[REAL_DTYPE],
-    wk_sabc: np.ndarray[REAL_DTYPE],
     pcohp_sabcj: np.ndarray[REAL_DTYPE],
 ) -> np.ndarray:
     for s in range(nspin):
@@ -157,8 +156,7 @@ def _get_pcohp_sabcj_jit(
                             for v in orbs_v:
                                 p1 = p_uvjsabc[u, v, j, s, a, b, c]
                                 p2 = h_uvsabc[u, v, s, a, b, c]
-                                p3 = wk_sabc[s, a, b, c]
-                                uv_sum += np.real(p1 * p2) * p3
+                                uv_sum += p1 * p2
                         pcohp_sabcj[s, a, b, c, j] += uv_sum
     return pcohp_sabcj
 
@@ -168,7 +166,6 @@ def get_pcohp_sabcj(
     h_uvsabc: np.ndarray[REAL_DTYPE],
     orbs_u: list[int],
     orbs_v: list[int],
-    wk_sabc: np.ndarray[REAL_DTYPE] | None = None,
 ) -> np.ndarray:
     r"""Return the pCOHP tensor pCOHP_{s,a,b,c,j} = Sum_{u,v} P_{u,v}^{j,s,a,b,c} H_{u,v}^{s,a,b,c} w_{s,a,b,c}.
 
@@ -185,8 +182,6 @@ def get_pcohp_sabcj(
         The list of orbitals to evaluate for species 1
     orbs_v : list[int]
         The list of orbitals to evaluate for species 2
-    wk_sabc : np.ndarray | None
-        The k-point weight matrix w_{s,a,b,c}
     """
     shape = np.shape(p_uvjsabc)
     nbands = shape[2]
@@ -195,13 +190,9 @@ def get_pcohp_sabcj(
     nkb = shape[5]
     nkc = shape[6]
     pcohp_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE)
-    if wk_sabc is None:
-        wk_sabc = np.ones([nspin, nka, nkb, nkc])
     _orbs_u = np.asarray(orbs_u)
     _orbs_v = np.asarray(orbs_v)
-    return _get_pcohp_sabcj_jit(
-        nspin, nka, nkb, nkc, nbands, _orbs_u, _orbs_v, p_uvjsabc, h_uvsabc, wk_sabc, pcohp_sabcj
-    )
+    return _get_pcohp_sabcj_jit(nspin, nka, nkb, nkc, nbands, _orbs_u, _orbs_v, p_uvjsabc, h_uvsabc, pcohp_sabcj)
 
 
 @jit(nopython=True)
@@ -214,7 +205,6 @@ def _get_pcoop_sabcj_jit(
     orbs_u: np.ndarray[int],
     orbs_v: np.ndarray[int],
     p_uvjsabc: np.ndarray[REAL_DTYPE],
-    wk_sabc: np.ndarray[REAL_DTYPE],
     pcoop_sabcj: np.ndarray[REAL_DTYPE],
 ) -> np.ndarray:
     for s in range(nspin):
@@ -225,9 +215,7 @@ def _get_pcoop_sabcj_jit(
                         uv_sum = 0
                         for u in orbs_u:
                             for v in orbs_v:
-                                p1 = p_uvjsabc[u, v, j, s, a, b, c]
-                                p3 = wk_sabc[s, a, b, c]
-                                uv_sum += p1 * p3
+                                uv_sum += p_uvjsabc[u, v, j, s, a, b, c]
                         pcoop_sabcj[s, a, b, c, j] += uv_sum
     return pcoop_sabcj
 
@@ -236,7 +224,6 @@ def get_pcoop_sabcj(
     p_uvjsabc: np.ndarray[REAL_DTYPE],
     orbs_u: list[int],
     orbs_v: list[int],
-    wk_sabc: np.ndarray[REAL_DTYPE] | None = None,
 ) -> np.ndarray[REAL_DTYPE]:
     r"""Return the pCOOP tensor pCOOP_{s,a,b,c,j} = Sum_{u,v} P_{u,v}^{j,s,a,b,c} w_{s,a,b,c}.
 
@@ -251,8 +238,6 @@ def get_pcoop_sabcj(
         The list of orbitals to evaluate for species 1
     orbs_v : list[int]
         The list of orbitals to evaluate for species 2
-    wk_sabc : np.ndarray | None
-        The k-point weight matrix w_{s,a,b,c}
     """
     shape = np.shape(p_uvjsabc)
     nbands = shape[2]
@@ -261,16 +246,12 @@ def get_pcoop_sabcj(
     nkb = shape[5]
     nkc = shape[6]
     pcoop_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE)
-    if wk_sabc is None:
-        wk_sabc = np.ones([nspin, nka, nkb, nkc])
     _orbs_u = np.asarray(orbs_u)
     _orbs_v = np.asarray(orbs_v)
-    return _get_pcoop_sabcj_jit(nspin, nka, nkb, nkc, nbands, _orbs_u, _orbs_v, p_uvjsabc, wk_sabc, pcoop_sabcj)
+    return _get_pcoop_sabcj_jit(nspin, nka, nkb, nkc, nbands, _orbs_u, _orbs_v, p_uvjsabc, pcoop_sabcj)
 
 
-def get_pdos_sabcj(
-    proj_sabcju: np.ndarray[COMPLEX_DTYPE], orbs: list[int], wk_sabc: np.ndarray[REAL_DTYPE] | None = None
-) -> np.ndarray[REAL_DTYPE]:
+def get_pdos_sabcj(proj_sabcju: np.ndarray[COMPLEX_DTYPE], orbs: list[int]) -> np.ndarray[REAL_DTYPE]:
     r"""Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
 
     Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
@@ -282,15 +263,10 @@ def get_pdos_sabcj(
         The projection vector T_{u}^{j,s,a,b,c} = <u | \phi_{j,s,a,b,c}>
     orbs : list[int]
         The list of orbitals to evaluate
-    wk_sabc : np.ndarray | None
-        The k-point weight tensor w_{s,a,b,c}
     """
-    if wk_sabc is None:
-        wk_sabc = np.ones(np.shape(proj_sabcju)[:4], dtype=REAL_DTYPE)
     pdos_sabcj = np.zeros(np.shape(proj_sabcju)[:5], dtype=REAL_DTYPE)
     for orb in orbs:
         pdos_sabcj += np.abs(proj_sabcju[:, :, :, :, :, orb]) ** 2
-    pdos_sabcj *= wk_sabc
     return pdos_sabcj
 
 
