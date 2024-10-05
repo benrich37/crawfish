@@ -37,9 +37,9 @@ def get_p_uvjsabc(
     if orbs_v is None:
         orbs_v = list(range(nproj))
     p_uvjsabc = np.zeros([nproj, nproj, nbands, nspin, nka, nkb, nkc], dtype=REAL_DTYPE)
-    orbs_u = np.asarray(orbs_u)
-    orbs_v = np.asarray(orbs_v)
-    p_uvjsabc = _get_p_uvjsabc_jit(proj_sabcju, p_uvjsabc, nproj, nbands, nka, nkb, nkc, nspin, orbs_u, orbs_v)
+    _orbs_u = np.asarray(orbs_u)
+    _orbs_v = np.asarray(orbs_v)
+    p_uvjsabc = _get_p_uvjsabc_jit(proj_sabcju, p_uvjsabc, nproj, nbands, nka, nkb, nkc, nspin, _orbs_u, _orbs_v)
     return np.real(p_uvjsabc)
 
 
@@ -53,8 +53,8 @@ def _get_p_uvjsabc_jit(
     nkb: int,
     nkc: int,
     nspin: int,
-    orbs_u: list[int],
-    orbs_v: list[int],
+    orbs_u: np.ndarray[int],
+    orbs_v: np.ndarray[int],
 ):
     for u in orbs_u:
         for v in orbs_v:
@@ -80,8 +80,8 @@ def _get_h_uvsabc_jit(
     nkb: int,
     nkc: int,
     nspin: int,
-    orbs_u: list[int],
-    orbs_v: list[int],
+    orbs_u: np.ndarray[int],
+    orbs_v: np.ndarray[int],
 ) -> np.ndarray:
     for u in orbs_u:
         for v in orbs_v:
@@ -128,7 +128,9 @@ def get_h_uvsabc(
         orbs_u = list(range(nproj))
     if orbs_v is None:
         orbs_v = list(range(nproj))
-    return _get_h_uvsabc_jit(h_uvsabc, p_uvjsabc, e_sabcj, nproj, nbands, nka, nkb, nkc, nspin, orbs_u, orbs_v)
+    _orbs_u = np.asarray(orbs_u)
+    _orbs_v = np.asarray(orbs_v)
+    return _get_h_uvsabc_jit(h_uvsabc, p_uvjsabc, e_sabcj, nproj, nbands, nka, nkb, nkc, nspin, _orbs_u, _orbs_v)
 
 
 @jit(nopython=True)
@@ -138,8 +140,8 @@ def _get_pcohp_sabcj_jit(
     nkb: int,
     nkc: int,
     nbands: int,
-    orbs_u: list[int],
-    orbs_v: list[int],
+    orbs_u: np.ndarray[int],
+    orbs_v: np.ndarray[int],
     p_uvjsabc: np.ndarray[REAL_DTYPE],
     h_uvsabc: np.ndarray[REAL_DTYPE],
     wk_sabc: np.ndarray[REAL_DTYPE],
@@ -195,7 +197,11 @@ def get_pcohp_sabcj(
     pcohp_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE)
     if wk_sabc is None:
         wk_sabc = np.ones([nspin, nka, nkb, nkc])
-    return _get_pcohp_sabcj_jit(nspin, nka, nkb, nkc, nbands, orbs_u, orbs_v, p_uvjsabc, h_uvsabc, wk_sabc, pcohp_sabcj)
+    _orbs_u = np.asarray(orbs_u)
+    _orbs_v = np.asarray(orbs_v)
+    return _get_pcohp_sabcj_jit(
+        nspin, nka, nkb, nkc, nbands, _orbs_u, _orbs_v, p_uvjsabc, h_uvsabc, wk_sabc, pcohp_sabcj
+    )
 
 
 @jit(nopython=True)
@@ -205,8 +211,8 @@ def _get_pcoop_sabcj_jit(
     nkb: int,
     nkc: int,
     nbands: int,
-    orbs_u: list[int],
-    orbs_v: list[int],
+    orbs_u: np.ndarray[int],
+    orbs_v: np.ndarray[int],
     p_uvjsabc: np.ndarray[REAL_DTYPE],
     wk_sabc: np.ndarray[REAL_DTYPE],
     pcoop_sabcj: np.ndarray[REAL_DTYPE],
@@ -221,7 +227,7 @@ def _get_pcoop_sabcj_jit(
                             for v in orbs_v:
                                 p1 = p_uvjsabc[u, v, j, s, a, b, c]
                                 p3 = wk_sabc[s, a, b, c]
-                                uv_sum += np.real(p1 * p3)
+                                uv_sum += p1 * p3
                         pcoop_sabcj[s, a, b, c, j] += uv_sum
     return pcoop_sabcj
 
@@ -257,7 +263,9 @@ def get_pcoop_sabcj(
     pcoop_sabcj = np.zeros([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE)
     if wk_sabc is None:
         wk_sabc = np.ones([nspin, nka, nkb, nkc])
-    return _get_pcoop_sabcj_jit(nspin, nka, nkb, nkc, nbands, orbs_u, orbs_v, p_uvjsabc, wk_sabc, pcoop_sabcj)
+    _orbs_u = np.asarray(orbs_u)
+    _orbs_v = np.asarray(orbs_v)
+    return _get_pcoop_sabcj_jit(nspin, nka, nkb, nkc, nbands, _orbs_u, _orbs_v, p_uvjsabc, wk_sabc, pcoop_sabcj)
 
 
 def get_pdos_sabcj(
