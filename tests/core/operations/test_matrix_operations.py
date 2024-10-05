@@ -181,7 +181,7 @@ def test_get_pdos_sabcj():
     nbands = 3
     e_sabcj = np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE) * (-1)
     e_sabcj[:, :, :, :, 0] -= 1
-    e_sabcj[:, :, :, :, 0] += 1
+    e_sabcj[:, :, :, :, -1] += 1
     proj_sabcju = np.zeros([nspin, nka, nkb, nkc, nbands, nproj], dtype=COMPLEX_DTYPE)
     proj_sabcju += np.ones([nspin, nka, nkb, nkc, nbands, nproj])
     proj_sabcju += 1j * np.ones([nspin, nka, nkb, nkc, nbands, nproj])
@@ -210,3 +210,23 @@ def test_get_pdos_sabcj():
                             assert v1 == pytest.approx(v2)
                         else:
                             assert pdos_sabcj[s, a, b, c, j] == pytest.approx(0.0)
+
+
+def test_mod_weights_for_ebounds():
+    from crawfish.core.operations.matrix import mod_weights_for_ebounds
+
+    nspin = 1
+    nka = 1
+    nkb = 1
+    nkc = 1
+    nbands = 3
+    e_sabcj = np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE) * (-1)
+    e_sabcj[:, :, :, :, 0] -= 1
+    e_sabcj[:, :, :, :, -1] += 1
+    w_sabcj = np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE)
+    ebounds = [-1.1, -0.1]
+    w_sabcj = mod_weights_for_ebounds(w_sabcj, e_sabcj, ebounds)
+    for j in [0, 2]:
+        assert all(np.isclose(w_sabcj[:, :, :, :, j].flatten(), 0.0))
+    for j in [1]:
+        assert all(np.isclose(w_sabcj[:, :, :, :, j].flatten(), 1.0))
