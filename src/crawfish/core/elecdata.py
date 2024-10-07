@@ -21,6 +21,7 @@ from crawfish.io.data_parsing import (
     get_wk_sabc,
 )
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
+from crawfish.core.operations.matrix import get_p_uvjsabc, get_h_uvsabc
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.jdftxinfile import JDFTXInfile
 from pymatgen.io.jdftx.jdftxoutfile import JDFTXOutfile
@@ -65,6 +66,8 @@ class ElecData:
     _nspin: int | None = None
     _e_sabcj: np.ndarray[REAL_DTYPE] | None = None
     _proj_sabcju: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE] | None = None
+    _p_uvjsabc: np.ndarray[REAL_DTYPE] | None = None
+    _h_uvsabc: np.ndarray[REAL_DTYPE] | None = None
     _occ_sabcj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
@@ -229,6 +232,26 @@ class ElecData:
             fillings = np.array(fillings, dtype=REAL_DTYPE)
             self._occ_sabcj = fillings.reshape(occ_shape)
         return self._occ_sabcj
+
+    @property
+    def p_uvjsabc(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return atomic projection P matrix of calculation.
+
+        Return atomic projection P matrix of calculation in shape (norbs, norbs, nbands, nspin, nka, nkb, nkc).
+        """
+        if self._p_uvjsabc is None:
+            self._p_uvjsabc = get_p_uvjsabc(self.proj_tju)
+        return self._p_uvjsabc
+
+    @property
+    def h_uvsabc(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return atomic hamiltonian matrix of calculation.
+
+        Return atomic hamiltonian matrix of calculation in shape (norbs, norbs, nspin, nka, nkb, nkc).
+        """
+        if self._h_uvsabc is None:
+            self._h_uvsabc = get_h_uvsabc(self.p_uvjsabc, self.e_sabcj)
+        return self._h_uvsabc
 
     @property
     def orbs_idx_dict(self) -> dict[str, int]:

@@ -11,7 +11,7 @@ from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 def get_p_uvjsabc(
     proj_sabcju: np.ndarray[REAL_DTYPE], orbs_u: list[int] | None = None, orbs_v: list[int] | None = None
-) -> np.ndarray:
+) -> np.ndarray[REAL_DTYPE]:
     r"""Return the projection matrix P_{uv}^{j,s,a,b,c} = <\phi_{j,s,a,b,c}^j | u><v | \phi_{j,s,a,b,c}>.
 
     Return the projection matrix P_{uv}^{j,s,a,b,c} = <\phi_{j,s,a,b,c}^j | u><v | \phi_{j,s,a,b,c}>.
@@ -99,7 +99,7 @@ def get_h_uvsabc(
     e_sabcj: np.ndarray[REAL_DTYPE],
     orbs_u: list[int] | None = None,
     orbs_v: list[int] | None = None,
-):
+) -> np.ndarray[REAL_DTYPE]:
     r"""Get the Hamiltonian matrix H_{u,v}^{s,a,b,c} = Sum_j <\phi_{s,a,b,c,j} | u><u | \hat{H} | v><v | \phi_{s,a,b,c,j}>.
 
     Get the Hamiltonian matrix  H_{u,v}^{s,a,b,c} = Sum_j <\phi_{s,a,b,c,j} | u><u | \hat{H} | v><v | \phi_{s,a,b,c,j}>.
@@ -381,3 +381,19 @@ def _get_ub_idx_vec(nums, ub_list):
     sorted_ub = ub_array[sorted_indices]
     idxs = np.searchsorted(sorted_ub, nums, side="right")
     return sorted_indices[idxs]
+
+
+def _add_kweights(weights_sabcj: np.ndarray[REAL_DTYPE], wk_sabc: np.ndarray[REAL_DTYPE]) -> np.ndarray[REAL_DTYPE]:
+    """Add k-point weights to the weights array.
+
+    Add k-point weights to the weights array. The weights array is multiplied by the k-point weights.
+
+    Parameters
+    ----------
+    weights_sabcj : np.ndarray
+        The set of weights for the energies of interest
+    wk_sabc : np.ndarray
+        The set of k-point weights for the system of interest
+    """
+    wk_sabcj = np.moveaxis(np.array([wk_sabc] * np.shape(weights_sabcj)[-1]), 0, -1)
+    return weights_sabcj * wk_sabcj

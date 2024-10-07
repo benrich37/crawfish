@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from crawfish.io.general import format_file_path, read_file
 from crawfish.core.elecdata import ElecData
+from typing import Callable
 
 
 def fidcs(idcs: list[int] | int) -> list[int]:
@@ -122,31 +123,95 @@ def get_kmap_from_edata(edata: ElecData) -> list[str]:
     return idx_to_key_map
 
 
-# def get_kmap_from_atoms(atoms: Atoms) -> list[str]:
-#     """Return a list of strings mapping ion index to element symbol and ion number.
-
-#     Return a list of strings mapping ion index to element symbol and ion number.
-#     (e.g. ["H #1", "H #2", "O #1", "O #2)
-
-#     Parameters
-#     ----------
-#     atoms : ase.Atoms
-#         The Atoms object of the system of interest
-#     """
-#     el_counter_dict = {}
-#     idx_to_key_map = []
-#     els = atoms.get_chemical_symbols()
-#     for i, el in enumerate(els):
-#         if el not in el_counter_dict:
-#             el_counter_dict[el] = 0
-#         el_counter_dict[el] += 1
-#         idx_to_key_map.append(f"{el} #{el_counter_dict[el]}")
-#     return idx_to_key_map
-
-
 orb_ref_list = [
     ["s"],
     ["px", "py", "pz"],
     ["dxy", "dxz", "dyz", "dx2y2", "dz2"],
     ["fx3-3xy2", "fyx2-yz2", "fxz2", "fz3", "fyz2", "fxyz", "f3yx2-y3"],
 ]
+
+
+def get_orb_bool_func(orbs: list[str] | str | None) -> None | Callable:
+    """Return a function that returns True if the orbital is in the input list.
+
+    Return a function that returns True if the orbital is in the input list.
+
+    Parameters
+    ----------
+    orbs : list[str] | str | None
+        The list of orbitals of interest
+    """
+    orb_bool_func = None
+    if orbs is not None:
+        if type(orbs) is list:
+
+            def orb_bool_func(s):
+                return True in [o in s for o in orbs]
+        else:
+
+            def orb_bool_func(s):
+                return orbs in s
+
+    return orb_bool_func
+
+
+def get_aidcs(edata: ElecData, idcs: list[int] | int | None, elements: list[str] | str | None) -> list[int]:
+    """Return all ion indices encompassed by the input indices or elements.
+
+    Return all ion indices encompassed by the input indices or elements.
+
+    Parameters
+    ----------
+    edata : ElecData
+        The ElecData object of the system of interest
+    idcs : list[int] | int | None
+        The indices of the ions of interest. (auto-filled by elements if None)
+    elements : list[str] | str | None
+        The elements of interest. (auto-filled by idcs if None)
+    """
+    if elements is not None:
+        if idcs is not None:
+            raise ValueError("Cannot provide both idcs and elements.")
+        idcs = []
+        for el in elements:
+            idcs += [i for i, sym in enumerate(edata.ion_names) if sym == el]
+    if idcs is None:
+        idcs = list(range(len(edata.ion_names)))
+    if isinstance(idcs, int):
+        idcs = [idcs]
+    return idcs
+
+
+def get_orb_idcs(
+    edata: ElecData, idcs: list[int] | int | None, elements: list[str] | str | None, orbs: list[str] | str | None
+) -> list[int]:
+    """Return all orbital indices encompassed by the input indices, elements, or orbitals.
+
+    Return all orbital indices encompassed by the input indices, elements, or orbitals.
+
+    Parameters
+    ----------
+    edata : ElecData
+        The ElecData object of the system of interest
+    idcs : list[int] | int | None
+        The indices of the ions of interest. (auto-filled by elements if None)
+    elements : list[str] | str | None
+        The elements of interest. (auto-filled by idcs if None)
+    orbs : list[str] | str | None
+        The orbitals of interest. (all orbitals if None)
+    """
+    if all(x is None for x in [idcs, elements, orbs]):
+        raise ValueError("Must provide idcs, elements, or orbs.")
+    idcs = get_aidcs(edata, idcs, elements)
+    orb_bool_func = get_orb_bool_func(orbs)
+    orb_idcs = []
+    if orb_bool_func is not None:
+        el_orb_u_dict = get_el_orb_u_dict(edata, idcs)
+        for el in el_orb_u_dict:
+            for orb in el_orb_u_dict[el]:
+                if orb_bool_func(orb):
+                    orb_idcs += el_orb_u_dict[el][orb]
+    else:
+        for idx in idcs:
+            orb_idcs += edata.orbs_idx_dict[edata.ion_names[idx]]
+    return orb_idcs
