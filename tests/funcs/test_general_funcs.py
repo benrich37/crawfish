@@ -8,6 +8,7 @@ import pytest
 
 def test_get_generic_gsmear_spectrum():
     edata = ElecData(EXAMPLE_CALC_DIRS_DIR / "N2_bare_min")
+    edata._wk_sabc = np.ones(np.shape(edata.wk_sabc), dtype=REAL_DTYPE)
     sabcj = [edata.nspin] + list(edata.kfolding) + [edata.nbands]
     weights_sabcj = np.ones(sabcj, dtype=REAL_DTYPE)
     sig = 0.0001

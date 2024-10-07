@@ -21,6 +21,7 @@ from crawfish.io.data_parsing import (
     get_wk_sabc,
 )
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
+from crawfish.utils.indexing import get_kmap_from_edata
 from crawfish.core.operations.matrix import get_p_uvjsabc, get_h_uvsabc
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.jdftxinfile import JDFTXInfile
@@ -267,6 +268,16 @@ class ElecData:
             unique_ion_names, ion_counts = count_ions(self.ion_names)
             self._orbs_idx_dict = orbs_idx_dict_helper(unique_ion_names, ion_counts, self.norbsperatom)
         return self._orbs_idx_dict
+
+    @property
+    def kmap(self) -> list[str]:
+        """Return mapping of atom indices to atom labels.
+
+        Return mapping of atom indices to atom labels.
+        """
+        if self._kmap is None:
+            self._kmap = get_kmap_from_edata(self)
+        return self._kmap
 
     @property
     def wk_sabc(self) -> np.ndarray[REAL_DTYPE]:

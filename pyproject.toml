@@ -11,6 +11,7 @@ dependencies = [
     "numba>=0.55",
     "ase>=3.23.0",
     "pymatgen@git+https://github.com/benrich37/pymatgen.git",
+    "libtetrabz>=0.1.1",
 ]
 
 [tool.ruff]

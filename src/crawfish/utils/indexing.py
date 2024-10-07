@@ -6,8 +6,12 @@ Methods for indexing atoms and orbitals in a system.
 from __future__ import annotations
 from pathlib import Path
 from crawfish.io.general import format_file_path, read_file
-from crawfish.core.elecdata import ElecData
-from typing import Callable
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Callable
+    from crawfish.core.elecdata import ElecData
 
 
 def fidcs(idcs: list[int] | int) -> list[int]:
@@ -213,5 +217,5 @@ def get_orb_idcs(
                     orb_idcs += el_orb_u_dict[el][orb]
     else:
         for idx in idcs:
-            orb_idcs += edata.orbs_idx_dict[edata.ion_names[idx]]
+            orb_idcs += edata.orbs_idx_dict[edata.kmap[idx]]
     return orb_idcs

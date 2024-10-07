@@ -1,12 +1,19 @@
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.testing import EXAMPLE_CALC_DIRS_DIR, approx_idx
+from crawfish.utils.typing import REAL_DTYPE
 from crawfish.funcs.pdos import get_pdos
 import numpy as np
 import pytest
 
 
+n2_calcdir = EXAMPLE_CALC_DIRS_DIR / "N2_bare_min"
+edata = ElecData(n2_calcdir)
+erange, pdos = get_pdos(edata, idcs=0)
+
+
 def test_get_pdos():
     edata = ElecData(EXAMPLE_CALC_DIRS_DIR / "N2_bare_min")
+    edata._wk_sabc = np.ones(np.shape(edata.wk_sabc), dtype=REAL_DTYPE)
     sig = 0.0001
     res = 0.001
     erange, spectrum = get_pdos(edata, idcs=0, orbs="s", sig=sig, res=res)

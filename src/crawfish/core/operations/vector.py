@@ -4,19 +4,19 @@ Module for common methods yielding vectors.
 """
 
 from __future__ import annotations
-from ase.dft.dos import linear_tetrahedron_integration as lti
 import numpy as np
 from crawfish.core.operations.scalar import gauss
 from crawfish.utils.typing import check_arr_typing
 from numba import jit
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
+import libtetrabz
 
 
 def get_lti_spectrum(
     e_sabcj: np.ndarray[REAL_DTYPE],
     erange: np.ndarray[REAL_DTYPE],
     weights_sabcj: np.ndarray[REAL_DTYPE],
-    lattice: np.ndarray[REAL_DTYPE],
+    bvec: np.ndarray[REAL_DTYPE],
 ) -> list[np.ndarray[REAL_DTYPE]]:
     """Return the linear tetrahedron integration spectrum for a given set of energies, weights, and lattice.
 
@@ -30,15 +30,44 @@ def get_lti_spectrum(
         The energy range to evaluate the spectrum
     weights_sabcj : np.ndarray
         The set of weights for the energies of interest
-    lattice : np.ndarray
-        The lattice of the system of interest
+    bvec : np.ndarray
+        Reciprocal lattice of the system of interest
     """
-    check_arr_typing([e_sabcj, erange, weights_sabcj, lattice])
+    check_arr_typing([e_sabcj, erange, weights_sabcj])
     cs = []
     nspin = np.shape(e_sabcj)[0]
     for s in range(nspin):
-        cs.append(lti(lattice, e_sabcj[s], erange, weights=weights_sabcj[s]))
+        wght = libtetrabz.dos(bvec, e_sabcj[s], erange)
+        c = np.zeros(np.shape(erange), dtype=weights_sabcj.dtype)
+        cs.append(get_lti_spectrum_jit(erange, weights_sabcj[s], wght, c))
     return cs
+
+
+@jit(nopython=True)
+def get_lti_spectrum_jit(
+    erange: np.ndarray[REAL_DTYPE],
+    weights_abcj: np.ndarray[REAL_DTYPE],
+    wght: np.ndarray[REAL_DTYPE],
+    c: np.ndarray[REAL_DTYPE],
+) -> list[np.ndarray[REAL_DTYPE]]:
+    """Return the linear tetrahedron integration spectrum for a given set of energies, weights, and lattice.
+
+    Return the linear tetrahedron integration spectrum for a given set of energies, weights, and lattice.
+
+    Parameters
+    ----------
+    e_sabcj : np.ndarray
+        The set of energies for the system of interest
+    erange : np.ndarray
+        The energy range to evaluate the spectrum
+    weights_abcj : np.ndarray
+        The set of weights for the energies of interest
+    bvec : np.ndarray
+        Reciprocal lattice of the system of interest
+    """
+    for i, e in enumerate(erange):
+        c[i] = (wght[:, :, :, :, i] * weights_abcj[:, :, :, :]).sum()
+    return c
 
 
 def get_gauss_smear_spectrum(

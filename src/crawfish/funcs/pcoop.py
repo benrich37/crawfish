@@ -4,14 +4,15 @@ Module for user methods to get PCOOP spectrum.
 """
 
 from crawfish.utils.arg_correction import check_repeat
-from crawfish.core.operations.matrix import get_pcoop_sabcj, get_p_uvjsabc, _add_kweights
+from crawfish.core.operations.matrix import get_pcoop_sabcj, get_p_uvjsabc
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
 from crawfish.utils.arg_correction import edata_input_to_edata
-from crawfish.funcs.general import get_generic_gsmear_spectrum
+from crawfish.funcs.general import get_generic_spectrum
 from pathlib import Path
 import numpy as np
+from crawfish.funcs.general import SIGMA_DEFAULT, RES_DEFAULT
 
 
 def get_pcoop(
@@ -23,10 +24,14 @@ def get_pcoop(
     orbs1: list[str] | str | None = None,
     orbs2: list[str] | str | None = None,
     erange: np.ndarray[REAL_DTYPE] | None = None,
-    sig: REAL_DTYPE = REAL_DTYPE(0.00001),
-    res: REAL_DTYPE = REAL_DTYPE(0.01),
+    sig: REAL_DTYPE = SIGMA_DEFAULT,
+    res: REAL_DTYPE = RES_DEFAULT,
     spin_pol: bool = False,
     lite: bool = False,
+    lti: bool = False,
+    rattle_eigenvals: bool = False,
+    norm_max: bool = False,
+    norm_intg: bool = False,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
     """Get the PDOS spectrum for the system of interest.
 
@@ -45,6 +50,23 @@ def get_pcoop(
     lite : bool
         Use the lite version of the method
         (less expenive if performing multiple pcoop/pcohps with the same ElecData object).
+    erange: np.ndarray[REAL_DTYPE] | None
+        The energy range of interest.
+    sig : REAL_DTYPE
+        The sigma value for the Gaussian smearing (if lti is False).
+    res : REAL_DTYPE
+        The resolution of the energy range (if erange is None)
+    spin_pol : bool
+        If the spectrum should be returned with up/down intensities separated.
+    lti : bool
+        Use the linear tetrahedron integration method.
+    rattle_eigenvals : bool
+        Rattle the eigenvalues to up to twice erange resolution to avoid degeneracies.
+        (only used if lti is True)
+    norm_max : bool
+        Normalize the spectrum to the maximum intensity to 1.
+    norm_intg : bool
+        Normalize the spectrum to the integral of the spectrum to 1.
     """
     edata = edata_input_to_edata(edata_input)
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
@@ -55,5 +77,15 @@ def get_pcoop(
     else:
         p_uvjsabc = edata.p_uvjsabc
     pcoop_sabcj = get_pcoop_sabcj(p_uvjsabc, orbs_u, orbs_v)
-    pcoop_sabcj = _add_kweights(pcoop_sabcj, edata.wk_sabc)
-    return get_generic_gsmear_spectrum(edata, pcoop_sabcj, erange, spin_pol, sig, res=res)
+
+    kwargs = {
+        "erange": erange,
+        "spin_pol": spin_pol,
+        "sig": sig,
+        "res": res,
+        "lti": lti,
+        "rattle_eigenvals": rattle_eigenvals,
+        "norm_max": norm_max,
+        "norm_intg": norm_intg,
+    }
+    return get_generic_spectrum(edata, pcoop_sabcj, **kwargs)
