@@ -238,9 +238,10 @@ class ElecData:
         """Return atomic projection P matrix of calculation.
 
         Return atomic projection P matrix of calculation in shape (norbs, norbs, nbands, nspin, nka, nkb, nkc).
+        Fully evaluated for all u/v pairs.
         """
         if self._p_uvjsabc is None:
-            self._p_uvjsabc = get_p_uvjsabc(self.proj_tju)
+            self._p_uvjsabc = get_p_uvjsabc(self.proj_sabcju)
         return self._p_uvjsabc
 
     @property
@@ -248,6 +249,7 @@ class ElecData:
         """Return atomic hamiltonian matrix of calculation.
 
         Return atomic hamiltonian matrix of calculation in shape (norbs, norbs, nspin, nka, nkb, nkc).
+        Fully evaluated for all u/v pairs.
         """
         if self._h_uvsabc is None:
             self._h_uvsabc = get_h_uvsabc(self.p_uvjsabc, self.e_sabcj)
