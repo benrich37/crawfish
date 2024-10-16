@@ -6,3 +6,4 @@ launch.json
 .coverage
 coverage.xml
 codecov
+debug.ipynb

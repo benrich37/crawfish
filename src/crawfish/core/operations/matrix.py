@@ -133,6 +133,30 @@ def get_h_uvsabc(
     return _get_h_uvsabc_jit(h_uvsabc, p_uvjsabc, e_sabcj, nproj, nbands, nka, nkb, nkc, nspin, _orbs_u, _orbs_v)
 
 
+# def get_s_uu(low_proj_sabcju):
+#     s_uu = np.tensordot(low_proj_sabcju.conj().T, low_proj_sabcju, axes=([5, 4, 3, 2, 1], [0, 1, 2, 3, 4]))
+#     return s_uu
+
+
+# def get_h_uu(proj_sabcju, e_sabcj):
+#     h_uu = np.tensordot(
+#         proj_sabcju.conj().T,
+#         np.tensordot(e_sabcj.T, proj_sabcju, axes=([3, 2, 1, 0], [4, 3, 2, 5])),
+#         axes=([5, 4, 3, 2, 0], [0, 1, 2, 3, 5]),
+#     )
+#     return h_uu
+
+
+# def los_projs_for_bands(proj_sabcju):
+#     s_jj = np.tensordot(proj_sabcju.conj().T, proj_sabcju, axes=([5, 4, 3, 2, 0], [0, 1, 2, 3, 5]))
+#     eigs, low_u = np.linalg.eigh(s_jj)
+#     nsqrt_ss_jj = np.eye(len(eigs)) * (eigs ** (-0.5))
+#     low_s_jj = np.dot(low_u, np.dot(nsqrt_ss_jj, low_u.T.conj()))
+#     low_proj_sabcju = np.tensordot(proj_sabcju, low_s_jj, axes=([4], [0]))
+#     low_proj_sabcju = np.swapaxes(low_proj_sabcju, 5, 4)
+#     return low_proj_sabcju
+
+
 @jit(nopython=True)
 def _get_pcohp_sabcj_jit(
     nspin: int,

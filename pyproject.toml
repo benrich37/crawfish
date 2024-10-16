@@ -37,3 +37,8 @@ exclude = ["**/tests"]
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.codespell]
+ignore-words-list = """
+te,initalized,auxilliary,commun
+"""

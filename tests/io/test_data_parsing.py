@@ -58,3 +58,19 @@ def test_token_parsers():
     assert len(out2) == 2
     assert isinstance(out2[0], REAL_DTYPE)
     assert out2[0] == pytest.approx(1)
+
+
+def test_kpts_unreduction():
+    from crawfish.io.data_parsing import _Kpts
+    import numpy as np
+
+    ksteps = [0.5, 0.5, 0.5]
+    floor_weight = 1
+    kpts = [
+        np.array([0.0, 0.0, 0.0], dtype=REAL_DTYPE),
+        np.array([0.5, 0.0, 0.0], dtype=REAL_DTYPE),
+        np.array([0.5, 0.5, 0.0], dtype=REAL_DTYPE),
+        np.array([0.5, 0.5, 0.5], dtype=REAL_DTYPE),
+    ]
+    weights = [floor_weight, floor_weight * 3 * 2, floor_weight * 2 * 2, floor_weight * 2]
+    kpts = _Kpts(kpts, weights, floor_weight, ksteps)

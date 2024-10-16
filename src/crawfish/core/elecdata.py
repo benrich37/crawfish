@@ -257,6 +257,16 @@ class ElecData:
         return self._h_uvsabc
 
     @property
+    def ion_orb_u_dict(self) -> dict[str, int]:
+        """Return dictionary mapping atom labels to orbital indices.
+
+        Return dictionary mapping each atom (using key of format 'el #n' (str)) to indices
+        (int) of all atomic orbital projections (in 0-based indexing) belonging to
+        said atom.
+        """
+        return self.orbs_idx_dict
+
+    @property
     def orbs_idx_dict(self) -> dict[str, int]:
         """Return dictionary mapping orbital indices to atom labels.
 
@@ -432,7 +442,7 @@ class ElecData:
         """
         if self.norm_idx is None:
             proj_tju = self.proj_tju
-            _norm_projs_for_bands(
+            proj_tju = _norm_projs_for_bands(
                 proj_tju, self.nstates, self.nbands, self.nproj, restrict_band_norm_to_nproj=mute_excess_bands
             )
             proj_shape = list(np.shape(self.e_sabcj))
@@ -464,6 +474,44 @@ class ElecData:
             self.unnorm_projs()
             self.norm_projs_t2(mute_excess_bands=mute_excess_bands)
         return None
+
+    def norm_projs_t3(self) -> None:
+        """Orthogonalize bands with Lowdin symmetric orthogonalization.
+
+        Orthogonalize bands with Lowdin symmetric orthogonalization.
+        (np.tensordot(proj_sabcju[:,:,:,:,j,:].conj().T, proj_sabcju[:,:,:,:,k,:],
+                      axes = ([4,3,2,1,0], [0,1,2,3,4])) = delta(j,k))
+        """
+        if self.norm_idx is None:
+            proj_tju = self.proj_tju
+            # proj_sabcju = self.proj_sabcju
+            proj_tju = _norm_projs_for_orbs(proj_tju, self.nstates, self.nbands, self.nproj, mute_excess_bands=False)
+            proj_sabcju = proj_tju.reshape(list(np.shape(self.e_sabcj)) + [self.nproj])
+            self._proj_sabcju = los_projs_for_bands(proj_sabcju)
+            self.norm_idx = 3
+        elif self.norm_idx != 3:
+            self.unnorm_projs()
+            self.norm_projs_t3()
+        return None
+
+
+def los_projs_for_bands(proj_sabcju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
+    """Perform LOS on projections for band orthogonality.
+
+    Perform Lowdin symmetric orthogonalization on projections for band orthogonality.
+
+    Parameters
+    ----------
+    proj_sabcju : np.ndarray[COMPLEX_DTYPE]
+        Projections in shape (nstates, nbands, nproj).
+    """
+    s_jj = np.tensordot(proj_sabcju.conj().T, proj_sabcju, axes=([5, 4, 3, 2, 0], [0, 1, 2, 3, 5]))
+    eigs, low_u = np.linalg.eigh(s_jj)
+    nsqrt_ss_jj = np.eye(len(eigs)) * (eigs ** (-0.5))
+    low_s_jj = np.dot(low_u, np.dot(nsqrt_ss_jj, low_u.T.conj()))
+    low_proj_sabcju = np.tensordot(proj_sabcju, low_s_jj, axes=([4], [0]))
+    low_proj_sabcju = np.swapaxes(low_proj_sabcju, 5, 4)
+    return low_proj_sabcju
 
 
 # def get_t1_loss(proj_tju, nStates):

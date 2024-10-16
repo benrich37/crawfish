@@ -62,6 +62,43 @@ def get_el_orb_u_dict(edata: ElecData, aidcs: list[int]) -> dict[str, dict[str, 
     return el_orbs_dict
 
 
+def get_ion_orb_u_dict(edata: ElecData, aidcs: list[int]) -> dict[str, dict[str, list[int]]]:
+    """Return a dictionary mapping ion symbol and atomic orbital string to all relevant projection indices.
+
+    Return a dictionary mapping ion symbol and atomic orbital string to all relevant projection indices.
+
+    Parameters
+    ----------
+    edata : ElecData
+        The ElecData object of the system of interest
+    aidcs : list[int]
+        The list of indices for atoms of interest
+    """
+    syms = edata.ion_names
+    kmap = edata.kmap
+    ions = [edata.kmap[i] for i in aidcs]
+    els = [syms[i] for i in aidcs]
+    labels_dict: dict[str, list[str]] = get_atom_orb_labels_dict(edata.bandfile_filepath)
+    el_orbs_dict: dict[str, dict[str, list[int]]] = {}
+    ion_orbs_dict: dict[str, dict[str, list[int]]] = {}
+    orbs_idx_dict = edata.orbs_idx_dict
+    for i, ion in enumerate(ions):
+        if ion not in ion_orbs_dict:
+            ion_orbs_dict[ion] = {}
+        el = ion.split("#")[0].strip()
+
+    for i, el in enumerate(els):
+        if el not in el_orbs_dict:
+            el_orbs_dict[el] = {}
+        for ui, u in enumerate(orbs_idx_dict[kmap[aidcs[i]]]):
+            # ui is the index of the orbital in the context of the orbitals belonging to the atom
+            orb = labels_dict[el][ui]
+            if orb not in el_orbs_dict[el]:
+                el_orbs_dict[el][orb] = []
+            el_orbs_dict[el][orb].append(u)
+    return el_orbs_dict
+
+
 def get_atom_orb_labels_dict(bandfile_filepath: str | Path) -> dict[str, list[str]]:
     """Return a dictionary mapping each atom symbol to all atomic orbital projection string representations.
 

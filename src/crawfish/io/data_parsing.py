@@ -11,6 +11,7 @@ from numba import jit
 from crawfish.io.general import get_text_with_key_in_bounds, read_file
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 import warnings
+from copy import copy
 
 spintype_nspin = {"no-spin": 1, "spin-orbit": 2, "vector-spin": 2, "z-spin": 2}
 
@@ -266,45 +267,231 @@ def parse_kptsfile(kptsfile: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndar
     return wk_list, k_points_list, nstates
 
 
-# def get_kfolding_from_kpts_reader(kptsfile_filepath: str | Path) -> list[int] | None:
-#     """Get kpt folding from kpts file.
+class _Kpts:
+    def __init__(
+        self,
+        kpts: list[np.ndarray[REAL_DTYPE]],
+        weights: list[REAL_DTYPE],
+        floor_weight: REAL_DTYPE,
+        ksteps: list[REAL_DTYPE],
+    ):
+        self.reduced_kpts = []
+        for i in range(len(kpts)):
+            kpt = _Kpt(kpts[i], weights[i], floor_weight, ksteps)
+            self.reduced_kpts.append(kpt)
+        self.floor_weight = floor_weight
+        self.ksteps = ksteps
+        self.kpt_map: list[list[_Kpt]] = []
+        self.options: list[np.ndarray[REAL_DTYPE]] = [self._get_kpoint_entry_options(ksteps[i]) for i in range(3)]
+        for _kpt in self.reduced_kpts:
+            kpt = _Kpt(_kpt.kpt, _kpt.weight, _kpt.floor_weight, _kpt.ksteps)
+            self.kpt_map.append(self._get_unreduced_kpts(kpt))
 
-#     Get the kpt folding from the kpts file.
+    def _get_unreduced_kpts(self, kpt: _Kpt) -> list[_Kpt]:
+        kpt_list = [kpt]
+        l1 = len(kpt_list)
+        self._extend_kmap(kpt_list)
+        l2 = len(kpt_list)
+        while l2 > l1:
+            l1 = len(kpt_list)
+            self._extend_kmap(kpt_list)
+            l2 = len(kpt_list)
+        return kpt_list
 
-#     Parameters
-#     ----------
-#     kptsfile_filepath : str | Path
-#         Path to kpts file.
-#     """
-#     wk_list, k_points_list, nstates = parse_kptsfile(kptsfile_filepath)
-#     unique_vals: list[list[REAL_DTYPE]] = [[], [], []]
-#     for arr in k_points_list:
-#         for i, val in enumerate(arr):
-#             if not True in [np.isclose(val, uval) for uval in unique_vals[i]]:
-#                 unique_vals[i].append(val)
-#     est_kfold = [len(uvals) for uvals in unique_vals]
-#     if not np.prod(est_kfold) == len(arrs):
-#         warnings.warn("Kpts file does not have a consistent kpt mesh.", stacklevel=2)
-#         est_kfold = None
-#     return est_kfold
+    def _extend_kmap(self, klist: list[_Kpt]):
+        for kpt in klist:
+            avoid = [k.kpt for k in klist] + [k.kpt for k in self.reduced_kpts]
+            klist += kpt._sign_split(avoid=avoid)
+        for kpt in klist:
+            avoid = [k.kpt for k in klist] + [k.kpt for k in self.reduced_kpts]
+            klist += kpt._ax_split(avoid=avoid)
+
+    def _has_kpt(self, kpt: np.ndarray[REAL_DTYPE]):
+        return self._kpt_in_list(kpt, self.reduced_kpts)
+
+    def _kpts_array_is_kpt_object(self, akpt: np.ndarray[REAL_DTYPE], okpt: _Kpt):
+        return all([np.isclose(akpt[i], okpt.kpt[i]) for i in range(3)])
+
+    def _kpt_in_list(self, kpt: np.ndarray[REAL_DTYPE], kpt_list: list[_Kpt]):
+        return any([self._kpts_array_is_kpt_object(kpt, k) for k in kpt_list])
+
+    def _is_valid_kpt(self, kpt: np.ndarray[REAL_DTYPE]):
+        return all([np.isclose(0, min(self.options[i - kpt[i]])) for i in range(3)])
+
+    def _get_kpoint_entry_options(self, kstep):
+        kfold = int(1 / kstep)
+        n_out = int(np.floor(kfold / 2))
+        if kfold % 2 == 1:
+            return np.linspace(-kstep * n_out, kstep * n_out, kfold)
+        else:
+            return np.linspace(-kstep * (n_out - 1), kstep * n_out, kfold)
 
 
-# def get_kfolding_from_kptsfile_filepath(kptsfile_filepath: str | Path, nk: int) -> list[int]:
-#     """Get the kfolding from the kpts file.
+class _Kpt:
+    def __init__(
+        self, kpt: np.ndarray[REAL_DTYPE], weight: REAL_DTYPE, floor_weight: REAL_DTYPE, ksteps: list[REAL_DTYPE]
+    ):
+        self.kpt = kpt
+        self.weight = weight
+        self.floor_weight = floor_weight
+        self.ksteps = ksteps
+        self.gamma = self._is_gamma()
 
-#     Get the kpt folding from the kpts file.
+    def _is_gamma(self) -> bool:
+        return all([np.isclose(k, 0) for k in self.kpt])
 
-#     Parameters
-#     ----------
-#     kptsfile_filepath : str | Path
-#         Path to kpts file.
-#     nk : int
-#         Number of kpoints.
-#     """
-#     kfolding = get_kfolding_from_kpts_reader(kptsfile_filepath)
-#     if kfolding is None:
-#         kfolding = _get_arbitrary_kfolding(nk)
-#     return kfolding
+    @property
+    def _can_reduce(self) -> bool:
+        return not np.isclose(self.weight, self.floor_weight)
+
+    def _copy(self):
+        return _Kpt(self.kpt.copy(), copy(self.weight), self.floor_weight, self.ksteps)
+
+    def _sign_split(self, avoid: list[np.ndarray[REAL_DTYPE]] = []):
+        kpt_arr = self.kpt.copy()
+        kpt_arr *= -1
+        if any(
+            [
+                self.gamma,
+                self.weight == self.floor_weight,
+                not np.isclose(self.weight / 2 % self.floor_weight, 0),
+                self._kptarr_in_kptarr_list(kpt_arr, avoid),
+            ]
+        ):
+            return []
+        else:
+            self.weight *= 0.5
+            dup = self._copy()
+            dup.kpt *= -1
+            return [dup]
+
+    def _ax_split(self, avoid: list[np.ndarray[REAL_DTYPE]] = []):
+        if self.gamma or self.weight == self.floor_weight:
+            return []
+        else:
+            kpts = [self.kpt]
+            for i in range(3):
+                for j in range(i + 1, 3):
+                    kpt_copy = self.kpt.copy()
+                    kpt_copy[[i, j]] = self.kpt[[j, i]]
+                    if all(
+                        [
+                            self._is_valid_kpt(kpt_copy),
+                            not self._kptarr_in_kptarr_list(kpt_copy, kpts),
+                            not self._kptarr_in_kptarr_list(kpt_copy, avoid),
+                        ]
+                    ):
+                        kpts.append(kpt_copy)
+            if self.weight / len(kpts) < self.floor_weight:
+                return []
+            self.weight /= len(kpts)
+            kpts_out = []
+            if len(kpts) > 1:
+                for kpt in kpts[1:]:
+                    _kpt = self._copy()
+                    _kpt.kpt = kpt
+                    kpts_out.append(_kpt)
+            return kpts_out
+
+    def _is_same(self, other: _Kpt) -> bool:
+        return all([np.isclose(self.kpt[i], other.kpt[i]) for i in range(3)])
+
+    def _is_valid_kpt(self, kpt: np.ndarray[REAL_DTYPE]):
+        return all([np.isclose(kpt[i] % self.ksteps[i], 0) for i in range(3)])
+
+    def _kptarr_in_kptarr_list(self, kpt: np.ndarray[REAL_DTYPE], kpt_list: list[np.ndarray[REAL_DTYPE]]):
+        return any([self._kpts_array_is_kpt_array(kpt, k) for k in kpt_list])
+
+    def _kpts_array_is_kpt_array(
+        self,
+        akpt1: np.ndarray[REAL_DTYPE],
+        akpt2: np.ndarray[REAL_DTYPE],
+    ):
+        return all([np.isclose(akpt1[i], akpt2[i]) for i in range(3)])
+
+
+def _get_kpt_unfolding_map(kptsfile_filepath: str | Path, outfile_filepath: str | Path):
+    kfolding = get_kfolding_from_outfile_filepath(outfile_filepath)
+    nspin = get_nspin_from_outfile_filepath(outfile_filepath)
+    wk_indiv_expected = 1 / (np.prod(kfolding) * nspin)
+    wk, k_points_list, nstates = parse_kptsfile(kptsfile_filepath)
+    if all(np.isclose(wk, wk_indiv_expected)):
+        return k_points_list
+    k_points_list_out = []
+    for i, kpt in enumerate(k_points_list):
+        if _kpt_can_reduce(kpt, wk[i], kfolding, wk_indiv_expected):
+            n_possible_reductions = _get_n_possible_reductions(kpt, wk[i], kfolding, wk_indiv_expected)
+            equiv_kpts = _get_equiv_kpts(kpt, kfolding)
+            if len(equiv_kpts) != n_possible_reductions:
+                raise ValueError("Number of equivalent kpts does not match expected number.")
+            k_points_list_out.append(equiv_kpts)
+
+
+def _unreduce_kpt(kpt, kfolding, weight, wk_indiv_expected):
+    if _kpt_can_reduce(kpt, weight, kfolding, wk_indiv_expected):
+        n_possible_reductions = _get_n_possible_reductions(kpt, weight, kfolding, wk_indiv_expected)
+        equiv_kpts = _get_equiv_kpts(kpt, kfolding)
+        if len(equiv_kpts) != n_possible_reductions:
+            raise ValueError("Number of equivalent kpts does not match expected number.")
+        return equiv_kpts
+
+
+def _get_equiv_kpts(kpt, kfolding):
+    equiv_kpts = _get_axswap_equiv_kpts(kpt, kfolding)
+    _equiv_kpts = [kpt * (-1) for kpt in equiv_kpts]
+    equiv_kpts.extend(_equiv_kpts)
+    return equiv_kpts
+
+
+def _get_axswap_equiv_kpts(kpt, kfolding):
+    equiv_kpts = []
+    for i in range(3):
+        for j in range(3):
+            if i <= j:
+                if kfolding[i] > 1 and kfolding[j] > 1:
+                    kpt_copy = kpt.copy()
+                    kpt_copy = np.swapaxes(kpt_copy, i, j)
+                    if _is_acceptable_kpt(kfolding, kpt_copy):
+                        equiv_kpts.append(kpt_copy)
+    return equiv_kpts
+
+
+def _get_signswap_equiv_kpts(kpt, kfolding):
+    equiv_kpts = [kpt * (-1)]
+    return equiv_kpts
+
+
+def _get_n_possible_reductions(kpt, weight, kfolding, wk_indiv_expected):
+    possible_reductions = weight / wk_indiv_expected
+    n_possible_reductions = int(possible_reductions)
+    if not np.isclose(possible_reductions, n_possible_reductions):
+        raise ValueError("Kpt weight is not a multiple of the expected weight.")
+    return n_possible_reductions
+
+
+def _kpt_can_reduce(kpt, weight, kfolding, wk_indiv_expected):
+    n_possible_reductions = _get_n_possible_reductions(kpt, weight, kfolding, wk_indiv_expected)
+    return n_possible_reductions > 1
+
+
+def _is_acceptable_kpt(kfolding: list[int], kpt: list[REAL_DTYPE]) -> bool:
+    """Check if kpt is acceptable.
+
+    Check if kpt is acceptable.
+
+    Parameters
+    ----------
+    kfolding : list[int]
+        kpt folding.
+    kpt : list[REAL_DTYPE]
+        kpt.
+
+    Returns
+    -------
+    bool
+    """
+    ksteps = [1 / kf for kf in kfolding]
+    return all([np.isclose(kpt[i] % ksteps[i], 0) for i in range(3)])
 
 
 def get_kfolding(lti: bool, outfile_filepath: str | Path, nspin: int, nstates: int) -> list[int]:
