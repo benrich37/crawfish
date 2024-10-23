@@ -151,7 +151,75 @@ def get_real_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]):
     )
     return s_tj_uu
 
-# def get_p_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE], occ_tj: np.ndarray[REAL_DTYPE], wk_t: np.ndarray[REAL_DTYPE]):
+def get_p_tj_uu(s_tj_uu: np.ndarray[REAL_DTYPE], occ_tj: np.ndarray[REAL_DTYPE], wk_t: np.ndarray[REAL_DTYPE]):
+    """ Get the projected density of states tensor P_{t,j,u,u} = Sum_{u} |T_{t,j,u}|^2 w_{t}.
+
+    Get the projected density of states tensor P_{t,j,u,u} = Sum_{u} |T_{t,j,u}|^2 w_{t}.
+    Creates with restriction of electron conservation (sum_{u,v}P_{t,j,u,v} = occ_{t,j}*wk_{t}).
+
+    Parameters
+    ----------
+    s_tj_uu : np.ndarray
+        The overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*)
+    occ_tj : np.ndarray
+        The occupation tensor occ_{t,j} = <\phi_{t,j} | \phi_{t,j}>
+    wk_t : np.ndarray
+        The k-point weights w_{t}
+    """
+    t, j, u, _ = np.shape(s_tj_uu)
+    p_tj_uu = np.zeros([t, j, u, u], dtype=REAL_DTYPE)
+    p_tj_uu += (
+        occ_tj[:, :, np.newaxis, np.newaxis] * wk_t[:, np.newaxis, np.newaxis, np.newaxis] / np.sum(np.abs(s_tj_uu),
+                                                                                                    axis=(2, 3),
+                                                                                                    keepdims=True)
+        ) * np.abs(s_tj_uu)
+    return p_tj_uu
+
+def get_h_tj_uu(p_tj_uu: np.ndarray[REAL_DTYPE], e_tj: np.ndarray[REAL_DTYPE]):
+    """ Get the Hamiltonian tensor H_{t,j,u,u} = P_{t,j,u,u} * E_{t,j}.
+
+    Get the Hamiltonian tensor H_{t,j,u,u} = P_{t,j,u,u} * E_{t,j}.
+    Assumes P_{t,j,u,u} is created with electron count preserved for each state/band (j/t).
+
+    Parameters
+    ----------
+    p_tj_uu : np.ndarray
+        The projected density of states tensor P_{t,j,u,u} = Sum_{u} |T_{t,j,u}|^2 w_{t}
+    e_tj : np.ndarray
+        The planewave eigenvalue tensor E_{t,j} = <\phi_{t,j} | \hat{H} | \phi_{t,j}>
+    """
+    t, j, u, _ = np.shape(p_tj_uu)
+    h_tj_uu = np.zeros([t, j, u, u], dtype=REAL_DTYPE)
+    h_tj_uu += p_tj_uu * e_tj[:, :, np.newaxis, np.newaxis]
+    return h_tj_uu
+
+def get_h_uu(proj_tju: np.ndarray[COMPLEX_DTYPE], e_tj: np.ndarray[REAL_DTYPE], occ_tj: np.ndarray[REAL_DTYPE], wk_t: np.ndarray[REAL_DTYPE]):
+    """ Get the Hamiltonian tensor H_{u,u} = Sum_{t,j} P_{t,j,u,u} * E_{t,j}.
+
+    Get the Hamiltonian tensor H_{u,u} = Sum_{t,j} P_{t,j,u,u} * E_{t,j}.
+    Assumes P_{t,j,u,u} is created with electron count preserved for each state/band (j/t).
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray
+        The projection tensor T_{t,j,u} = <\phi_{t,j} | u>
+    e_tj : np.ndarray
+        The planewave eigenvalue tensor E_{t,j} = <\phi_{t,j} | \hat{H} | \phi_{t,j}>
+    occ_tj : np.ndarray
+        The occupation tensor occ_{t,j} = <\phi_{t,j} | \phi_{t,j}>
+    wk_t : np.ndarray
+        The k-point weights w_{t}
+    """
+    s_tj_uu = get_real_s_tj_uu(proj_tju)
+    p_tj_uu = get_p_tj_uu(s_tj_uu, occ_tj, wk_t)
+    h_tj_uu = get_h_tj_uu(p_tj_uu, e_tj)
+    h_uu = np.sum(h_tj_uu, axis=(0, 1))
+    return h_uu
+
+
+
+
+
 
     
 
