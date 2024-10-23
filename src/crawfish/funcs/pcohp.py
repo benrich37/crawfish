@@ -68,7 +68,8 @@ def get_pcohp(
     norm_intg : bool
         Normalize the spectrum to the integral of the spectrum to 1.
     """
-    edata = edata_input_to_edata(edata_input)
+    #edata = edata_input_to_edata(edata_input)
+    edata = edata_input
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)

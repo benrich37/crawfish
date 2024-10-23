@@ -59,7 +59,8 @@ def get_pdos(
     norm_intg : bool
         Normalize the spectrum to the integral of the spectrum to 1.
     """
-    edata = edata_input_to_edata(edata_input)
+    #edata = edata_input_to_edata(edata_input)
+    edata = edata_input
     orb_idcs = get_orb_idcs(edata, idcs, elements, orbs)
     pdos_sabcj = get_pdos_sabcj(edata.proj_sabcju, orb_idcs)
 

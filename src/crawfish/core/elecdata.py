@@ -195,6 +195,7 @@ class ElecData:
             self._e_sabcj = get_e_sabcj_helper(self.eigfile_filepath, self.nspin, self.nbands, self.kfolding)
         return self._e_sabcj
 
+
     @property
     def proj_sabcju(self) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
         """Return projections of calculation.
