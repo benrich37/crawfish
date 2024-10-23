@@ -134,16 +134,25 @@ def get_h_uvsabc(
 
 
 def get_real_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]):
+    """ Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
+    
+    Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
+    
+    Parameters
+    ----------
+    proj_tju : np.ndarray
+        The projection tensor T_{t,j,u} = <\phi_{t,j} | u>
+    """
     t, j, u = np.shape(proj_tju)
     s_tj_uu = np.zeros([t, j, u, u], dtype=REAL_DTYPE)
-    for t in range(nstates):
-        for j in range(nbands):
-            for u in range(nproj):
-                for v in range(nproj):
-                    s_tj_uu[t,j,u,v] += np.conj(ex_proj[t,j,u])*ex_proj[t,j,v]
-    s_tj_uu += s_tj_uu.conj()
-    s_tj_uu *= 0.5
+    s_tj_uu += 0.5 * (
+        np.conj(proj_tju[:, :, :, np.newaxis]) * proj_tju[:, :, np.newaxis, :] + 
+        np.conj(np.conj(proj_tju[:, :, :, np.newaxis]) * proj_tju[:, :, np.newaxis, :])
+    )
     return s_tj_uu
+
+# def get_p_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE], occ_tj: np.ndarray[REAL_DTYPE], wk_t: np.ndarray[REAL_DTYPE]):
+
     
 
 
