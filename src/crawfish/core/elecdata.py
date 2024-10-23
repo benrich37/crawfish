@@ -83,7 +83,7 @@ class ElecData:
     _lti_allowed: bool | None = None
     #
     norm_idx: int | None = None
-    xs_bands_muted: bool = False
+    trim_excess_bands: bool = True
 
     @property
     def infile(self) -> JDFTXInfile:
@@ -343,9 +343,9 @@ class ElecData:
 
     @classmethod
     def from_calc_dir(cls, calc_dir: Path, prefix: str | None = None, alloc_elec_data=True):
-        """Create ElecData instance from calculation directory.
+        """Create ElecData instance from JDFTx calculation directory.
 
-        Create ElecData instance from calculation directory.
+        Create ElecData instance from JDFTx calculation directory.
 
         Parameters
         ----------
@@ -427,6 +427,14 @@ class ElecData:
         self.norm_idx = None
         return None
 
+    def norm_projs(self) -> None:
+        """Normalize projections.
+
+        Normalize projections.
+        """
+        self.norm_projs_t1()
+        return None
+
     def norm_projs_t1(self, mute_excess_bands=False) -> None:
         """Normalize projections for bands.
 
@@ -495,7 +503,27 @@ class ElecData:
         return None
 
 
-def los_projs_for_bands(proj_sabcju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
+def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
+    """Perform LOS on projections for projection orthogonality.
+
+    Perform Lowdin symmetric orthogonalization on projections for orbital projection orthogonality.
+
+    Parameters
+    ----------
+    proj_sabcju : np.ndarray[COMPLEX_DTYPE]
+        Projections in shape (nstates, nbands, nproj).
+    """
+    low_proj_tju = np.zeros_like(proj_tju)
+    nstates = np.shape(proj_tju)[0]
+    for t in range(nstates):
+        s_uu = np.tensordot(proj_tju[t].conj().T, proj_tju[t], axes=([1], [0]))
+        eigs, low_u = np.linalg.eigh(s_uu)
+        nsqrt_ss_uu = np.eye(len(eigs)) * (eigs ** (-0.5))
+        low_s_uu = np.dot(low_u, np.dot(nsqrt_ss_uu, low_u.T.conj()))
+        low_proj_tju[t,:,:] += np.tensordot(proj_tju[t], low_s_uu, axes=([1], [0]))
+    return low_proj_tju
+
+def los_projs_for_bands(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
     """Perform LOS on projections for band orthogonality.
 
     Perform Lowdin symmetric orthogonalization on projections for band orthogonality.
@@ -505,13 +533,15 @@ def los_projs_for_bands(proj_sabcju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[CO
     proj_sabcju : np.ndarray[COMPLEX_DTYPE]
         Projections in shape (nstates, nbands, nproj).
     """
-    s_jj = np.tensordot(proj_sabcju.conj().T, proj_sabcju, axes=([5, 4, 3, 2, 0], [0, 1, 2, 3, 5]))
-    eigs, low_u = np.linalg.eigh(s_jj)
-    nsqrt_ss_jj = np.eye(len(eigs)) * (eigs ** (-0.5))
-    low_s_jj = np.dot(low_u, np.dot(nsqrt_ss_jj, low_u.T.conj()))
-    low_proj_sabcju = np.tensordot(proj_sabcju, low_s_jj, axes=([4], [0]))
-    low_proj_sabcju = np.swapaxes(low_proj_sabcju, 5, 4)
-    return low_proj_sabcju
+    low_proj_tju = np.zeros_like(proj_tju)
+    nstates = np.shape(proj_tju)[0]
+    for t in range(nstates):
+        s_uu = np.tensordot(proj_tju[t].conj().T, proj_tju[t], axes=([0], [1]))
+        eigs, low_u = np.linalg.eigh(s_uu)
+        nsqrt_ss_uu = np.eye(len(eigs)) * (eigs ** (-0.5))
+        low_s_uu = np.dot(low_u, np.dot(nsqrt_ss_uu, low_u.T.conj()))
+        low_proj_tju[t,:,:] += np.tensordot(proj_tju[t], low_s_uu, axes=([0], [1]))
+    return low_proj_tju
 
 
 # def get_t1_loss(proj_tju, nStates):
@@ -530,6 +560,67 @@ def los_projs_for_bands(proj_sabcju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[CO
 #     return abs(v1) + abs(v2)
 
 
+
+
+def normalize_square_proj_tju(proj_tju: np.ndarray[COMPLEX_DTYPE], nloops=1000, conv=0.01):
+    """ Normalize projection matrices proj_tju.
+    
+    Normalize projection matrices proj_tju. Requires nproj == nbands. Performs the following:
+    1. For each state t:
+        1.a. For each band j:
+            1.a.i. Sums proj_tju[t,j,u]^*proj_tju[t,j,u] for a given j and all u to "asum"
+            1.a.ii. Divides proj_tju[t,j,:] by 1/(asum**0.5)
+            1.b.iii. Adds |1-asum| to loss metric for state t
+        1.b. For each projection u:
+            1.b.i. Sums proj_tju[t,:,u]^*proj_tju[t,:,u] for a given u and all j to "asum"
+            1.b.ii. Divides proj_tju[t,:,u] by 1/(asum**0.5)
+            1.b.iii. Adds |1-asum| to loss metric for state t
+        1.c. If loss metric for state t exceeds the "conv" threshold and 1.a/1.b have been
+                performed for less than nloops, reset the loss metric and repeat 1.a/1.b for state t.
+                Otherwise, move to the next state.
+    2. Return the normalized proj_tju and the losses at each loop for each state.
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray[COMPLEX_DTYPE]
+        Projection matrices in shape (nstates, nbands, nproj).
+    nloops : int, optional
+        Maximum number of loops to perform normalization, by default 1000.
+    conv : float, optional
+        Convergence threshold for loss metric, by default 0.01.
+    """
+    proj_tju_norm = proj_tju.copy()
+    nproj: np.int64 = np.shape(proj_tju)[2]
+    nstates: np.int64 = np.shape(proj_tju)[0]
+    nbands: np.int64 = np.shape(proj_tju)[1]
+    losses = np.zeros([nstates, nloops], dtype=REAL_DTYPE)
+    proj_tju_norm = proj_tju.copy()
+    return _normalize_proj_tju(proj_tju_norm, nloops, conv, losses, nstates, nproj, nbands)
+
+@jit(nopython=True)
+def _normalize_square_proj_tju(
+    proj_tju_norm: np.ndarray[COMPLEX_DTYPE], nloops: int, conv: REAL_DTYPE, losses:np.ndarray[REAL_DTYPE],
+    nstates: int, nproj: int, nbands
+    ) -> tuple[np.ndarray[COMPLEX_DTYPE], np.ndarray[REAL_DTYPE]]:
+    for t in range(nstates):
+        for i in range(nloops):
+            for j in range(nbands):
+                asum: REAL_DTYPE = 0
+                for u in range(nproj):
+                    asum += np.real(np.conj(proj_tju_norm[t,j,u])*proj_tju_norm[t,j,u])
+                proj_tju_norm[t,j,:] *= 1/(asum**0.5)
+                losses[t,i] += np.abs(1-asum)
+            for u in range(nproj):
+                asum: REAL_DTYPE = 0
+                for j in range(nbands):
+                    asum += np.real(np.conj(proj_tju_norm[t,j,u])*proj_tju_norm[t,j,u])
+                proj_tju_norm[t,:,u] *= 1/(asum**0.5)
+                losses[t,i] += np.abs(1-asum)
+            if losses[t,i] < conv:
+                break
+    return proj_tju_norm, losses
+
+
 @jit(nopython=True)
 def _norm_projs_for_bands_jit_helper_1(nProj, nStates, nBands, proj_tju, j_sums):
     for u in range(nProj):
@@ -538,7 +629,7 @@ def _norm_projs_for_bands_jit_helper_1(nProj, nStates, nBands, proj_tju, j_sums)
                 j_sums[j] += abs(np.conj(proj_tju[t, j, u]) * proj_tju[t, j, u])
     for j in range(nBands):
         proj_tju[:, j, :] *= 1 / np.sqrt(j_sums[j])
-    proj_tju *= np.sqrt(nStates)
+    # proj_tju *= np.sqrt(nStates)
     return proj_tju
 
 
@@ -565,7 +656,7 @@ def _norm_projs_for_orbs_jit_helper(nProj, nStates, nBands, proj_tju, u_sums):
                 u_sums[u] += abs(np.conj(proj_tju[t, j, u]) * proj_tju[t, j, u])
     for u in range(nProj):
         proj_tju[:, :, u] *= 1 / np.sqrt(u_sums[u])
-    proj_tju *= np.sqrt(nStates)
+    # proj_tju *= np.sqrt(nStates)
     # proj_tju *= np.sqrt(2)
     # proj_tju *= np.sqrt(nStates*nBands/nProj)
     return proj_tju

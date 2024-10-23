@@ -133,6 +133,21 @@ def get_h_uvsabc(
     return _get_h_uvsabc_jit(h_uvsabc, p_uvjsabc, e_sabcj, nproj, nbands, nka, nkb, nkc, nspin, _orbs_u, _orbs_v)
 
 
+def get_real_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]):
+    t, j, u = np.shape(proj_tju)
+    s_tj_uu = np.zeros([t, j, u, u], dtype=REAL_DTYPE)
+    for t in range(nstates):
+        for j in range(nbands):
+            for u in range(nproj):
+                for v in range(nproj):
+                    s_tj_uu[t,j,u,v] += np.conj(ex_proj[t,j,u])*ex_proj[t,j,v]
+    s_tj_uu += s_tj_uu.conj()
+    s_tj_uu *= 0.5
+    return s_tj_uu
+    
+
+
+
 # def get_s_uu(low_proj_sabcju):
 #     s_uu = np.tensordot(low_proj_sabcju.conj().T, low_proj_sabcju, axes=([5, 4, 3, 2, 1], [0, 1, 2, 3, 4]))
 #     return s_uu
