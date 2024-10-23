@@ -133,7 +133,7 @@ def get_h_uvsabc(
     return _get_h_uvsabc_jit(h_uvsabc, p_uvjsabc, e_sabcj, nproj, nbands, nka, nkb, nkc, nspin, _orbs_u, _orbs_v)
 
 
-def get_real_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]):
+def get_real_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE], pos=False):
     """ Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
     
     Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
@@ -142,6 +142,9 @@ def get_real_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]):
     ----------
     proj_tju : np.ndarray
         The projection tensor T_{t,j,u} = <\phi_{t,j} | u>
+    pos : bool
+        If True, removes negative component by adding to the tensor and scaling down
+        to match previous tensor sum.
     """
     t, j, u = np.shape(proj_tju)
     s_tj_uu = np.zeros([t, j, u, u], dtype=REAL_DTYPE)
@@ -149,6 +152,10 @@ def get_real_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]):
         np.conj(proj_tju[:, :, :, np.newaxis]) * proj_tju[:, :, np.newaxis, :] + 
         np.conj(np.conj(proj_tju[:, :, :, np.newaxis]) * proj_tju[:, :, np.newaxis, :])
     )
+    if pos:
+        sum1 = np.sum(s_tj_uu.flatten())
+        s_tj_uu -= np.min(s_tj_uu.flatten())
+        s_tj_uu *= sum1 / np.sum(s_tj_uu.flatten())
     return s_tj_uu
 
 def get_p_tj_uu(s_tj_uu: np.ndarray[REAL_DTYPE], occ_tj: np.ndarray[REAL_DTYPE], wk_t: np.ndarray[REAL_DTYPE]):
