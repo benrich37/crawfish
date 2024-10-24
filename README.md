@@ -1,5 +1,6 @@
 
-![crawfish logo 3](https://github.com/user-attachments/assets/945875a4-c1fc-41a7-9a5d-1020ccca96e8)
+<img width="3689" alt="crawfish_github" src="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061">
+
 
 This will eventually look more official.
 
