@@ -44,7 +44,7 @@ def test_elecdata_properties():
         val = getattr(edata, floatprop)
         assert val is not None
         assert isinstance(val, REAL_DTYPE)
-    for realarr in ["e_sabcj", "occ_sabcj", "wk_sabc", "ks_sabc"]:
+    for realarr in ["e_tj", "occ_tj", "wk_t", "ks_t"]:
         assert hasattr(edata, realarr)
         val = getattr(edata, realarr)
         assert val is not None

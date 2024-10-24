@@ -12,8 +12,9 @@ from crawfish.io.data_parsing import (
     get_nbands_from_bandfile_filepath,
     get_nproj_from_bandfile_filepath,
     get_norbsperatom_from_bandfile_filepath,
-    get_e_sabcj_helper,
+    get_e_tj_helper,
     get_proj_sabcju_helper,
+    get_proj_tju_from_file,
     is_complex_bandfile_filepath,
     _get_lti_allowed,
     get_kfolding,
@@ -22,7 +23,7 @@ from crawfish.io.data_parsing import (
 )
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_kmap_from_edata
-from crawfish.core.operations.matrix import get_p_uvjsabc, get_h_uvsabc
+from crawfish.core.operations.matrix import get_h_uu_p_uu
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.jdftxinfile import JDFTXInfile
 from pymatgen.io.jdftx.jdftxoutfile import JDFTXOutfile
@@ -65,11 +66,13 @@ class ElecData:
     _nbands: int | None = None
     _nproj: int | None = None
     _nspin: int | None = None
-    _e_sabcj: np.ndarray[REAL_DTYPE] | None = None
-    _proj_sabcju: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE] | None = None
-    _p_uvjsabc: np.ndarray[REAL_DTYPE] | None = None
-    _h_uvsabc: np.ndarray[REAL_DTYPE] | None = None
-    _occ_sabcj: np.ndarray[REAL_DTYPE] | None = None
+    _e_tj: np.ndarray[REAL_DTYPE] | None = None
+    _proj_tju: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE] | None = None
+
+    _p_uu: np.ndarray[REAL_DTYPE] | None = None
+    _h_uu: np.ndarray[REAL_DTYPE] | None = None
+    _s_uu: np.ndarray[REAL_DTYPE] | None = None
+    _occ_tj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
     _orbs_idx_dict: dict | None = None
@@ -77,8 +80,8 @@ class ElecData:
     _complex_bandprojs: bool | None = None
     _norm: int | None = None
     #
-    _wk_sabc: np.ndarray[REAL_DTYPE] | None = None
-    _ks_sabc: np.ndarray[REAL_DTYPE] | None = None
+    _wk_t: np.ndarray[REAL_DTYPE] | None = None
+    _ks_t: np.ndarray[REAL_DTYPE] | None = None
     _kfolding: list[int] | None = None
     _lti_allowed: bool | None = None
     #
@@ -186,26 +189,15 @@ class ElecData:
         return self._mu
 
     @property
-    def e_sabcj(self) -> np.ndarray[REAL_DTYPE]:
+    def e_tj(self) -> np.ndarray[REAL_DTYPE]:
         """Return eigenvalues of calculation.
 
-        Return eigenvalues of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
+        Return eigenvalues of calculation in shape (nstate, nbands).
         """
-        if self._e_sabcj is None:
-            self._e_sabcj = get_e_sabcj_helper(self.eigfile_filepath, self.nspin, self.nbands, self.kfolding)
-        return self._e_sabcj
+        if self._e_tj is None:
+            self._e_tj = get_e_tj_helper(self.eigfile_filepath, self.nstates, self.nbands)
+        return self._e_tj
 
-    @property
-    def proj_sabcju(self) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
-        """Return projections of calculation.
-
-        Return projections of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands, nproj).
-        """
-        if self._proj_sabcju is None:
-            self._proj_sabcju = get_proj_sabcju_helper(
-                self.bandfile_filepath, self.nspin, self.kfolding, self.nbands, self.nproj
-            )
-        return self._proj_sabcju
 
     @property
     def proj_tju(self) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
@@ -213,10 +205,12 @@ class ElecData:
 
         Return projections of calculation in shape (nstates, nbands, nproj).
         """
-        return self.proj_sabcju.reshape(self.nstates, self.nbands, self.nproj)
-
+        if self._proj_tju is None:
+            self._proj_tju = get_proj_tju_from_file(self.bandfile_filepath)
+        return self._proj_tju
+    
     @property
-    def occ_sabcj(self) -> np.ndarray[REAL_DTYPE] | None:
+    def occ_tj(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return occupations of calculation.
 
         Return occupations of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
@@ -225,36 +219,47 @@ class ElecData:
             warnings.warn("No fillings file found, thus no occupations can be read")
             # TODO: Write a function to generate occupations from smearing and fermi level
             return None
-        if self._occ_sabcj is None:
-            occ_shape = [self.nspin]
-            occ_shape += list(self.kfolding)
-            occ_shape += [self.nbands]
+        if self._occ_tj is None:
             fillings = np.fromfile(self.fillingsfile_filepath)
             fillings = np.array(fillings, dtype=REAL_DTYPE)
-            self._occ_sabcj = fillings.reshape(occ_shape)
-        return self._occ_sabcj
+            self._occ_tj = fillings
+        return self._occ_tj
+
+    def set_mat_uu(self) -> None:
+        h_uu, p_uu, s_uu = get_h_uu_p_uu(self.proj_tju, self.e_tj, self.occ_tj, self.wk_t)
+        self._h_uu = h_uu
+        self._p_uu = p_uu
+        self._s_uu = s_uu
 
     @property
-    def p_uvjsabc(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return atomic projection P matrix of calculation.
+    def h_uu(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return hamiltonian matrix of calculation.
 
-        Return atomic projection P matrix of calculation in shape (norbs, norbs, nbands, nspin, nka, nkb, nkc).
-        Fully evaluated for all u/v pairs.
+        Return hamiltonian matrix of calculation in shape (nstates, nstates).
         """
-        if self._p_uvjsabc is None:
-            self._p_uvjsabc = get_p_uvjsabc(self.proj_sabcju)
-        return self._p_uvjsabc
+        if self._h_uu is None:
+            self.set_mat_uu()
+        return self._h_uu
 
     @property
-    def h_uvsabc(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return atomic hamiltonian matrix of calculation.
+    def p_uu(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return projection matrix of calculation.
 
-        Return atomic hamiltonian matrix of calculation in shape (norbs, norbs, nspin, nka, nkb, nkc).
-        Fully evaluated for all u/v pairs.
+        Return projection matrix of calculation in shape (nstates, nstates).
         """
-        if self._h_uvsabc is None:
-            self._h_uvsabc = get_h_uvsabc(self.p_uvjsabc, self.e_sabcj)
-        return self._h_uvsabc
+        if self._p_uu is None:
+            self.set_mat_uu()
+        return self._p_uu
+
+    @property
+    def s_uu(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return overlap matrix of calculation.
+
+        Return overlap matrix of calculation in shape (nstates, nstates).
+        """
+        if self._s_uu is None:
+            self.set_mat_uu()
+        return self._s_uu
 
     @property
     def ion_orb_u_dict(self) -> dict[str, int]:
@@ -290,24 +295,24 @@ class ElecData:
         return self._kmap
 
     @property
-    def wk_sabc(self) -> np.ndarray[REAL_DTYPE]:
+    def wk_t(self) -> np.ndarray[REAL_DTYPE]:
         """Return kpoint weights.
 
         Return kpoint weights in shape (kfolding[0], kfolding[1], kfolding[2]).
         """
-        if self._wk_sabc is None:
-            self._wk_sabc = get_wk_sabc(self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed)
-        return self._wk_sabc
+        if self._wk_t is None:
+            self._wk_t = get_wk_t(self.kptsfile_filepath, self.lti_allowed)
+        return self._wk_t
 
     @property
-    def ks_sabc(self) -> np.ndarray[REAL_DTYPE] | None:
+    def ks_t(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return kpoint coordinates.
 
         Return kpoint coordinates in shape (nspin, kfolding[0], kfolding[1], kfolding[2], 3).
         """
-        if self._ks_sabc is None and (self.lti_allowed and self.kptsfile_filepath is not None):
-            self._ks_sabc = get_ks_sabc(self.kptsfile_filepath, self.nspin, self.kfolding)
-        return self._ks_sabc
+        if self._ks_t is None and (self.lti_allowed and self.kptsfile_filepath is not None):
+            self._ks_t = get_ks_t(self.kptsfile_filepath)
+        return self._ks_t
 
     @property
     def kfolding(self) -> list[int]:

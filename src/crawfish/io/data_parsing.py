@@ -541,7 +541,7 @@ def _get_arbitrary_wk(nk: int, nspin: int) -> np.ndarray[REAL_DTYPE]:
     return wk
 
 
-def get_wk_sabc(
+def get_wk_t(
     kptsfile_filepath: Path | str | None, nspin: int, kfolding: list[int], lti: bool
 ) -> np.ndarray[REAL_DTYPE]:
     """Return weights for k-points.
@@ -572,8 +572,7 @@ def get_wk_sabc(
                     stacklevel=2,
                 )
                 wk = _get_arbitrary_wk(nk, nspin)
-    wk_sabc = wk.reshape([nspin, kfolding[0], kfolding[1], kfolding[2]])
-    return wk_sabc
+    return wk
 
 
 # def _get_ks_sabc(kfolding: list[int], kptsfile_filepath: Path | str | None, nspin: int, lti: bool) -> np.ndarray[REAL_DTYPE]:
@@ -626,7 +625,7 @@ def get_wk_sabc(
 #     return ks_sabc
 
 
-def get_ks_sabc(kptsfile_filepath: Path | str, nspin: int, kfolding: list[int]) -> np.ndarray[REAL_DTYPE]:
+def get_ks_t(kptsfile_filepath: Path | str) -> np.ndarray[REAL_DTYPE]:
     """Return the k-point coordinates.
 
     Return the k-point coordinates. Assumes k-point file exists and mesh is regular.
@@ -642,8 +641,7 @@ def get_ks_sabc(kptsfile_filepath: Path | str, nspin: int, kfolding: list[int]) 
     """
     wk, _ks, nstates = parse_kptsfile(kptsfile_filepath)
     ks = np.array(_ks, dtype=REAL_DTYPE)
-    ks_sabc = ks.reshape([nspin, kfolding[0], kfolding[1], kfolding[2], 3])
-    return ks_sabc
+    return ks
 
 
 # def _get_kpts_info_handler_astuple(
@@ -688,8 +686,8 @@ def get_ks_sabc(kptsfile_filepath: Path | str, nspin: int, kfolding: list[int]) 
 #     return kfolding, ks_sabc, wk_sabc, lti
 
 
-def get_e_sabcj_helper(
-    eigfile_filepath: str | Path, nspin: int, nbands: int, kfolding: list[int] | np.ndarray[int]
+def get_e_tj_helper(
+    eigfile_filepath: str | Path, nstates: int, nbands: int
 ) -> np.ndarray[REAL_DTYPE]:
     """Return eigenvalues from file.
 
@@ -700,26 +698,24 @@ def get_e_sabcj_helper(
     ----------
     eigfile_filepath : str | Path
         Path to eigenvalues file.
-    nspin : int
+    nstates : int
         Number of spins.
     nbands : int
         Number of bands.
-    kfolding : list[int] | np.ndarray[int]
-        kpt folding.
 
     Returns
     -------
     np.ndarray
-        Eigenvalues array in shape (spin, kpt_a, kpt_b, kpt_c, band).
+        Eigenvalues array in shape (state, band).
     """
     eigfile_filepath = Path(eigfile_filepath)
     if not eigfile_filepath.exists():
         raise ValueError(f"Eigenvalues file {eigfile_filepath} does not exist.")
     e = np.fromfile(eigfile_filepath)
     e = np.array(e, dtype=REAL_DTYPE)
-    eshape = [nspin, kfolding[0], kfolding[1], kfolding[2], nbands]
-    e_sabcj = e.reshape(eshape)
-    return e_sabcj
+    eshape = [nstates, nbands]
+    e_tj = e.reshape(eshape)
+    return e_tj
 
 
 def get_proj_sabcju_helper(
