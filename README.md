@@ -5,7 +5,8 @@
 height="200">
   </picture>
 </h1>
-# <img width="3689" alt="crawfish_github" src="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061">
+
+Crawfish is a python library for pcohp analysis on JDFTx calculations.
 
 
 This will eventually look more official.
