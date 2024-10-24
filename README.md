@@ -6,14 +6,12 @@ height="200">
   </picture>
 </h1>
 
-Crawfish is a python library for pcohp analysis on JDFTx calculations.
+Crawfish is a python library for pcohp analysis on JDFTx calculations. 
+
+## About `crawfish`
+
+Crawfish (originally called ultraSoftCrawfish) is a python library intended primarily for performing bonding analysis on the output of JDFTx calculations. Its reason for existing (as alluded to in the original name) is that the state-of-the-art COHP analysis software (LOBSTER) only supports calculations with PAW pseudopotentials. While the researchers of LOBSTER have shown unavoidable pitfalls when attempting cohp analysis on non-PAW calculations, cohp analysis on calculations of other pseudopotential-type calculations still has its place in computational chemistry. 
+
+## Why and when should I use `crawfish`?
 
 
-This will eventually look more official.
-
-TODO:
-  1. Example calculation directory contain k-point reduction
-  2. Find way to manually un-reduce a reduced kpoint mesh
-  3. Example calculation directory of bulk system to show off LTI pCOHP
-  4. Real-space functions
-  5. Bond polarity functions
