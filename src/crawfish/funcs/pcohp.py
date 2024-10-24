@@ -4,7 +4,7 @@ Module for user methods to get PCOHP spectrum.
 """
 
 from crawfish.utils.arg_correction import check_repeat
-from crawfish.core.operations.matrix import get_pcohp_sabcj, get_p_uvjsabc, get_h_uvsabc
+from crawfish.core.operations.matrix import get_pcohp_sabcj, get_p_uvjsabc, get_h_uvsabc, _get_gen_tj
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
@@ -27,7 +27,6 @@ def get_pcohp(
     sig: REAL_DTYPE = SIGMA_DEFAULT,
     res: REAL_DTYPE = RES_DEFAULT,
     spin_pol: bool = False,
-    lite: bool = False,
     lti: bool = False,
     rattle_eigenvals: bool = False,
     norm_max: bool = False,
@@ -72,13 +71,14 @@ def get_pcohp(
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
-    if lite:
-        p_uvjsabc = get_p_uvjsabc(edata.proj_sabcju, orbs_u, orbs_v)
-        h_uvsabc = get_h_uvsabc(p_uvjsabc, edata.e_sabcj, orbs_u, orbs_v)
-    else:
-        p_uvjsabc = edata.p_uvjsabc
-        h_uvsabc = edata.h_uvsabc
-    pcohp_sabcj = get_pcohp_sabcj(p_uvjsabc, h_uvsabc, orbs_u, orbs_v)
+    p_uu = edata.p_uu
+    h_uu = edata.h_uu
+    proj_tju = edata.proj_tju
+    wk_t = edata.wk_t
+    pcohp_tj = _get_gen_tj(proj_tju, h_uu, wk_t, orbs_u, orbs_v)
+    s = edata.nspin
+    a,b,c = tuple(edata.kfolding)
+    j = edata.nbands
     kwargs = {
         "erange": erange,
         "spin_pol": spin_pol,
@@ -89,4 +89,4 @@ def get_pcohp(
         "norm_max": norm_max,
         "norm_intg": norm_intg,
     }
-    return get_generic_spectrum(edata, pcohp_sabcj, **kwargs)
+    return get_generic_spectrum(edata, pcohp_tj, **kwargs)

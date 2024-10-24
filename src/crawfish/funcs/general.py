@@ -18,7 +18,7 @@ RES_DEFAULT = REAL_DTYPE(0.01)
 
 def get_generic_spectrum(
     edata: ElecData,
-    weights_sabcj: np.ndarray[REAL_DTYPE],
+    weights_tj: np.ndarray[REAL_DTYPE],
     erange: np.ndarray[REAL_DTYPE] | None = None,
     spin_pol: bool = False,
     sig: REAL_DTYPE = SIGMA_DEFAULT,
@@ -36,7 +36,7 @@ def get_generic_spectrum(
     ----------
     edata : ElecData
         The ElecData object of the system of interest.
-    weights_sabcj : np.ndarray[REAL_DTYPE]
+    weights_tj : np.ndarray[REAL_DTYPE]
         The weights of the spectrum of interest.
     erange : np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
@@ -56,6 +56,7 @@ def get_generic_spectrum(
     norm_intg : bool
         Normalize the spectrum to the integral of the spectrum to 1.
     """
+    weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if not lti:
         erange, spectrum = get_generic_gsmear_spectrum(edata, weights_sabcj, erange, spin_pol, sig, res=res)
     elif not edata.lti_allowed:
@@ -119,7 +120,7 @@ def get_generic_lti_spectrum(
 
 def get_generic_gsmear_spectrum(
     edata: ElecData,
-    weights_sabcj: np.ndarray[REAL_DTYPE],
+    weights_tj: np.ndarray[REAL_DTYPE],
     erange: np.ndarray[REAL_DTYPE] | None,
     spin_pol: bool,
     sig: REAL_DTYPE,
@@ -133,7 +134,7 @@ def get_generic_gsmear_spectrum(
     ----------
     edata : ElecData
         The ElecData object of the system of interest.
-    weights_sabcj : np.ndarray[REAL_DTYPE]
+    weights_tj : np.ndarray[REAL_DTYPE]
         The weights of the spectrum of interest.
     erange : np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
@@ -144,7 +145,6 @@ def get_generic_gsmear_spectrum(
     res : REAL_DTYPE
         The resolution of the energy range if erange is None.
     """
-    weights_sabcj = _add_kweights(weights_sabcj, edata.wk_sabc)
     erange = get_erange(edata, erange, res=res)
     cs = get_gauss_smear_spectrum(erange, edata.e_sabcj, weights_sabcj, sig)
     spectrum = cs_formatter(cs, spin_pol)

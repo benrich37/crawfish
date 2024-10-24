@@ -58,8 +58,6 @@ def get_pcoop(
         The resolution of the energy range (if erange is None)
     spin_pol : bool
         If the spectrum should be returned with up/down intensities separated.
-    lti : bool
-        Use the linear tetrahedron integration method.
     rattle_eigenvals : bool
         Rattle the eigenvalues to up to twice erange resolution to avoid degeneracies.
         (only used if lti is True)
@@ -72,12 +70,10 @@ def get_pcoop(
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
-    if lite:
-        p_uvjsabc = get_p_uvjsabc(edata.proj_sabcju, orbs_u, orbs_v)
-    else:
-        p_uvjsabc = edata.p_uvjsabc
-    pcoop_sabcj = get_pcoop_sabcj(p_uvjsabc, orbs_u, orbs_v)
-
+    p_uu = edata.p_uu
+    proj_tju = edata.proj_tju
+    wk_t = edata.wk_t
+    pcoop_tj = _get_gen_tj(proj_tju, p_uu, wk_t, orbs_u, orbs_v)
     kwargs = {
         "erange": erange,
         "spin_pol": spin_pol,
@@ -88,4 +84,4 @@ def get_pcoop(
         "norm_max": norm_max,
         "norm_intg": norm_intg,
     }
-    return get_generic_spectrum(edata, pcoop_sabcj, **kwargs)
+    return get_generic_spectrum(edata, pcoop_tj, **kwargs)

@@ -61,8 +61,7 @@ def get_pdos(
     """
     edata = edata_input_to_edata(edata_input)
     orb_idcs = get_orb_idcs(edata, idcs, elements, orbs)
-    pdos_sabcj = get_pdos_sabcj(edata.proj_sabcju, orb_idcs)
-
+    pdos_tj = get_pdos_tj(edata.proj_tju, orb_idcs)
     kwargs = {
         "erange": erange,
         "spin_pol": spin_pol,
@@ -73,5 +72,4 @@ def get_pdos(
         "norm_max": norm_max,
         "norm_intg": norm_intg,
     }
-
-    return get_generic_spectrum(edata, pdos_sabcj, **kwargs)
+    return get_generic_spectrum(edata, pdos_tj, **kwargs)
