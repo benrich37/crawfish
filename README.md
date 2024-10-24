@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061">
     <img alt="Logo" src="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061"
-height="70">
+height="200">
   </picture>
 </h1>
 # <img width="3689" alt="crawfish_github" src="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061">
