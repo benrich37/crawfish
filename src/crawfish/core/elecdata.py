@@ -301,7 +301,7 @@ class ElecData:
         Return kpoint weights in shape (kfolding[0], kfolding[1], kfolding[2]).
         """
         if self._wk_t is None:
-            self._wk_t = get_wk_t(self.kptsfile_filepath, self.lti_allowed)
+            self._wk_t = get_wk_t(self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed)
         return self._wk_t
 
     @property
