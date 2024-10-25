@@ -37,10 +37,12 @@ Spin and k-points are collapsed to a single index `t`, called a "state" (and `ns
 
 ### Provided analysis techniques
 
-1. **DOS/pDOS**
+$T_{\mu,j}(t)=\bra{\phi_\mu}\psi_j(t)\rangle$
+
+1. **pDOS**
 
 $$
-\displaystyle\sum_{k=3}^5 k^2=3^2 + 4^2 + 5^2 =50
+pDOS(E,\mu)=\sum_{j,t}wk_t\delta(E-\epsilon_j(t))
 $$
 
 2. 
