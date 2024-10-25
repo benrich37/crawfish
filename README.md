@@ -66,7 +66,7 @@ $$
 and
 
 $$
-P_{j,t\mu,\nu} = Re\left[T_{\mu,j}^*(t)T_{\nu,j}(t)\right] f_j(t) w_t
+P_{j,t,\mu,\nu} = Re\left[T_{\mu,j}^*(t)T_{\nu,j}(t)\right] f_j(t) w_t
 $$
 
 Similar techniques (pCOOP and COBI) are available but not reccomended as they are currently benchmarking very poorly in this implementation.
