@@ -37,12 +37,12 @@ Spin and k-points are collapsed to a single index `t`, called a "state" (and `ns
 
 ### Provided analysis techniques
 
-$T_{\mu,j}(t)=\bra{\phi_\mu}\psi_j(t)\rangle$
+For the following equations, projections are short-handed as $T_{\mu,j}(t)=\bra{\phi_\mu}\psi_j(t)\rangle$
 
 1. **pDOS**
 
 $$
-pDOS(E,\mu)=\sum_{j,t}wk_t\delta(E-\epsilon_j(t))
+pDOS(E,\mu)=\sum_{j,t}w_t\delta(E-\epsilon_j(t))|T_{\mu,j}|^2
 $$
 
 2. 
