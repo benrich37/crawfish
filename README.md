@@ -1,10 +1,12 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061">
-    <img alt="Logo" src="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061"
+    <source media="(prefers-color-scheme: dark)" srcset="[https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061](https://github.com/user-attachments/assets/70a64716-aa4d-498f-a123-01aa8daccfb6)">
+    <img alt="Logo" src="[https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061](https://github.com/user-attachments/assets/70a64716-aa4d-498f-a123-01aa8daccfb6)"
 height="200">
   </picture>
 </h1>
+
+
 
 Crawfish is a python library for pcohp analysis on JDFTx calculations. 
 
