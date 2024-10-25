@@ -16,7 +16,7 @@ Crawfish (originally called ultraSoftCrawfish) is a python library intended prim
 All arrays are named in the general format "<name>_<indices>", where "<name>" provides insight to the meaning of the array, and "<indices>" tells the user the array's dimensionality, and the significance of each dimension. ie for `h_uu`, "h" would signify the system hamiltonian, and "uu" would signify the array is 2-dimensional, where both dimensions correspond to atomic orbitals (meaning of each index name given below). 
 
 ### ** Notation - index definitions **
-Spin and k-points are collapsed to a single index `t`. When un-collapsed, spin is given the index `s` and steps along the first, second, and third reciprocal lattice vector are given the indices `a`, `b`, and `c`. Bands are indexed always by `j`. Orbitals are indexed by either `u` ($$ \mu $$) or `v` ($$ \nu $$) (the latter only when distinction of a second orbital index is required)
+Spin and k-points are collapsed to a single index `t`. When un-collapsed, spin is given the index `s` and steps along the first, second, and third reciprocal lattice vector are given the indices `a`, `b`, and `c`. Bands are indexed always by `j`. Orbitals are indexed by either `u` ($ \mu $) or `v` ($$ \nu $$) (the latter only when distinction of a second orbital index is required)
 
 ### ** Notation - array definitions **
 1. `proj` is used to signify the projection vector, typically in shape `tju`. In braket notation, proj_tju[t,j,u] = $$ \bra{ $$
