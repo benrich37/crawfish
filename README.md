@@ -1,12 +1,20 @@
 <h1 align="center">
   <picture>
+<<<<<<< HEAD
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061">
     <img alt="Logo" src="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061"
 height="300">
+=======
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/70a64716-aa4d-498f-a123-01aa8daccfb6">
+    <img alt="Logo" src="https://github.com/user-attachments/assets/70a64716-aa4d-498f-a123-01aa8daccfb6"
+height="200">
+>>>>>>> master
   </picture>
 </h1>
 
-Crawfish is a python library for pcohp analysis on JDFTx calculations. 
+
+
+Crawfish is a python library for pcohp analysis on JDFTx calculations.
 
 ## About `crawfish`
 
@@ -31,10 +39,10 @@ Unless otherwise indicated, all energies are in **Hartrees** and are not normali
 
 ### Projection modifications
 1. `trim_excess_bands` is a bool class variable of `ElecData` in which only `nproj` bands are included in analysis. By trimming excess bands, the projection vector `proj_tju` becomes square at each state. This has been primarily useful so far as means of allowing the projections at each state to be normalized for each band and each orbital. Theoretically, this also allows for projections to undergo a band-lowdin-orthogonalization, but the usefulness has not been investigated. Theoretically this also allows for using the dual space of the projections (allowing for less ad-hoc approaches to charge conservation), but this has yet to be implemented.
-2. `los_orbs` is a bool class variable of `ElecData` in which orbitals are made orthogonal to one another via the Lowdin-Orthogonalization technique. This may seem counterintuitive in a framework centered around how orbitals interact with each other, but remember that this orthogonality ($\langle\phi_\mu|\phi_\nu\rangle=\delta_{\mu,\nu}$) does not eliminate overlap between orbitals at individual bands and states ($\bra{\phi_\mu}\psi_j(t)\rangle\langle\psi_j(t)\ket{\phi_\nu}$), only over the sum of all bands and states ($\sum_{j,t}wk(t)\langle\phi_\mu|\psi_j(t)\rangle\langle\psi_j(t)|\phi_\nu\rangle)=\delta_{\mu,\nu}$). This is an incredibly useful technique when trying to reformulate our calculation in a LCAO picture, as it ensures that for all bonding interactions (bands `j` at state `t` where $c_{\mu,j}(t)^* c_{\nu,j}(t)>0$), there are enough antibonding interactions ($c_{\mu,j}(t)^* c_{\nu,j}(t)<0$) such that the sum over all bands at that state for any orbital pair $\mu,\nu$ sums to $\delta_{\mu,\nu}$. The Lowdin-Orthogonalization technique is the obvious choice for this orthogonalization, as it is a simple to employ (takes 5 lines of vectorized numpy processes here) and minimizes the deviation of each projection from the true value (JDFTx will orthogonalize the orbitals if given the argument `band-projection-params yes no` prior to evaluating and dumping the band projections. However, due to the incompleteness of the space spanned by the bands at each state, this orthogonality will be lost when evaluating total overlap with the dumped projections. The same can also be realized for the bands due to the incompleteness of the space spanned by the orbitals). 
+2. `los_orbs` is a bool class variable of `ElecData` in which orbitals are made orthogonal to one another via the Lowdin-Orthogonalization technique. This may seem counterintuitive in a framework centered around how orbitals interact with each other, but remember that this orthogonality ($\langle\phi_\mu|\phi_\nu\rangle=\delta_{\mu,\nu}$) does not eliminate overlap between orbitals at individual bands and states ($\bra{\phi_\mu}\psi_j(t)\rangle\langle\psi_j(t)\ket{\phi_\nu}$), only over the sum of all bands and states ($\sum_{j,t}wk(t)\langle\phi_\mu|\psi_j(t)\rangle\langle\psi_j(t)|\phi_\nu\rangle)=\delta_{\mu,\nu}$). This is an incredibly useful technique when trying to reformulate our calculation in a LCAO picture, as it ensures that for all bonding interactions (bands `j` at state `t` where $c_{\mu,j}(t)^* c_{\nu,j}(t)>0$), there are enough antibonding interactions ($c_{\mu,j}(t)^* c_{\nu,j}(t)<0$) such that the sum over all bands at that state for any orbital pair $\mu,\nu$ sums to $\delta_{\mu,\nu}$. The Lowdin-Orthogonalization technique is the obvious choice for this orthogonalization, as it is a simple to employ (takes 5 lines of vectorized numpy processes here) and minimizes the deviation of each projection from the true value (JDFTx will orthogonalize the orbitals if given the argument `band-projection-params yes no` prior to evaluating and dumping the band projections. However, due to the incompleteness of the space spanned by the bands at each state, this orthogonality will be lost when evaluating total overlap with the dumped projections. The same can also be realized for the bands due to the incompleteness of the space spanned by the orbitals).
 
 ### Matrix modifications
-1. `p_uu_consistent` is a bool class variable of `ElecData` ensuring charge conservation when building the orbital-overlap population matrix. When `True`, it will temporarily re-scale `proj` such that summing over `u` and `v` for `p_tj_uu[t,j,u,v]` equals `occ_tj[t,j]` ($\sum_{\mu,\nu}P_{u,v}(t,j)=f_j(t)$). 
+1. `p_uu_consistent` is a bool class variable of `ElecData` ensuring charge conservation when building the orbital-overlap population matrix. When `True`, it will temporarily re-scale `proj` such that summing over `u` and `v` for `p_tj_uu[t,j,u,v]` equals `occ_tj[t,j]` ($\sum_{\mu,\nu}P_{u,v}(t,j)=f_j(t)$).
 2. `s_tj_uu_real` is a bool class variable of `ElecData` ensuring that orbital overlap is a real value. Since planewaves have a complex component, orbital/band projections `proj_tju` ($\bra{\phi_\mu}\psi_j(t)\rangle$) are typical complex.
 3. `s_tj_uu_pos` is a bool class variable of `ElecData` ensuring that orbital overlap is a positive value. This is done by subtracting out the smallest value from the entire tensor, and then rescaling the entire tensor such the sum over all indices `tjuv` matches the original sum.
 
@@ -72,7 +80,7 @@ Similar techniques (pCOOP and COBI) are available but not reccomended as they ar
 ## Why and when should I use `crawfish`?
 
 1. **Non-PAW JDFTx calculations** The intended audience for `crawfish` is anyone curious about the bondinging within a non-PAW pseudopotential calculation performed using JDFTx. While LOBSTER is not explicitly supported by JDFTx, the output of any unsupported calculation with PAW pseudopotentials can be converted by the user to mimic the output of a calculation which is supported by LOBSTER, circumventing the need of explicit support. If this is not the case, `crawfish` is here for you.
-2. **General non-PAW calculations** The techniques used by `crawfish` are made available to other DFT calculators, so long as the user is able to acquire the required data to construct an `ElecData` object. The instructions for how to do so are available in the "Creating your own `ElecData`" section of this readme. This process requires providing `crawfish` with the Kohn-Sham eigenvalues, and the projections of each Kohn-Sham wavefunction onto each orbital (as well as some other information that is typically much easier to obtain). If you are interested in doing so, please reach out to me (beri9208@colorado.edu) to help you with any obstacles that might require fixing some less-tested parts of the code. 
+2. **General non-PAW calculations** The techniques used by `crawfish` are made available to other DFT calculators, so long as the user is able to acquire the required data to construct an `ElecData` object. The instructions for how to do so are available in the "Creating your own `ElecData`" section of this readme. This process requires providing `crawfish` with the Kohn-Sham eigenvalues, and the projections of each Kohn-Sham wavefunction onto each orbital (as well as some other information that is typically much easier to obtain). If you are interested in doing so, please reach out to me (beri9208@colorado.edu) to help you with any obstacles that might require fixing some less-tested parts of the code.
 
 ## How to use `crawfish`
 
@@ -118,5 +126,3 @@ cd ./crawfish
 ```sh
 pip install .
 ```
-
-
