@@ -4,12 +4,12 @@ Module for user methods to get PCOHP spectrum.
 """
 
 from crawfish.utils.arg_correction import check_repeat
-from crawfish.core.operations.matrix import get_pcohp_sabcj, get_p_uvjsabc, get_h_uvsabc, _get_gen_tj
+from crawfish.core.operations.matrix import _get_gen_tj
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
 from crawfish.utils.arg_correction import edata_input_to_edata
-from crawfish.funcs.general import get_generic_spectrum
+from crawfish.funcs.general import get_generic_spectrum, get_generic_integrate
 from pathlib import Path
 import numpy as np
 from crawfish.funcs.general import SIGMA_DEFAULT, RES_DEFAULT
@@ -68,17 +68,7 @@ def get_pcohp(
         Normalize the spectrum to the integral of the spectrum to 1.
     """
     edata = edata_input_to_edata(edata_input)
-    orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
-    orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
-    check_repeat(orbs_u, orbs_v)
-    p_uu = edata.p_uu
-    h_uu = edata.h_uu
-    proj_tju = edata.proj_tju
-    wk_t = edata.wk_t
-    pcohp_tj = _get_gen_tj(proj_tju, h_uu, wk_t, orbs_u, orbs_v)
-    s = edata.nspin
-    a,b,c = tuple(edata.kfolding)
-    j = edata.nbands
+    pcohp_tj = _get_pcohp_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
     kwargs = {
         "erange": erange,
         "spin_pol": spin_pol,
@@ -90,3 +80,33 @@ def get_pcohp(
         "norm_intg": norm_intg,
     }
     return get_generic_spectrum(edata, pcohp_tj, **kwargs)
+
+
+def get_ipcohp(
+    edata_input: ElecData | str | Path,
+    idcs1: list[int] | int | None = None,
+    idcs2: list[int] | int | None = None,
+    elements1: list[str] | str | None = None,
+    elements2: list[str] | str | None = None,
+    orbs1: list[str] | str | None = None,
+    orbs2: list[str] | str | None = None,
+    spin_pol: bool = False,
+):
+    edata = edata_input_to_edata(edata_input)
+    pcohp_tj = _get_pcohp_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
+    kwargs = {
+        "spin_pol": spin_pol,
+    }
+    es, cs = get_generic_integrate(edata, pcohp_tj, **kwargs)
+    return es, cs
+
+
+def _get_pcohp_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2):
+    orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
+    orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
+    check_repeat(orbs_u, orbs_v)
+    h_uu = edata.h_uu
+    proj_tju = edata.proj_tju
+    wk_t = edata.wk_t
+    pcohp_tj = _get_gen_tj(proj_tju, h_uu, wk_t, orbs_u, orbs_v)
+    return pcohp_tj

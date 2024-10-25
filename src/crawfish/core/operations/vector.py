@@ -120,7 +120,7 @@ def _get_gauss_smear_spectrum_jit(
 
 
 def get_uneven_integrated_array(
-    e_sabcj: np.ndarray[REAL_DTYPE], weights_sabcj: np.ndarray[REAL_DTYPE] | np.ndarray[[COMPLEX_DTYPE]]
+    e_arb: np.ndarray[REAL_DTYPE], weights_arb: np.ndarray[REAL_DTYPE] | np.ndarray[[COMPLEX_DTYPE]]
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE]]:
     """Integrate the unevenly spaced array of energies and weights.
 
@@ -129,10 +129,10 @@ def get_uneven_integrated_array(
 
     Parameters
     ----------
-    e_sabcj : np.ndarray
-        The set of eigenvalues for the system of interest
-    weights_sabcj : np.ndarray
-        The weights at the eigenvalues
+    e_arb : np.ndarray
+        The set of eigenvalues for the system of interest in arbitrary shape
+    weights_arb : np.ndarray
+        The weights at the eigenvalues in the same arbitrary shape
 
     Returns
     -------
@@ -141,11 +141,11 @@ def get_uneven_integrated_array(
     integrated : np.ndarray
         The integrated weights at the eigenvalues
     """
-    check_arr_typing([e_sabcj, weights_sabcj])
-    e_flat = e_sabcj.flatten()
+    check_arr_typing([e_arb, weights_arb])
+    e_flat = e_arb.flatten()
     idcs = np.argsort(e_flat)
     e = e_flat[idcs]
-    pw = weights_sabcj.flatten()[idcs]
+    pw = weights_arb.flatten()[idcs]
     _integrated = np.zeros(len(pw) + 1)
     _integrated[1:] = np.cumsum(pw)
     integrated = _integrated[1:]
