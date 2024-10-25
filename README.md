@@ -72,7 +72,7 @@ Similar techniques (pCOOP and COBI) are available but not reccomended as they ar
 ## Why and when should I use `crawfish`?
 
 1. **Non-PAW JDFTx calculations** The intended audience for `crawfish` is anyone curious about the bondinging within a non-PAW pseudopotential calculation performed using JDFTx. While LOBSTER is not explicitly supported by JDFTx, the output of any unsupported calculation with PAW pseudopotentials can be converted by the user to mimic the output of a calculation which is supported by LOBSTER, circumventing the need of explicit support. If this is not the case, `crawfish` is here for you.
-2. **General non-PAW calculations** 
+2. **General non-PAW calculations** The techniques used by `crawfish` are made available to other DFT calculators, so long as the user is able to acquire the required data to construct an `ElecData` object. The instructions for how to do so are available in the "Creating your own `ElecData`" section of this readme. This process requires providing `crawfish` with the Kohn-Sham eigenvalues, and the projections of each Kohn-Sham wavefunction onto each orbital (as well as some other information that is typically much easier to obtain). If you are interested in doing so, please reach out to me (beri9208@colorado.edu) to help you with any obstacles that might require fixing some less-tested parts of the code. 
 
 ## How to use `crawfish`
 
@@ -99,5 +99,24 @@ Similar techniques (pCOOP and COBI) are available but not reccomended as they ar
 8. Set the fermi level as `edata.mu` (if you are going to set `occ_tj` explicitly, this step becomes optional but is still useful for plotting)
 ### Optional
 9. If you have the state/band occupation, set it as `edata.occ_tj`. Otherwise, it will be calculated for your using `edata.broadening` and `edata.broadening_type`.
+
+## Installation
+
+### pip
+
+Any github-url pip installation method should work, but below are the steps I have tested and know should work.
+
+1. Clone this repo somewhere
+```sh
+git clone https://github.com/benrich37/crawfish.git
+```
+2. Activate the python environment you wish to use when performing pCOHP analysis **NOTE: At the moment, the JDFTx IO module that part of this library depends on only exists on an independent fork of pymatgen. At the time of writing this (10/24/24) this fork is fully up-to-date, but later on this installation may roll back your pymatgen to an older version.** If you are worried about dependency conflicts, I would reccomend creating a conda virtual environment with python version 3.12 (latest as of writing this)
+3. Navigate to ~/crawfish/ where you cloned this repo (not ~/crawfish/src/crawfish/) and install via pip
+```sh
+cd ./crawfish
+```
+```sh
+pip install .
+```
 
 
