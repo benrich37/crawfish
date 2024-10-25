@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061">
     <img alt="Logo" src="https://github.com/user-attachments/assets/d339ce1f-b041-433c-a7c3-19204bac4061"
-height="200">
+height="300">
   </picture>
 </h1>
 
