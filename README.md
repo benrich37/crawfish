@@ -10,8 +10,17 @@ Crawfish is a python library for pcohp analysis on JDFTx calculations.
 
 ## About `crawfish`
 
-Crawfish (originally called ultraSoftCrawfish) is a python library intended primarily for performing bonding analysis on the output of JDFTx calculations. Its reason for existing (as alluded to in the original name) is that the state-of-the-art COHP analysis software (LOBSTER) only supports calculations with PAW pseudopotentials. While the researchers of LOBSTER have shown unavoidable pitfalls when attempting cohp analysis on non-PAW calculations, cohp analysis on calculations of other pseudopotential-type calculations still has its place in computational chemistry. 
+Crawfish (originally called ultraSoftCrawfish) is a python library intended primarily for performing bonding analysis on the output of JDFTx calculations. Its reason for existing (as alluded to in the original name) is that the state-of-the-art COHP analysis software (LOBSTER) only supports calculations with PAW pseudopotentials. While the researchers of LOBSTER have shown unavoidable pitfalls when attempting cohp analysis on non-PAW calculations, cohp analysis on calculations of other pseudopotential-type calculations is far from meaningless and still provides tremendous insight. Thus the goal of crawfish is to allow access to cohp analysis for DFT users who do not use PAW pseudopotentials. While this library is intended for JDFTx, it can theoretically be used on the output of any DFT package provided the user is savvy enough to mimic JDFTx output or feed the ElecData class the required arrays (and will likely soon provide better support for arbitrary projection/eigenvalue assignments). 
+
+### Provided analysis techniques
+
+1. **DOS/pDOS** 
 
 ## Why and when should I use `crawfish`?
+
+1. **Non-PAW JDFTx calculations** The intended audience for `crawfish` is anyone curious about the bondinging within a non-PAW pseudopotential calculation performed using JDFTx. While LOBSTER is not explicitly supported by JDFTx, the output of any unsupported calculation with PAW pseudopotentials can be converted by the user to mimic the output of a calculation which is supported by LOBSTER, circumventing the need of explicit support. If this is not the case, `crawfish` is here for you.
+2. **General non-PAW calculations** 
+
+## How to use `crawfish`
 
 
