@@ -21,6 +21,7 @@ Spin and k-points are collapsed to a single index `t`. When un-collapsed, spin i
 ### ** Notation - array definitions **
 1. `proj` is used to signify the projection vector, typically in shape `tju`. In braket notation, proj_tju[t,j,u] = $\bra{\phi_\mu}\psi_j(t)\rangle$.
 2. `s` is used to signify orbital overlaps, thus will either have shape `uu` ($\bra{\phi_\mu} \phi_\nu\rangle$) or `tj_uu` ($\bra{\phi_\mu}\psi_j(t)\rangle\langle\psi_j(t)\ket{\phi_\nu}$)
+3. `p` is used to signify orbital-overlap populations,thus will either have shape `uu` ($\bra{\phi_\mu} \hat{\rho} \phi_\nu\rangle$) or `tj_uu` ($f_j(t)\bra{\phi_\mu}\psi_j(t)\rangle\langle\psi_j(t)\ket{\phi_\nu}$)
 
 ### Provided analysis techniques
 
