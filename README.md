@@ -48,7 +48,7 @@ For the following equations, projections (`proj_tju[t,j,u]`) are short-handed as
 Projected density-of-states (pDOS) is primarily included in this package for sanity checks, and is evaluated as
 
 $$
-pDOS(E,\mu)=\sum_{j,t}|T_{\mu,j}|^2w_t\delta(E-\epsilon_j(t))
+pDOS(E,\mu)=\sum_{j,t}\left|T_{\mu,j}\right|^2w_t\delta(E-\epsilon_j(t))
 $$
 
 2. **pCOHP**
