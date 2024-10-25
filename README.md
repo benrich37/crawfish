@@ -43,13 +43,13 @@ For the following equations, projections are short-handed as $T_{\mu,j}(t)=\bra{
 Projected density-of-states (pDOS) is primarily included in this package for sanity checks, and is evaluated as
 
 $$
-pDOS(E,\mu)=\sum_{j,t}w_t\delta(E-\epsilon_j(t))|T_{\mu,j}|^2
+pDOS(E,\mu)=\sum_{j,t}|T_{\mu,j}|^2w_t\delta(E-\epsilon_j(t))
 $$
 
 2. **pCOHP**
 
 $$
-pCOHP(E,\mu,\nu)=H_{\mu,\nu}\sum_{j,t}w_t\delta(E-\epsilon_j(t))Re\left[T_{\mu,j}^*T_{\nu,j}\right]
+pCOHP(E,\mu,\nu)=H_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
 $$
 
 3. 
