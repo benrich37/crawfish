@@ -4,11 +4,11 @@ Module for user methods to get PDOS spectrum.
 """
 
 from crawfish.core.elecdata import ElecData
+from crawfish.core.operations.matrix import get_pdos_tj
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
 from crawfish.utils.arg_correction import edata_input_to_edata
-from crawfish.core.operations.matrix import get_pdos_sabcj
-from crawfish.funcs.general import get_generic_spectrum, SIGMA_DEFAULT, RES_DEFAULT
+from crawfish.funcs.general import get_generic_spectrum, SIGMA_DEFAULT, RES_DEFAULT, get_generic_integrate
 from pathlib import Path
 import numpy as np
 
@@ -61,7 +61,7 @@ def get_pdos(
     """
     edata = edata_input_to_edata(edata_input)
     orb_idcs = get_orb_idcs(edata, idcs, elements, orbs)
-    pdos_tj = get_pdos_tj(edata.proj_tju, orb_idcs)
+    pdos_tj = get_pdos_tj(edata.proj_tju, orb_idcs, edata.wk_t)
     kwargs = {
         "erange": erange,
         "spin_pol": spin_pol,
@@ -73,3 +73,20 @@ def get_pdos(
         "norm_intg": norm_intg,
     }
     return get_generic_spectrum(edata, pdos_tj, **kwargs)
+
+
+def get_ipdos(
+    edata_input: ElecData | str | Path,
+    idcs: list[int] | int | None = None,
+    elements: list[str] | str | None = None,
+    orbs: list[str] | str | None = None,
+    spin_pol: bool = False,
+):
+    edata = edata_input_to_edata(edata_input)
+    orb_idcs = get_orb_idcs(edata, idcs, elements, orbs)
+    pdos_tj = get_pdos_tj(edata.proj_tju, orb_idcs, edata.wk_t)
+    kwargs = {
+        "spin_pol": spin_pol,
+    }
+    es, cs = get_generic_integrate(edata, pdos_tj, **kwargs)
+    return es, cs

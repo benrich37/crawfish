@@ -1,7 +1,7 @@
-"""Module for parsing data from JDFTx output files.
+r"""Module for parsing data from JDFTx output files.
 
 This module contains functions for parsing data from JDFTx output files.
-"""
+r"""
 
 from __future__ import annotations
 from typing import Callable
@@ -17,7 +17,7 @@ spintype_nspin = {"no-spin": 1, "spin-orbit": 2, "vector-spin": 2, "z-spin": 2}
 
 
 def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> int:
-    """Get number of spins from out file.
+    r"""Get number of spins from out file.
 
     Get the number of spins from the out file.
 
@@ -32,7 +32,7 @@ def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) 
     -------
     int
         Number of spins.
-    """
+    r"""
     outfile = read_file(outfile_filepath)
     key = "spintype"
     rval = None
@@ -50,7 +50,7 @@ def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) 
 
 
 def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> REAL_DTYPE:
-    """Get the Fermi level from the output file.
+    r"""Get the Fermi level from the output file.
 
     Get the Fermi level from the output file.
 
@@ -64,7 +64,7 @@ def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> 
     -------
     mu: float
         Fermi level in Hartree.
-    """
+    r"""
     mu = None
     lookkey = "FillingsUpdate:  mu:"
     outfile = read_file(outfile_filepath)
@@ -75,7 +75,7 @@ def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> 
 
 
 def get_kfolding_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> np.ndarray[int]:
-    """Return kpt folding from output file.
+    r"""Return kpt folding from output file.
 
     Get the kpt folding from the output file.
 
@@ -91,7 +91,7 @@ def get_kfolding_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-
     Returns
     -------
     np.ndarray[int]
-    """
+    r"""
     key = "kpoint-folding "
     outfile = read_file(outfile_filepath)
     start, end = get_outfile_slice_bounds(outfile, slice_idx=slice_idx)
@@ -101,7 +101,7 @@ def get_kfolding_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-
 
 
 def get_nstates_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
-    """Get number of states from bandprojections file.
+    r"""Get number of states from bandprojections file.
 
     Get the number of states from the bandprojections file.
 
@@ -113,12 +113,12 @@ def get_nstates_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
     Returns
     -------
     int
-    """
+    r"""
     return get__from_bandfile_filepath(bandfile_filepath, 0)
 
 
 def get_nbands_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
-    """Get number of bands from bandprojections file.
+    r"""Get number of bands from bandprojections file.
 
     Get the number of bands from the bandprojections file.
 
@@ -130,12 +130,12 @@ def get_nbands_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
     Returns
     -------
     int
-    """
+    r"""
     return get__from_bandfile_filepath(bandfile_filepath, 2)
 
 
 def get_nproj_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
-    """Get number of projections from bandprojections file.
+    r"""Get number of projections from bandprojections file.
 
     Get the number of projections from the bandprojections file.
 
@@ -147,12 +147,12 @@ def get_nproj_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
     Returns
     -------
     int
-    """
+    r"""
     return get__from_bandfile_filepath(bandfile_filepath, 4)
 
 
 def get_nspecies_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
-    """Get number of species (ion types) from bandprojections file.
+    r"""Get number of species (ion types) from bandprojections file.
 
     Get the number of species (ion types) from the bandprojections file.
 
@@ -164,12 +164,34 @@ def get_nspecies_from_bandfile_filepath(bandfile_filepath: Path | str) -> int:
     Returns
     -------
     int
-    """
+    r"""
     return get__from_bandfile_filepath(bandfile_filepath, 6)
 
 
+def get_norbsperatom_from_edata(edata: ElecData) -> list[int]:
+    r"""Get number of orbitals per atom from ElecData object.
+
+    Get the number of orbitals per atom from the ElecData object.
+
+    Parameters
+    ----------
+    edata : ElecData
+        The ElecData object of the system of interest.
+
+    Returns
+    -------
+    list[int]
+    r"""
+    norbsperatom = []
+    atom_orb_labels_dict = edata.atom_orb_labels_dict
+    ion_names = edata.ion_names
+    for el in ion_names:
+        norbsperatom.append(len(atom_orb_labels_dict[el]))
+    return norbsperatom
+
+
 def get_norbsperatom_from_bandfile_filepath(bandfile_filepath: Path | str) -> list[int]:
-    """Get number of orbitals per atom from bandprojections file.
+    r"""Get number of orbitals per atom from bandprojections file.
 
     Get the number of orbitals per atom from the bandprojections file.
 
@@ -181,7 +203,7 @@ def get_norbsperatom_from_bandfile_filepath(bandfile_filepath: Path | str) -> li
     Returns
     -------
     list[int]
-    """
+    r"""
     nspecies = get_nspecies_from_bandfile_filepath(bandfile_filepath)
     norbsperatom = []
     bandfile = read_file(bandfile_filepath)
@@ -204,7 +226,7 @@ def get_norbsperatom_from_bandfile_filepath(bandfile_filepath: Path | str) -> li
 
 
 def is_complex_bandfile_filepath(bandfile_filepath: str | Path) -> bool:
-    """Determine if bandprojections file is complex.
+    r"""Determine if bandprojections file is complex.
 
     Determine if the bandprojections file is complex.
     Needed before attempting pCOHP analysis.
@@ -217,7 +239,7 @@ def is_complex_bandfile_filepath(bandfile_filepath: str | Path) -> bool:
     Returns
     -------
     bool
-    """
+    r"""
     hash_lines = 0
     val = True
     with open(bandfile_filepath, "r") as f:
@@ -235,7 +257,7 @@ def is_complex_bandfile_filepath(bandfile_filepath: str | Path) -> bool:
 
 
 def parse_kptsfile(kptsfile: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndarray[REAL_DTYPE]], int]:
-    """Parse kpts file.
+    r"""Parse kpts file.
 
     Parse the kpts file.
 
@@ -253,7 +275,7 @@ def parse_kptsfile(kptsfile: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndar
     nStates: int
         Number of states.
 
-    """
+    r"""
     wk_list: list[REAL_DTYPE] = []
     k_points_list: list[list[REAL_DTYPE]] = []
     with open(kptsfile, "r") as f:
@@ -475,7 +497,7 @@ def _kpt_can_reduce(kpt, weight, kfolding, wk_indiv_expected):
 
 
 def _is_acceptable_kpt(kfolding: list[int], kpt: list[REAL_DTYPE]) -> bool:
-    """Check if kpt is acceptable.
+    r"""Check if kpt is acceptable.
 
     Check if kpt is acceptable.
 
@@ -489,13 +511,13 @@ def _is_acceptable_kpt(kfolding: list[int], kpt: list[REAL_DTYPE]) -> bool:
     Returns
     -------
     bool
-    """
+    r"""
     ksteps = [1 / kf for kf in kfolding]
     return all([np.isclose(kpt[i] % ksteps[i], 0) for i in range(3)])
 
 
 def get_kfolding(lti: bool, outfile_filepath: str | Path, nspin: int, nstates: int) -> list[int]:
-    """Get the k-point folding.
+    r"""Get the k-point folding.
 
     Get the k-point folding.
 
@@ -509,7 +531,7 @@ def get_kfolding(lti: bool, outfile_filepath: str | Path, nspin: int, nstates: i
         Number of spins.
     nstates : int
         Number of states.
-    """
+    r"""
     if lti:
         kfolding = get_kfolding_from_outfile_filepath(outfile_filepath)
     else:
@@ -544,7 +566,7 @@ def _get_arbitrary_wk(nk: int, nspin: int) -> np.ndarray[REAL_DTYPE]:
 def get_wk_t(
     kptsfile_filepath: Path | str | None, nspin: int, kfolding: list[int], lti: bool
 ) -> np.ndarray[REAL_DTYPE]:
-    """Return weights for k-points.
+    r"""Return weights for k-points.
 
     Return weights for k-points.
 
@@ -558,7 +580,7 @@ def get_wk_t(
         Number of spins.
     lti : bool
         Whether or not the nSpin * nk-pts == nStates.
-    """
+    r"""
     nk = np.prod(kfolding)
     if kptsfile_filepath is None:
         wk = _get_arbitrary_wk(nk, nspin)
@@ -576,7 +598,7 @@ def get_wk_t(
 
 
 # def _get_ks_sabc(kfolding: list[int], kptsfile_filepath: Path | str | None, nspin: int, lti: bool) -> np.ndarray[REAL_DTYPE]:
-#     """ Return the k-point coordinates.
+#     r""" Return the k-point coordinates.
 
 #     Return the k-point coordinates.
 
@@ -590,7 +612,7 @@ def get_wk_t(
 #         Number of spins.
 #     lti : bool
 #         Whether or not the nSpin * nk-pts == nStates.
-#     """
+#     r"""
 #     if kptsfile_filepath is None or not lti:
 #         ks = np.ones([nk * nspin, 3]) * np.nan
 #     else:
@@ -601,7 +623,7 @@ def get_wk_t(
 
 
 # def _get_ks_sabc(kfolding: list[int], kptsfile_filepath: Path | str | None, nspin: int, lti: bool) -> np.ndarray[REAL_DTYPE]:
-#     """ Return the k-point coordinates.
+#     r""" Return the k-point coordinates.
 
 #     Return the k-point coordinates.
 
@@ -615,7 +637,7 @@ def get_wk_t(
 #         Number of spins.
 #     lti : bool
 #         Whether or not the nSpin * nk-pts == nStates.
-#     """
+#     r"""
 #     if kptsfile_filepath is None or not lti:
 #         ks = np.ones([nk * nspin, 3]) * np.nan
 #     else:
@@ -626,7 +648,7 @@ def get_wk_t(
 
 
 def get_ks_t(kptsfile_filepath: Path | str) -> np.ndarray[REAL_DTYPE]:
-    """Return the k-point coordinates.
+    r"""Return the k-point coordinates.
 
     Return the k-point coordinates. Assumes k-point file exists and mesh is regular.
 
@@ -638,7 +660,7 @@ def get_ks_t(kptsfile_filepath: Path | str) -> np.ndarray[REAL_DTYPE]:
         Number of spins.
     kfolding : list[int]
         kpt folding
-    """
+    r"""
     wk, _ks, nstates = parse_kptsfile(kptsfile_filepath)
     ks = np.array(_ks, dtype=REAL_DTYPE)
     return ks
@@ -686,10 +708,8 @@ def get_ks_t(kptsfile_filepath: Path | str) -> np.ndarray[REAL_DTYPE]:
 #     return kfolding, ks_sabc, wk_sabc, lti
 
 
-def get_e_tj_helper(
-    eigfile_filepath: str | Path, nstates: int, nbands: int
-) -> np.ndarray[REAL_DTYPE]:
-    """Return eigenvalues from file.
+def get_e_tj_helper(eigfile_filepath: str | Path, nstates: int, nbands: int) -> np.ndarray[REAL_DTYPE]:
+    r"""Return eigenvalues from file.
 
     Return eigenvalues from file. Returns a numpy array of shape
     [nspin (s), kfolding[0] (a), kfolding[1] (b), kfolding[2] (c), nbands (j)].
@@ -707,7 +727,7 @@ def get_e_tj_helper(
     -------
     np.ndarray
         Eigenvalues array in shape (state, band).
-    """
+    r"""
     eigfile_filepath = Path(eigfile_filepath)
     if not eigfile_filepath.exists():
         raise ValueError(f"Eigenvalues file {eigfile_filepath} does not exist.")
@@ -721,7 +741,7 @@ def get_e_tj_helper(
 def get_proj_sabcju_helper(
     bandfile_filepath: Path | str, nspin: int, kfolding: list[int] | np.ndarray[int], nbands: int, nproj: int
 ) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
-    """Return projections from file in sabcju shape.
+    r"""Return projections from file in sabcju shape.
 
     Return projections from file in (spin, kpt_a, kpt_b, kpt_c, band, proj) shape.
 
@@ -742,7 +762,7 @@ def get_proj_sabcju_helper(
     -------
     np.ndarray
         Projections array in shape (spin, kpt_a, kpt_b, kpt_c, band, proj).
-    """
+    r"""
     proj_shape = [nspin] + list(kfolding) + [nbands, nproj]
     proj_tju = get_proj_tju_from_file(bandfile_filepath)
     proj_sabcju = proj_tju.reshape(proj_shape)
@@ -751,7 +771,7 @@ def get_proj_sabcju_helper(
 
 
 def get_proj_tju_from_file(bandfile_filepath: Path | str) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
-    """Return projections from file in tju shape.
+    r"""Return projections from file in tju shape.
 
     Return projections from file in (state, band, proj) shape. Collected in this shape
     before sabcju shape due to ready availability of this shape in the file.
@@ -765,7 +785,7 @@ def get_proj_tju_from_file(bandfile_filepath: Path | str) -> np.ndarray[COMPLEX_
     -------
     np.ndarray
         Projections array in shape (state, band, proj).
-    """
+    r"""
     is_complex = is_complex_bandfile_filepath(bandfile_filepath)
     if is_complex:
         proj = _parse_bandfile_complex(bandfile_filepath)
@@ -828,7 +848,10 @@ def _complex_token_parser_jit(
 ) -> np.ndarray[COMPLEX_DTYPE]:
     reals = tokens[::2]
     imags = tokens[1::2]
-    out += reals + 1j * imags
+    out += imags
+    out *= 1j
+    out += reals
+    # out += reals + 1j * imags
     return out
 
 
@@ -837,7 +860,7 @@ def get_outfile_start_lines(
     start_key: str = "*************** JDFTx",
     add_end: bool = False,
 ) -> list[int]:
-    """Get start line numbers for JDFTx calculations.
+    r"""Get start line numbers for JDFTx calculations.
 
     Get the line numbers corresponding to the beginning of separate JDFTx calculations
     (in case of multiple calculations appending the same out file).
@@ -847,7 +870,7 @@ def get_outfile_start_lines(
     texts: list[str]
         output of read_file for out file
 
-    """
+    r"""
     start_lines = []
     line = None
     for line, text in enumerate(texts):
@@ -866,7 +889,7 @@ def get_outfile_slice_bounds(
     outfile: list[str],
     slice_idx: int = -1,
 ) -> tuple[int, int]:
-    """Get slice bounds for JDFTx calculation.
+    r"""Get slice bounds for JDFTx calculation.
 
     Get the slice bounds for a JDFTx calculation in the output file.
 
@@ -880,7 +903,7 @@ def get_outfile_slice_bounds(
     Returns:
     --------
     tuple[int, int]
-    """
+    r"""
     start_lines = get_outfile_start_lines(outfile, add_end=True)
     outfile_bounds_list = [[start_lines[i], start_lines[i + 1]] for i in range(len(start_lines) - 1)]
     if slice_idx >= len(outfile_bounds_list):
@@ -892,7 +915,7 @@ def get_outfile_slice_bounds(
 def get_outfile_start_line(
     outfile: list[str],
 ) -> int:
-    """Get start line for JDFTx calculation.
+    r"""Get start line for JDFTx calculation.
 
     Get the line number corresponding to the beginning of a JDFTx calculation.
 
@@ -909,7 +932,7 @@ def get_outfile_start_line(
 
 
 def get__from_bandfile_filepath(bandfile_filepath: Path | str, tok_idx: int) -> int:
-    """Get arbitrary integer from header of bandprojections file.
+    r"""Get arbitrary integer from header of bandprojections file.
 
     Get an arbitrary integer from the header of a bandprojections file.
 

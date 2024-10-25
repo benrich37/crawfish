@@ -47,7 +47,8 @@ def get_el_orb_u_dict(edata: ElecData, aidcs: list[int]) -> dict[str, dict[str, 
     syms = edata.ion_names
     els = [syms[i] for i in aidcs]
     kmap = get_kmap_from_edata(edata)
-    labels_dict: dict[str, list[str]] = get_atom_orb_labels_dict(edata.bandfile_filepath)
+    labels_dict: dict[str, list[str]] = edata.atom_orb_labels_dict
+    #labels_dict: dict[str, list[str]] = get_atom_orb_labels_dict(edata.bandfile_filepath)
     el_orbs_dict: dict[str, dict[str, list[int]]] = {}
     orbs_idx_dict = edata.orbs_idx_dict
     for i, el in enumerate(els):

@@ -4,16 +4,47 @@ Module for general methods to work alongside spectrum-getting methods.
 """
 
 from crawfish.core.elecdata import ElecData
-from crawfish.core.operations.vector import get_gauss_smear_spectrum, get_lti_spectrum
-from crawfish.core.operations.matrix import _add_kweights
+from crawfish.core.operations.vector import get_gauss_smear_spectrum, get_lti_spectrum, get_uneven_integrated_array
 from crawfish.utils.arg_correction import get_erange
-from crawfish.utils.typing import REAL_DTYPE, cs_formatter
+from crawfish.utils.typing import REAL_DTYPE, cs_formatter, COMPLEX_DTYPE
 from copy import deepcopy
 import numpy as np
 from scipy.integrate import trapezoid
 
 SIGMA_DEFAULT = REAL_DTYPE(0.00001)
 RES_DEFAULT = REAL_DTYPE(0.01)
+
+
+def get_generic_integrate(
+    edata: ElecData, weights_tj: np.ndarray[REAL_DTYPE | COMPLEX_DTYPE], spin_pol: bool = False
+) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE | COMPLEX_DTYPE]]:
+    """Return a generic integrated spectrum.
+
+    Return a generic integrated spectrum.
+
+    Parameters
+    ----------
+    edata : ElecData
+        The ElecData object of the system of interest.
+    weights_tj : np.ndarray[REAL_DTYPE]
+        The weights of the spectrum of interest.
+    spin_pol : bool
+        Return separate spectra for up/down intensities if True.
+    """
+    weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
+    if spin_pol:
+        cs = []
+        for s in range(edata.nspin):
+            w_sabcj = weights_sabcj.copy()
+            for s2 in range(edata.nspin):
+                if s2 != s:
+                    w_sabcj[s2, :, :, :, :] *= 0
+            es, _cs = get_uneven_integrated_array(edata.e_sabcj, w_sabcj)
+            cs.append(_cs)
+        cs = np.array(cs)
+    else:
+        es, cs = get_uneven_integrated_array(edata.e_sabcj, weights_sabcj)
+    return es, cs
 
 
 def get_generic_spectrum(
@@ -120,7 +151,7 @@ def get_generic_lti_spectrum(
 
 def get_generic_gsmear_spectrum(
     edata: ElecData,
-    weights_tj: np.ndarray[REAL_DTYPE],
+    weights_sabcj: np.ndarray[REAL_DTYPE],
     erange: np.ndarray[REAL_DTYPE] | None,
     spin_pol: bool,
     sig: REAL_DTYPE,
@@ -134,7 +165,7 @@ def get_generic_gsmear_spectrum(
     ----------
     edata : ElecData
         The ElecData object of the system of interest.
-    weights_tj : np.ndarray[REAL_DTYPE]
+    weights_sabcj : np.ndarray[REAL_DTYPE]
         The weights of the spectrum of interest.
     erange : np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
