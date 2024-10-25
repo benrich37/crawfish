@@ -37,7 +37,7 @@ Spin and k-points are collapsed to a single index `t`, called a "state" (and `ns
 
 ### Provided analysis techniques
 
-For the following equations, projections are short-handed as $T_{\mu,j}(t)=\bra{\phi_\mu}\psi_j(t)\rangle$
+For the following equations, projections (`proj_tju[t,j,u]`) are short-handed as $T_{\mu,j}(t)=\bra{\phi_\mu}\psi_j(t)\rangle$. Eigenvalues (`e_tj[t,j]`) are notated as $\epsilon_j(t)$, and $\delta(x)$ signifies the delta function ($\delta(x)=\infty$ for $x=0$,$\delta(x)=0$ for $x\neq0$). The following equations are evaluated on an even-space energy array `erange`. By default, gaussian smearing is employed, by which $delta(E-x)=e^{-\frac{(E-x)^2}{\sigma}}$, where $\sigma$ is an optional user parameter `sig`. If linear tetrahedron integration (`lti`) is requested, $\sum_{j,t}f(j,t)w_t\delta(E-\epsilon_j(t))$ is replaced by $\sum_{s,j}f(j,s)\int d\vec{k}\delta(E-\epsilon_j(\vec{k})$, where $\int d\vec{k}\delta(E-\epsilon_j(\vec{k})$ signifies linear tetrahedral integration performed by the `libtetrabz` package, and $s$ signifies spin.
 
 1. **pDOS**
 Projected density-of-states (pDOS) is primarily included in this package for sanity checks, and is evaluated as
@@ -50,6 +50,18 @@ $$
 
 $$
 pCOHP(E,\mu,\nu)=H_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+$$
+
+where
+
+$$
+H_{\mu,\nu} = \sum_{j,t} P_{j,t,\mu,\nu} \epsilon_{j,t}
+$$
+
+and
+
+$$
+P_{j,t\mu,\nu} = Re\left[T_{\mu,j}^*(t)T_{\nu,j}(t)\right] f_j(t) w_t
 $$
 
 3. 
