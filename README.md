@@ -32,17 +32,17 @@ Spin and k-points are collapsed to a single index `t`, called a "state" (and `ns
 
 ### Matrix modifications
 1. `p_uu_consistent` is a bool class variable of `ElecData` ensuring charge conservation when building the orbital-overlap population matrix. When `True`, it will temporarily re-scale `proj` such that summing over `u` and `v` for `p_tj_uu[t,j,u,v]` equals `occ_tj[t,j]` ($\sum_{\mu,\nu}P_{u,v}(t,j)=f_j(t)$). 
-2. `s_tj_uu_real` is a bool class variable of `ElecData` ensuring that orbital overlap is a real value. Since planewaves have a complex component, orbital/band projections `proj_tju` ($\bra{\phi_\mu |\psi_j(t)\rangle$) are typical complex.
+2. `s_tj_uu_real` is a bool class variable of `ElecData` ensuring that orbital overlap is a real value. Since planewaves have a complex component, orbital/band projections `proj_tju` ($\bra{\phi_\mu}\psi_j(t)\rangle$) are typical complex.
 3. `s_tj_uu_pos` is a bool class variable of `ElecData` ensuring that orbital overlap is a positive value. This is done by subtracting out the smallest value from the entire tensor, and then rescaling the entire tensor such the sum over all indices `tjuv` matches the original sum.
 
 ### Provided analysis techniques
 
 1. **DOS/pDOS**
-```
+
 $$
 \displaystyle\sum_{k=3}^5 k^2=3^2 + 4^2 + 5^2 =50
 $$
-```
+
 2. 
 
 ## Why and when should I use `crawfish`?
