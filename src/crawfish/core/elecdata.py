@@ -665,7 +665,7 @@ class ElecData:
         return self._lti_allowed
 
     @classmethod
-    def from_calc_dir(cls, calc_dir: Path, prefix: str | None = None):
+    def from_calc_dir(cls, calc_dir: Path, prefix: str | None = None) -> ElecData:
         """Create ElecData instance from JDFTx calculation directory.
 
         Create ElecData instance from JDFTx calculation directory.
@@ -681,7 +681,61 @@ class ElecData:
         return instance
 
     @classmethod
-    def as_empty(cls):
+    def from_bandstructure(cls, bandstructure: BandStructure) -> ElecData:
+        """ Create an ElecData instance from a pymatgen BandStructure object.
+
+        Create an ElecData instance from a pymatgen BandStructure object.
+
+        Parameters
+        ----------
+        bandstructure: BandStructure
+            pymatgen BandStructure object
+        """
+        raise NotImplementedError("Construction from BandStructure not yet implemented - working on it!")
+        structure = bandstructure.structure
+        ion_nums = [specie.element.Z for specie in structure.species]
+        ion_names = [specie.element.symbol for specie in structure.species]
+        is_sorted = all(ion_names[i] <= ion_names[i + 1] for i in range(len(ion_names) - 1))
+        if not is_sorted:
+            raise NotImplementedError("Automatic ion sorting not yet implemented")
+        norbsperatom = []
+        atom_orb_labels_dict = {}
+        dummy_spin = bandstructure.projections.keys()[0]
+        for i, el in enumerate(ion_names):
+            norbs = len()
+    """
+    TODO: The BandStructure object enforces all elements to have the same
+    number of projections by requesting the projection vector to be in the
+    shape [kpt, band, orb, atom] (spins given as separate arrays). This breaks a core assumption of crawfish,
+    that nproj <= nbands. Obviously some projection slices need to be fibbed
+    (ie [:, :, 5, n] if element n corresponds to hydrogen).
+    Note #1:
+    crawfish currently assumes orbitals to be resolved by ml. If they are not, several
+    core assumptions are broken. How can this case be detected and resolved? If they can be detected
+    and l can be determined, I think splitting these into downscaled but identical projection
+    channels is okay since they will become unique (but arbitrary) after orbital orthogonalization.
+    However, I have no idea how to write this level of detection (VERY unlikely that the abs sum of projections
+    will be helpful for this).
+    I think a minimum projection count for each element can be generated with the
+    full_electronic_structure and valences property of each Element, and this can become
+    a minimum length for "o" in BandStructure.projections[spin] (of shape kjoa).
+    An edge case that would avoid this error detection would be something like an organic
+    molecule (with only C,H,O) - this would generate a minimum length of 4 for s, px, py, pz.
+    If for some reason the channels actually corresponded to s, p, d, f, the analysis would
+    produce nonsense without warning.
+    Approach #1:
+    Its a fair assumption that these slices are fibbed with 0's or nan's, so when collecting projections,
+    only projections with atleast one non-zero entry and no nan's should be included.
+    If nproj > nbands even after this trimming, possibly the lowest abs sum projections
+    should be removed until nproj == nbands. If the projections are pre-normalized for
+    the orbitals, this will be impossible. At this point I think it's okay to raise an
+    InputError since you have to make pretty rash assumptions about which projections
+    are the least important.
+    Approach #2:
+    If non-sensical projections are actually being evaluated (ie d orbitals on hydrogen)
+    """
+    @classmethod
+    def as_empty(cls) -> ElecData:
         """Create an empty ElecData instance.
 
         Create an empty ElecData instance.
