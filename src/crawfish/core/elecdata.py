@@ -681,7 +681,12 @@ class ElecData:
         return instance
 
     @classmethod
-    def from_bandstructure(cls, bandstructure: BandStructure) -> ElecData:
+    def from_bandstructure(
+        cls,
+        bandstructure: BandStructure,
+        orbitals: list[str] = None,
+        trim_0_orbs: bool = True,
+        ) -> ElecData:
         """ Create an ElecData instance from a pymatgen BandStructure object.
 
         Create an ElecData instance from a pymatgen BandStructure object.
@@ -690,50 +695,62 @@ class ElecData:
         ----------
         bandstructure: BandStructure
             pymatgen BandStructure object
+        orbitals: list[str], optional
+            List of orbital names corresponding to the order they are kept in the BandStructure
+            projections attribute. If None, orbitals are assumed to be either;
+                - ["s"]
+                - ["s", "py", "pz", "px"]
+                - ["s", "py", "pz", "px", "dxy", "dyz", "dz2", "dxz", "dx2-y2"]
+            following PROCAR conventions.
+        trim_0_orbs: bool, optional
+            If True, orbitals with all-zero projections are removed from the projection tensor.
+            If False, all orbitals are kept. (False may cause a RuntimeError if the len(orbitals)*len(atoms) > nbands)
         """
         raise NotImplementedError("Construction from BandStructure not yet implemented - working on it!")
         structure = bandstructure.structure
         ion_nums = [specie.element.Z for specie in structure.species]
         ion_names = [specie.element.symbol for specie in structure.species]
         is_sorted = all(ion_names[i] <= ion_names[i + 1] for i in range(len(ion_names) - 1))
+        cls._from_bandstructure_check_projections(bandstructure)
         if not is_sorted:
             raise NotImplementedError("Automatic ion sorting not yet implemented")
         norbsperatom = []
         atom_orb_labels_dict = {}
-        dummy_spin = bandstructure.projections.keys()[0]
         for i, el in enumerate(ion_names):
             norbs = len()
-    """
-    TODO: The BandStructure object enforces all elements to have the same
-    number of projections by requesting the projection vector to be in the
-    shape [kpt, band, orb, atom] (spins given as separate arrays). This breaks a core assumption of crawfish,
-    that nproj <= nbands. Obviously some projection slices need to be fibbed
-    (ie [:, :, 5, n] if element n corresponds to hydrogen).
-    Note #1:
-    crawfish currently assumes orbitals to be resolved by ml. If they are not, several
-    core assumptions are broken. How can this case be detected and resolved? If they can be detected
-    and l can be determined, I think splitting these into downscaled but identical projection
-    channels is okay since they will become unique (but arbitrary) after orbital orthogonalization.
-    However, I have no idea how to write this level of detection (VERY unlikely that the abs sum of projections
-    will be helpful for this).
-    I think a minimum projection count for each element can be generated with the
-    full_electronic_structure and valences property of each Element, and this can become
-    a minimum length for "o" in BandStructure.projections[spin] (of shape kjoa).
-    An edge case that would avoid this error detection would be something like an organic
-    molecule (with only C,H,O) - this would generate a minimum length of 4 for s, px, py, pz.
-    If for some reason the channels actually corresponded to s, p, d, f, the analysis would
-    produce nonsense without warning.
-    Approach #1:
-    Its a fair assumption that these slices are fibbed with 0's or nan's, so when collecting projections,
-    only projections with atleast one non-zero entry and no nan's should be included.
-    If nproj > nbands even after this trimming, possibly the lowest abs sum projections
-    should be removed until nproj == nbands. If the projections are pre-normalized for
-    the orbitals, this will be impossible. At this point I think it's okay to raise an
-    InputError since you have to make pretty rash assumptions about which projections
-    are the least important.
-    Approach #2:
-    If non-sensical projections are actually being evaluated (ie d orbitals on hydrogen)
-    """
+
+    def _from_bandstructure_check_projections(self, bandstructure: BandStructure):
+        """Check if projections of BandStructure object contain phase.
+
+        Check if projections of BandStructure object contain phase.
+
+        Parameters
+        ----------
+        bandstructure: BandStructure
+            pymatgen BandStructure object
+        """
+        if bandstructure.projections is None:
+            raise ValueError("BandStructure object must have projections attribute")
+        if isinstance(bandstructure.projections, dict):
+            if not len(bandstructure.projections.keys()):
+                raise ValueError("BandStructure object must have non-empty projections attribute")
+            else:
+                imag_sum = 0
+                neg_real_sum = 0
+                pos_real_sum = 0
+                for spin in bandstructure.projections.keys():
+                    imag_sum += np.sum(np.flatten(np.abs(np.imag(bandstructure.projections[spin]))))
+                    neg_real_sum += np.sum(np.flatten(np.real(bandstructure.projections[spin]) < 0))
+                    pos_real_sum += np.sum(np.flatten(np.real(bandstructure.projections[spin]) > 0))
+                if (imag_sum == 0) and (neg_real_sum == 0):
+                    raise ValueError(
+                        "BandStructure object must have projections attribute with phase (detected by"
+                        "non-zero imaginary part or negative real part)"
+                        )
+                return True
+        else:
+            raise ValueError("BandStructure object must have projections attribute of type dict")
+
     @classmethod
     def as_empty(cls) -> ElecData:
         """Create an empty ElecData instance.
