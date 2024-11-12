@@ -234,9 +234,6 @@ class ElecData:
         """
         raise NotImplementedError("BandStructure object not yet implemented")
 
-    @structure.setter
-    def structure(self, value: Structure):
-        self._structure = value
 
     @property
     def structure(self) -> Structure:
@@ -249,12 +246,10 @@ class ElecData:
         else:
             return self._structure
 
-    @nspin.setter
-    def nspin(self, value: int):
-        if value > 0 and isinstance(value, int):
-            self._nspin = value
-        else:
-            raise ValueError(f"Invalid number of spins {value} (must be positive and an integer)")
+    @structure.setter
+    def structure(self, value: Structure):
+        self._structure = value
+
 
     @property
     def nspin(self) -> int:
@@ -266,6 +261,13 @@ class ElecData:
             if self.jdftx:
                 self._nspin = self.outfile.nspin
         return self._nspin
+
+    @nspin.setter
+    def nspin(self, value: int):
+        if value > 0 and isinstance(value, int):
+            self._nspin = value
+        else:
+            raise ValueError(f"Invalid number of spins {value} (must be positive and an integer)")
 
     @property
     def nstates(self) -> int:
@@ -335,12 +337,6 @@ class ElecData:
         """
         return [specie.name for specie in self.structure.species]
 
-    @mu.setter
-    def mu(self, value: REAL_DTYPE):
-        if np.isreal(value):
-            self._mu = value
-        else:
-            raise ValueError(f"Invalid chemical potential value {value} (must be real)")
 
     @property
     def mu(self) -> REAL_DTYPE:
@@ -351,6 +347,26 @@ class ElecData:
         if self._mu is None:
             self._mu = get_mu_from_outfile_filepath(self.outfile_filepath)
         return self._mu
+
+    @mu.setter
+    def mu(self, value: REAL_DTYPE):
+        if np.isreal(value):
+            self._mu = value
+        else:
+            raise ValueError(f"Invalid chemical potential value {value} (must be real)")
+
+
+
+    @property
+    def e_tj(self) -> np.ndarray[REAL_DTYPE]:
+        """Return eigenvalues of calculation.
+
+        Return eigenvalues of calculation in shape (nstate, nbands).
+        """
+        if self._e_tj is None:
+            if self.jdftx:
+                self._e_tj = get_e_tj_helper(self.eigfile_filepath, self.nstates, self.nbands)
+        return self._e_tj
 
     @e_tj.setter
     def e_tj(self, value: np.ndarray[REAL_DTYPE]):
@@ -365,17 +381,6 @@ class ElecData:
             raise ValueError(
                 f"Invalid shape for eigenvalue array {np.shape(value)} (nstates set to {self.nstates}, nbands set to {self.nbands})"
             )
-
-    @property
-    def e_tj(self) -> np.ndarray[REAL_DTYPE]:
-        """Return eigenvalues of calculation.
-
-        Return eigenvalues of calculation in shape (nstate, nbands).
-        """
-        if self._e_tj is None:
-            if self.jdftx:
-                self._e_tj = get_e_tj_helper(self.eigfile_filepath, self.nstates, self.nbands)
-        return self._e_tj
 
     @property
     def e_sabcj(self) -> np.ndarray[REAL_DTYPE]:
@@ -398,13 +403,6 @@ class ElecData:
                 self._proj_tju = self.user_proj_tju.copy()
         return self._proj_tju
 
-    @user_proj_tju.setter
-    def user_proj_tju(self, value: np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]):
-        t, j, u = np.shape(value)
-        self._nproj = u
-        self._nbands = j
-        self._nstates = t
-        self._user_proj_tju = value
 
     @property
     def user_proj_tju(self) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
@@ -414,12 +412,15 @@ class ElecData:
         """
         return self._user_proj_tju
 
-    @broadening.setter
-    def broadening(self, value: REAL_DTYPE):
-        if np.isreal(value) and value >= 0:
-            self._broadening = value
-        else:
-            raise ValueError(f"Invalid broadening value {value} (must be real and positive)")
+    @user_proj_tju.setter
+    def user_proj_tju(self, value: np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]):
+        t, j, u = np.shape(value)
+        self._nproj = u
+        self._nbands = j
+        self._nstates = t
+        self._user_proj_tju = value
+
+
 
     @property
     def broadening(self) -> REAL_DTYPE:
@@ -432,12 +433,15 @@ class ElecData:
         else:
             return self._broadening
 
-    @broadening_type.setter
-    def broadening_type(self, value: str):
-        if value not in ["Fermi", "Gauss", "MP1", "cold"]:
-            raise ValueError(f"Unknown broadening type {value}")
-        self._broadening_type = value
+    @broadening.setter
+    def broadening(self, value: REAL_DTYPE):
+        if np.isreal(value) and value >= 0:
+            self._broadening = value
+        else:
+            raise ValueError(f"Invalid broadening value {value} (must be real and positive)")
 
+
+    @property
     def broadening_type(self) -> str:
         """Return broadening type of calculation.
 
@@ -448,12 +452,13 @@ class ElecData:
         else:
             return self._broadening_type
 
-    @occ_tj.setter
-    def occ_tj(self, value: np.ndarray[REAL_DTYPE]):
-        if np.shape(value) == (self.nstates, self.nbands):
-            self._occ_tj = value
-        else:
-            raise ValueError(f"Invalid shape for occupation array {np.shape(value)}")
+    @broadening_type.setter
+    def broadening_type(self, value: str):
+        if value not in ["Fermi", "Gauss", "MP1", "cold"]:
+            raise ValueError(f"Unknown broadening type {value}")
+        self._broadening_type = value
+
+
 
     @property
     def occ_tj(self) -> np.ndarray[REAL_DTYPE] | None:
@@ -494,6 +499,13 @@ class ElecData:
                 fillings = fillings.reshape(self.nstates, self.nbands)
                 self._occ_tj = fillings
         return self._occ_tj
+
+    @occ_tj.setter
+    def occ_tj(self, value: np.ndarray[REAL_DTYPE]):
+        if np.shape(value) == (self.nstates, self.nbands):
+            self._occ_tj = value
+        else:
+            raise ValueError(f"Invalid shape for occupation array {np.shape(value)}")
 
     def set_mat_uu(self) -> None:
         h_uu, p_uu, s_uu = get_h_uu_p_uu_s_uu(
@@ -549,9 +561,7 @@ class ElecData:
         """
         return self.orbs_idx_dict
 
-    @atom_orb_labels_dict.setter
-    def atom_orb_labels_dict(self, value: dict[str, int]):
-        self._atom_orb_labels_dict = value
+
 
     @property
     def atom_orb_labels_dict(self) -> dict[str, int]:
@@ -561,6 +571,10 @@ class ElecData:
             else:
                 raise RuntimeError("atom_orb_labels_dict must be set by user for non-JDFTx calculations")
         return self._atom_orb_labels_dict
+
+    @atom_orb_labels_dict.setter
+    def atom_orb_labels_dict(self, value: dict[str, int]):
+        self._atom_orb_labels_dict = value
 
     @property
     def orbs_idx_dict(self) -> dict[str, int]:
@@ -585,14 +599,7 @@ class ElecData:
             self._kmap = get_kmap_from_edata(self)
         return self._kmap
 
-    @wk_t.setter
-    def wk_t(self, value: np.ndarray[REAL_DTYPE]):
-        if len(value) == self.nstates and len(value.shape) == 1:
-            self._wk_t = value
-        else:
-            raise ValueError(
-                f"Invalid shape for kpoint weights array {np.shape(value)} (must be nspin*nkpts long and 1-dimensional)"
-            )
+
 
     @property
     def wk_t(self) -> np.ndarray[REAL_DTYPE]:
@@ -604,6 +611,15 @@ class ElecData:
             if self.jdftx:
                 self._wk_t = get_wk_t(self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed)
         return self._wk_t
+
+    @wk_t.setter
+    def wk_t(self, value: np.ndarray[REAL_DTYPE]):
+        if len(value) == self.nstates and len(value.shape) == 1:
+            self._wk_t = value
+        else:
+            raise ValueError(
+                f"Invalid shape for kpoint weights array {np.shape(value)} (must be nspin*nkpts long and 1-dimensional)"
+            )
 
     # @ks_t.setter
     # def ks_t(self, value: np.ndarray[REAL_DTYPE]):
@@ -623,14 +639,6 @@ class ElecData:
     #             self._ks_t = get_ks_t(self.kptsfile_filepath)
     #     return self._ks_t
 
-    @kfolding.setter
-    def kfolding(self, value: list[int]):
-        if len(value) == 3:
-            self._kfolding = value
-            if self.nspin is None and (self.nstates is not None):
-                self._nspin = int(self.nstates / np.prod(value))
-        else:
-            raise ValueError(f"Invalid shape for kpoint folding array {np.shape(value)} (must be length 3)")
 
     @property
     def kfolding(self) -> list[int]:
@@ -641,6 +649,16 @@ class ElecData:
         if self._kfolding is None:
             self._kfolding = get_kfolding(self.lti_allowed, self.outfile_filepath, self.nspin, self.nstates)
         return self._kfolding
+
+    @kfolding.setter
+    def kfolding(self, value: list[int]):
+        if len(value) == 3:
+            self._kfolding = value
+            if self.nspin is None and (self.nstates is not None):
+                self._nspin = int(self.nstates / np.prod(value))
+        else:
+            raise ValueError(f"Invalid shape for kpoint folding array {np.shape(value)} (must be length 3)")
+
 
     @property
     def bandprojfile_is_complex(self) -> bool:
