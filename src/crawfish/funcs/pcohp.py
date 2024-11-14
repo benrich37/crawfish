@@ -32,9 +32,9 @@ def get_pcohp(
     norm_max: bool = False,
     norm_intg: bool = False,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
-    """Get the PDOS spectrum for the system of interest.
+    """Get the pCOHP spectrum for the system of interest.
 
-    Get the energy array / PDOS spectrum pair for the system of interest.
+    Get the energy array / pCOHP spectrum pair for the system of interest.
 
     Parameters
     ----------
