@@ -120,3 +120,11 @@ cd ./crawfish
 ```sh
 pip install .
 ```
+
+## Resolved Errors
+
+As of writing this (11/14/24), the JDFTx IO module has not yet been merged into the main fork of pymatgen. Since this package requires the JDFTx IO module, it requires installation of a specific fork of pymatgen. If you had pymatgen installed already on your python environment, the installing crawfish through `pip install .` will not update your pymatgen version. If this is the case for you, you will likely quickly run into errors referring to the import of `pymatgen.io.jdftx`, or references to the `valences` property of a pymatgen Element/Species. To force update the pymatgen for you environment to refer to the correct fork, run
+```sh
+pip install -e git+https://github.com/benrich37/pymatgen.git#egg=pymatgen
+```
+
