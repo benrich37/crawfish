@@ -25,8 +25,8 @@ from crawfish.io.data_parsing import (
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_kmap_from_edata
 from pymatgen.electronic_structure.bandstructure import BandStructure
-from pymatgen.io.jdftx.jdftxinfile import JDFTXInfile
-from pymatgen.io.jdftx.jdftxoutfile import JDFTXOutfile
+from pymatgen.io.jdftx.inputs import JDFTXInfile
+from pymatgen.io.jdftx.outputs import JDFTXOutfile
 from pymatgen.core.structure import Structure
 from pathlib import Path
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
