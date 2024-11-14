@@ -515,7 +515,7 @@ class ElecData:
             self.wk_t,
             s_real=self.s_tj_uu_real,
             s_pos=self.s_tj_uu_pos,
-            p_consistent=self.p_uu_consistent,
+            p_sc=self.p_uu_consistent,
         )
         self._h_uu = h_uu
         self._p_uu = p_uu

@@ -51,7 +51,7 @@ def get_dos(
         Normalize the spectrum to the integral of the spectrum to 1.
     """
     edata = edata_input_to_edata(edata_input)
-    dos_tj = edata.wk_t[:, np.newaxis]
+    dos_tj = edata.wk_t[:, np.newaxis] * np.ones([edata.nstates, edata.nbands], dtype=REAL_DTYPE)
     kwargs = {
         "erange": erange,
         "spin_pol": spin_pol,
@@ -73,7 +73,7 @@ def get_idos(
     spin_pol: bool = False,
 ):
     edata = edata_input_to_edata(edata_input)
-    dos_tj = edata.wk_t[:, np.newaxis]
+    dos_tj = edata.wk_t[:, np.newaxis] * np.ones([edata.nstates, edata.nbands], dtype=REAL_DTYPE)
     kwargs = {
         "spin_pol": spin_pol,
     }
