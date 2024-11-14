@@ -7,3 +7,5 @@ launch.json
 coverage.xml
 codecov
 debug.ipynb
+build/
+deleteme*
