@@ -214,9 +214,11 @@ def get_aidcs(edata: ElecData, idcs: list[int] | int | None, elements: list[str]
     if elements is not None:
         if idcs is not None:
             raise ValueError("Cannot provide both idcs and elements.")
+        if isinstance(elements, str):
+            elements = [elements]
         idcs = []
         for el in elements:
-            idcs += [i for i, sym in enumerate(edata.ion_names) if sym == el]
+            idcs += [i for i, sym in enumerate(edata.ion_names) if sym.lower() == el.lower()]
     if idcs is None:
         idcs = list(range(len(edata.ion_names)))
     if isinstance(idcs, int):

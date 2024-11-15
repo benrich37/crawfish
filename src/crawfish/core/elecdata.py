@@ -833,6 +833,9 @@ class ElecData:
         _ = self.proj_tju
         _ = self.occ_tj
         _ = self.e_tj
+        if self.nbands < self.nproj:
+            self.trim_excess_bands = False
+            self.los_orbs = False
         if self.trim_excess_bands:
             _nbands = self.nbands
             bestj = get_best_bands(self.proj_tju)
