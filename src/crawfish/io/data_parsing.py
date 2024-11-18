@@ -816,7 +816,7 @@ def _parse_bandfile_reader(
     get_norbsperatom_from_bandfile_filepath(bandfile_filepath)
     # Header of length 3, and then each states occupies 1 (header) + nbands lineas
     bandfile = read_file(bandfile_filepath)
-    expected_length = 3 + (nstates * (1 + nbands))
+    expected_length = 2 + nspecies + (nstates * (1 + nbands))
     if not expected_length == len(bandfile):
         raise RuntimeError("Bandprojections file does not match expected length - ensure no edits have been made.")
     proj_tju = np.zeros((nstates, nbands, nproj), dtype=dtype)
