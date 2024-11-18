@@ -35,7 +35,7 @@ def get_generic_integrate(
     """
     weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if use_fillings:
-        weights_sabcj *= edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
+        weights_sabcj *= edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands]) / np.max(edata.occ_tj)
     if spin_pol:
         cs = []
         for s in range(edata.nspin):
