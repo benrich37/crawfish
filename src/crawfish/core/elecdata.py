@@ -345,7 +345,10 @@ class ElecData:
         Return chemical potential (fermi level) of calculation.
         """
         if self._mu is None:
-            self._mu = get_mu_from_outfile_filepath(self.outfile_filepath)
+            if self.jdftx:
+                self._mu = self.outfile.mu
+            else:
+                raise ValueError("mu (Fermi level) must be set by user for non-JDFTx calculations")
         return self._mu
 
     @mu.setter
