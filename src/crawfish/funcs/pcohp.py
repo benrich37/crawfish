@@ -292,11 +292,13 @@ def get_ipcoop(
     orbs1: list[str] | str | None = None,
     orbs2: list[str] | str | None = None,
     spin_pol: bool = False,
+    use_fillings: bool = True,
 ):
     edata = edata_input_to_edata(edata_input)
     pcoop_tj = _get_pcoop_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
     kwargs = {
         "spin_pol": spin_pol,
+        "use_fillings": use_fillings,
     }
     es, cs = get_generic_integrate(edata, pcoop_tj, **kwargs)
     return es, cs
