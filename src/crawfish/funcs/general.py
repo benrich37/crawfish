@@ -16,7 +16,9 @@ RES_DEFAULT = REAL_DTYPE(0.01)
 
 
 def get_generic_integrate(
-    edata: ElecData, weights_tj: np.ndarray[REAL_DTYPE | COMPLEX_DTYPE], spin_pol: bool = False
+    edata: ElecData, weights_tj: np.ndarray[REAL_DTYPE | COMPLEX_DTYPE],
+    spin_pol: bool = False,
+    use_fillings: bool = False,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE | COMPLEX_DTYPE]]:
     """Return a generic integrated spectrum.
 
@@ -32,6 +34,8 @@ def get_generic_integrate(
         Return separate spectra for up/down intensities if True.
     """
     weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
+    if use_fillings:
+        weights_sabcj *= edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if spin_pol:
         cs = []
         for s in range(edata.nspin):

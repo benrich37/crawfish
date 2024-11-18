@@ -91,17 +91,27 @@ def get_ipcohp(
     orbs1: list[str] | str | None = None,
     orbs2: list[str] | str | None = None,
     spin_pol: bool = False,
-):
+    use_fillings: bool = True,
+    ):
     edata = edata_input_to_edata(edata_input)
     pcohp_tj = _get_pcohp_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
     kwargs = {
         "spin_pol": spin_pol,
+        "use_fillings": use_fillings,
     }
     es, cs = get_generic_integrate(edata, pcohp_tj, **kwargs)
     return es, cs
 
 
-def _get_pcohp_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2):
+def _get_pcohp_tj(
+        edata: ElecData,
+        idcs1: list[int] | int | None,
+        elements1: list[str] | str | None,
+        orbs1,
+        idcs2,
+        elements2,
+        orbs2
+        ):
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
@@ -282,22 +292,32 @@ def get_ipcoop(
     orbs1: list[str] | str | None = None,
     orbs2: list[str] | str | None = None,
     spin_pol: bool = False,
+    use_fillings: bool = True,
 ):
     edata = edata_input_to_edata(edata_input)
-    _get_pcoop_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
+    pcoop_tj = _get_pcoop_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
     kwargs = {
         "spin_pol": spin_pol,
+        "use_fillings": use_fillings,
     }
-    es, cs = get_generic_integrate(edata, pcohp_tj, **kwargs)
+    es, cs = get_generic_integrate(edata, pcoop_tj, **kwargs)
     return es, cs
 
 
-def _get_pcoop_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2):
+def _get_pcoop_tj(
+        edata: ElecData,
+        idcs1,
+        elements1,
+        orbs1,
+        idcs2,
+        elements2,
+        orbs2
+        ):
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
     s_uu = edata.s_uu
     proj_tju = edata.proj_tju
     wk_t = edata.wk_t
-    pcoop_tj = _get_gen_tj(proj_tju, p_uu, wk_t, orbs_u, orbs_v)
+    pcoop_tj = _get_gen_tj(proj_tju, s_uu, wk_t, orbs_u, orbs_v)
     return pcoop_tj

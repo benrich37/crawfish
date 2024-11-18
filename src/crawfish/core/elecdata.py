@@ -28,6 +28,7 @@ from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.inputs import JDFTXInfile
 from pymatgen.io.jdftx.outputs import JDFTXOutfile
 from pymatgen.core.structure import Structure
+from pymatgen.core.units import Ha_to_eV
 from pathlib import Path
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
@@ -346,7 +347,7 @@ class ElecData:
         """
         if self._mu is None:
             if self.jdftx:
-                self._mu = self.outfile.mu
+                self._mu = self.outfile.mu / Ha_to_eV
             else:
                 raise ValueError("mu (Fermi level) must be set by user for non-JDFTx calculations")
         return self._mu
