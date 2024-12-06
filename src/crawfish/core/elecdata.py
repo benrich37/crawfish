@@ -23,7 +23,7 @@ from crawfish.io.data_parsing import (
     get_norbsperatom_from_edata,
 )
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
-from crawfish.utils.indexing import get_kmap_from_edata
+from crawfish.utils.indexing import get_kmap_from_edata, get_atom_orb_labels_dict
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.inputs import JDFTXInfile
 from pymatgen.io.jdftx.outputs import JDFTXOutfile
