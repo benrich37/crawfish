@@ -588,8 +588,10 @@ def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLE
     for t in range(nstates):
         s_uu = np.tensordot(proj_tju[t].conj().T, proj_tju[t], axes=([1], [0]))
         eigs, low_u = np.linalg.eigh(s_uu)
-        nsqrt_ss_uu = np.eye(len(eigs)) * (eigs ** (-0.5))
-        low_s_uu = np.dot(low_u, np.dot(nsqrt_ss_uu, low_u.T.conj()))
+        # TODO: The following two lines were stolen from pyscf. Figure out if pyscf should just be a dependency,
+        # and dispatch orthogonalization to it.
+        idx = eigs > 1e-15
+        low_s_uu = np.dot(low_u[:,idx]/np.sqrt(eigs[idx]), low_u[:,idx].conj().T)
         low_proj_tju[t, :, :] += np.tensordot(proj_tju[t], low_s_uu, axes=([1], [0]))
     return low_proj_tju
 
