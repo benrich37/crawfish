@@ -31,6 +31,7 @@ def get_pcohp(
     rattle_eigenvals: bool = False,
     norm_max: bool = False,
     norm_intg: bool = False,
+    use_cache: bool = False,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
     """Get the pCOHP spectrum for the system of interest.
 
@@ -66,9 +67,15 @@ def get_pcohp(
         Normalize the spectrum to the maximum intensity to 1.
     norm_intg : bool
         Normalize the spectrum to the integral of the spectrum to 1.
+    use_cache : bool
+        If True, cache the results of the calculation and
+        retrieve them if they are already computed.
     """
     edata = edata_input_to_edata(edata_input)
-    pcohp_tj = _get_pcohp_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
+    pcohp_tj = _get_pcohp_tj(
+        edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2,
+        use_cache=use_cache
+        )
     kwargs = {
         "erange": erange,
         "spin_pol": spin_pol,
@@ -107,14 +114,39 @@ def _get_pcohp_tj(
         edata: ElecData,
         idcs1: list[int] | int | None,
         elements1: list[str] | str | None,
-        orbs1,
-        idcs2,
-        elements2,
-        orbs2
+        orbs1: list[str] | str | None,
+        idcs2: list[int] | int | None,
+        elements2: list[str] | str | None,
+        orbs2: list[str] | str | None,
+        use_cache: bool = True,
         ):
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
+    compute_func = lambda u, v: _compute_pcohp_tj(edata, u, v)
+    if use_cache:
+        pcohp_tj = edata._pcohp_tj_cache.compute_or_retrieve(
+            orbs_u, orbs_v, compute_func
+        )
+    else:
+        pcohp_tj = compute_func(orbs_u, orbs_v)
+    #     tj_func =
+
+    #     edata._pcohp_tj_cache.compute_or_retrieve(
+    #         orbs_u, orbs_v, _compute_pcohp_tj
+    #     )
+    #     cache = edata._pcohp_tj_cache
+    # h_uu = edata.h_uu
+    # proj_tju = edata.proj_tju
+    # wk_t = edata.wk_t
+    # pcohp_tj = _get_gen_tj(proj_tju, h_uu, wk_t, orbs_u, orbs_v)
+    return pcohp_tj
+
+def _compute_pcohp_tj(
+        edata: ElecData,
+        orbs_u: list[int],
+        orbs_v: list[int],
+        ):
     h_uu = edata.h_uu
     proj_tju = edata.proj_tju
     wk_t = edata.wk_t
