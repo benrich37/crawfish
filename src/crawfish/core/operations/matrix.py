@@ -267,13 +267,13 @@ def _get_gen_tj(
     orbs = np.asarray(list(orbs_u) + list(orbs_v))
     t, j, u = np.shape(proj_tju)
     gen_tj = np.zeros([t, j], dtype=REAL_DTYPE)
-    return np.array(_get_gen_tj_jit(gen_tj, gen_uu, wk_cw_tj_uu, orbs), dtype=REAL_DTYPE)
+    return np.array(_get_gen_tj_jit(gen_tj, gen_uu, wk_cw_tj_uu, orbs_u, orbs_v), dtype=REAL_DTYPE)
 
 
 @jit(nopython=True)
-def _get_gen_tj_jit(gen_tj, gen_uu, wk_cw_tj_uu, orbs):
-    for u in orbs:
-        for v in orbs:
+def _get_gen_tj_jit(gen_tj, gen_uu, wk_cw_tj_uu, orbs_u, orbs_v):
+    for u in orbs_u:
+        for v in orbs_v:
             if not u == v:
                 gen_tj += gen_uu[u, v] * wk_cw_tj_uu[:, :, u, v]
     return gen_tj
