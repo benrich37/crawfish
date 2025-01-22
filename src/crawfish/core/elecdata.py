@@ -22,6 +22,7 @@ from crawfish.io.data_parsing import (
     get_nspecies_from_bandfile_filepath,
     get_norbsperatom_from_edata,
 )
+from crawfish.utils.caching import CachedFunction
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_kmap_from_edata, get_atom_orb_labels_dict
 from pymatgen.electronic_structure.bandstructure import BandStructure
@@ -92,6 +93,8 @@ class ElecData:
     _user_proj_tju: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE] | None = None
     _broadening: REAL_DTYPE = 0.01
     _broadening_type: str = "Fermi"
+    #
+    _pcohp_tj_cache: CachedFunction = CachedFunction()
     """
     Picture adjustments
     -------------------
@@ -478,24 +481,33 @@ class ElecData:
                 else:
                     btype = self._broadening_type
                     broad = self._broadening
-                if btype == "Fermi":
+                if isinstance(btype, str):
+                    if btype == "Fermi":
+
+                        def bfunc(eig):
+                            return calculate_filling_fermi(broad, eig, self.mu)
+                    elif btype == "Gauss":
+
+                        def bfunc(eig):
+                            return calculate_filling_gauss(broad, eig, self.mu)
+                    elif btype == "MP1":
+
+                        def bfunc(eig):
+                            return calculate_filling_mp1(broad, eig, self.mu)
+                    elif btype == "cold":
+
+                        def bfunc(eig):
+                            return calculate_filling_cold(broad, eig, self.mu)
+                    elif btype.lower() == "none":
+
+                        def bfunc(eig):
+                            return calculate_filling_nobroad(0.0, eig, self.mu)
+                    else:
+                        raise ValueError(f"Unknown broadening type {btype}")
+                elif btype is None:
 
                     def bfunc(eig):
-                        return calculate_filling_fermi(broad, eig, self.mu)
-                elif btype == "Gauss":
-
-                    def bfunc(eig):
-                        return calculate_filling_gauss(broad, eig, self.mu)
-                elif btype == "MP1":
-
-                    def bfunc(eig):
-                        return calculate_filling_mp1(broad, eig, self.mu)
-                elif btype == "cold":
-
-                    def bfunc(eig):
-                        return calculate_filling_cold(broad, eig, self.mu)
-                else:
-                    raise ValueError(f"Unknown broadening type {btype}")
+                        return calculate_filling_nobroad(0.0, eig, self.mu)
                 self._occ_tj = bfunc(self.e_tj)
             else:
                 fillings = np.fromfile(self.fillingsfile_filepath)
@@ -871,6 +883,15 @@ class ElecData:
         self.norm_idx = None
         return None
 
+    def _compute_pcohp_tj(
+        self, orbs_u: list[int], orbs_v: list[int]
+        ):
+        h_uu = edata.h_uu
+        proj_tju = edata.proj_tju
+        wk_t = edata.wk_t
+        pcohp_tj = _get_gen_tj(proj_tju, h_uu, wk_t, orbs_u, orbs_v)
+        return pcohp_tj
+
 
 def count_ions(ionnames: list[str]) -> tuple[list[str], list[int]]:
     """Count the number of each unique atom in a list of atom labels.
@@ -988,4 +1009,8 @@ def calculate_filling_mp1(broadening: float, eig: float, efermi: float) -> float
 def calculate_filling_cold(broadening: float, eig: float, efermi: float) -> float:
     x = (eig - efermi) / (2.0 * broadening)
     filling = 0.5 * (1 - math.erf(x + 0.5**0.5)) + np.exp(-1 * (x + 0.5**0.5) ** 2) / (2 * np.pi) ** 0.5
+    return filling
+
+def calculate_filling_nobroad(broadening: float, eig: float, efermi: float) -> float:
+    filling = np.heaviside(eig, efermi)
     return filling
