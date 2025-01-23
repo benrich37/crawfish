@@ -68,8 +68,13 @@ def get_pcohp(
     norm_intg : bool
         Normalize the spectrum to the integral of the spectrum to 1.
     use_cache : bool
-        If True, cache the results of the calculation and
-        retrieve them if they are already computed.
+        If True, cache the results of the calculation and retrieve them if they are already computed.
+        This will be more time efficient for subsequent redundant pcohp evaluations
+        (enumerating over the same orbitals) for calculations with more states and bands.
+        Note: for each unique pair of orbitals, an array of size (nStates, nBands) is stored
+        by a crawfish.utils.caching.CachedFunction object at ElecData._pcohp_tj_cache,
+        where each value occupies 4 bytes. To free memory, the cache can be cleared
+        via ElecData._pcohp_tj_cache.clear().
     """
     edata = edata_input_to_edata(edata_input)
     pcohp_tj = _get_pcohp_tj(
