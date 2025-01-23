@@ -32,11 +32,9 @@ class CachedFunction:
         # Check if result is already cached
         for key in [key1, key2]:
             if key in self.cache:
-                print(f"Cache hit for key: {key}")
                 return self.cache[key]
 
         # Compute and cache result
-        print(f"Cache miss for key: {key1}")
         result = f(oidcs1, oidcs2)
         self.cache[key] = result
         return result

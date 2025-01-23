@@ -99,9 +99,12 @@ def get_ipcohp(
     orbs2: list[str] | str | None = None,
     spin_pol: bool = False,
     use_fillings: bool = True,
+    use_cache: bool = False,
     ):
     edata = edata_input_to_edata(edata_input)
-    pcohp_tj = _get_pcohp_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2)
+    pcohp_tj = _get_pcohp_tj(
+        edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2,
+        use_cache=use_cache)
     kwargs = {
         "spin_pol": spin_pol,
         "use_fillings": use_fillings,
@@ -118,7 +121,7 @@ def _get_pcohp_tj(
         idcs2: list[int] | int | None,
         elements2: list[str] | str | None,
         orbs2: list[str] | str | None,
-        use_cache: bool = True,
+        use_cache: bool = False,
         ):
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
