@@ -806,12 +806,16 @@ class ElecData:
         prefix : str, optional
             Prefix of files in calculation directory, by default None
         """
+        self._init_caches()
         if jdftx:
             self.fprefix = self._get_fprefix(prefix)
             self.calc_dir = Path(calc_dir)
             if calc_dir is not None:
                 self._set_files_paths()
                 self.alloc_elec_data()
+
+    def _init_caches(self):
+        self._pcohp_tj_cache = CachedFunction()
 
     def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings"]):
         if self.fprefix is None:
