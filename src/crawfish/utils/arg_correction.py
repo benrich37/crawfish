@@ -64,3 +64,21 @@ def check_repeat(orbs_u: list[int], orbs_v: list[int]):
     if any([orb in orbs_v for orb in orbs_u]):
         raise ValueError("Orbitals cannot be repeated between sets.")
     return None
+
+
+def get_use_cache(use_cache_arg: bool | None, use_cache_default: bool | None) -> bool:
+    """Return use_cache from input.
+
+    Return use_cache from input.
+
+    Parameters
+    ----------
+    use_cache_arg : bool | None
+        Whether to use caching.
+    """
+    if ((use_cache_default is None) and (use_cache_arg is None)):
+        return False
+    elif not use_cache_arg is None:
+        return use_cache_arg
+    else:
+        return use_cache_default

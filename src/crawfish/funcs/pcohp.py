@@ -8,7 +8,7 @@ from crawfish.core.operations.matrix import _get_gen_tj
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
-from crawfish.utils.arg_correction import edata_input_to_edata
+from crawfish.utils.arg_correction import edata_input_to_edata, get_use_cache
 from crawfish.funcs.general import get_generic_spectrum, get_generic_integrate
 from pathlib import Path
 import numpy as np
@@ -31,7 +31,7 @@ def get_pcohp(
     rattle_eigenvals: bool = False,
     norm_max: bool = False,
     norm_intg: bool = False,
-    use_cache: bool = False,
+    use_cache: bool | None = None,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
     """Get the pCOHP spectrum for the system of interest.
 
@@ -77,6 +77,7 @@ def get_pcohp(
         via ElecData._pcohp_tj_cache.clear().
     """
     edata = edata_input_to_edata(edata_input)
+    use_cache = get_use_cache(use_cache, edata.use_cache_default)
     pcohp_tj = _get_pcohp_tj(
         edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2,
         use_cache=use_cache
@@ -104,9 +105,10 @@ def get_ipcohp(
     orbs2: list[str] | str | None = None,
     spin_pol: bool = False,
     use_fillings: bool = True,
-    use_cache: bool = False,
+    use_cache: bool | None = None,
     ):
     edata = edata_input_to_edata(edata_input)
+    use_cache = get_use_cache(use_cache, edata.use_cache_default)
     pcohp_tj = _get_pcohp_tj(
         edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2,
         use_cache=use_cache)
@@ -133,7 +135,7 @@ def _get_pcohp_tj(
     check_repeat(orbs_u, orbs_v)
     compute_func = lambda u, v: _compute_pcohp_tj(edata, u, v)
     if use_cache:
-        pcohp_tj = edata._pcohp_tj_cache.compute_or_retrieve(
+        pcohp_tj = edata.pcohp_tj_cache.compute_or_retrieve(
             orbs_u, orbs_v, compute_func
         )
     else:

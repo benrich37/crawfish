@@ -33,7 +33,8 @@ def get_generic_integrate(
     spin_pol : bool
         Return separate spectra for up/down intensities if True.
     """
-    weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
+    _weights_tj = weights_tj.copy()
+    weights_sabcj = _weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if use_fillings:
         weights_sabcj *= edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands]) / np.max(edata.occ_tj)
     if spin_pol:
