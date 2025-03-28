@@ -1,11 +1,17 @@
 from typing import List, Dict, Tuple
 import numpy as np
 from functools import lru_cache
+from pathlib import Path
+from crawfish.utils.typing import REAL_DTYPE
 
 class CachedFunction:
-    def __init__(self):
+    
+    def __init__(self, cache_file: str = 'cache.npz', arr_dtype: np.dtype = REAL_DTYPE, auto_save: bool = True):
         # Dictionary to store computed results
         self.cache: Dict[Tuple[Tuple[int, ...], Tuple[int, ...]], np.ndarray] = {}
+        self.arr_dtype = arr_dtype
+        self.auto_save = auto_save
+        self.cache_file = cache_file
 
     def _create_key(self, oidcs1: List[int], oidcs2: List[int]) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
         """
@@ -32,13 +38,13 @@ class CachedFunction:
         # Check if result is already cached
         for key in [key1, key2]:
             if key in self.cache:
-                print(f"Cache hit for key: {key}")
                 return self.cache[key]
 
         # Compute and cache result
-        print(f"Cache miss for key: {key1}")
         result = f(oidcs1, oidcs2)
-        self.cache[key] = result
+        self.cache[key1] = result
+        if self.auto_save:
+            self.save_cache()
         return result
 
     def clear(self):
@@ -48,3 +54,31 @@ class CachedFunction:
     def cache_size(self) -> int:
         """Return the number of cached results"""
         return len(self.cache)
+    
+    def save_cache(self):
+        """Save cache to a file using numpy's savez_compressed"""
+        cache_data = {
+            'keys': list(self.cache.keys()),
+            'values': list(self.cache.values())
+        }
+        np.savez_compressed(self.cache_file, 
+                          keys=np.array(cache_data['keys'], dtype=object),
+                          values=np.array(cache_data['values'], dtype=object))
+        
+    def load_cache(self):
+        """Load cache from a file"""
+        if Path(self.cache_file).exists():
+            loaded = np.load(self.cache_file, allow_pickle=True)
+            keys = [tuple(tuple(k) for k in key) for key in loaded['keys']]
+            values = loaded['values']
+            self.cache = dict(zip(keys, values))
+            for key in keys:
+                self.cache[key] = np.array(self.cache[key], dtype=self.arr_dtype)
+    
+    # def load_cache(self, filename: str):
+    #     """Load cache from a file"""
+    #     if Path(filename).exists():
+    #         loaded = np.load(filename, allow_pickle=True)
+    #         keys = loaded['keys']
+    #         values = loaded['values']
+    #         self.cache = dict(zip(keys, values))

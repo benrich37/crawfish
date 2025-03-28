@@ -33,7 +33,8 @@ def get_generic_integrate(
     spin_pol : bool
         Return separate spectra for up/down intensities if True.
     """
-    weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
+    _weights_tj = weights_tj.copy()
+    weights_sabcj = _weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if use_fillings:
         weights_sabcj *= edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands]) / np.max(edata.occ_tj)
     if spin_pol:
@@ -62,6 +63,7 @@ def get_generic_spectrum(
     rattle_eigenvals: bool = False,
     norm_max: bool = False,
     norm_intg: bool = False,
+    sep_channels: bool = False,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
     """Return a generic spectrum.
 
@@ -90,8 +92,23 @@ def get_generic_spectrum(
         Normalize the spectrum to the maximum intensity to 1.
     norm_intg : bool
         Normalize the spectrum to the integral of the spectrum to 1.
+    sep_channels : bool
+        Return separate spectra for positive/negative intensities if True.
     """
+    erange = get_erange(edata, erange, res=res)
     weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
+    if not sep_channels:
+        spectrum = _get_generic_spectrum_helper(edata, weights_sabcj, erange, spin_pol, sig, res, lti, rattle_eigenvals, norm_max, norm_intg)
+    else:
+        # only positive weights (else 0)
+        weights_sabcj_pos = np.maximum(weights_sabcj, np.zeros_like(weights_sabcj))
+        weights_sabcj_neg = -np.maximum(-weights_sabcj, np.zeros_like(weights_sabcj))
+        spectrum1 = _get_generic_spectrum_helper(edata, weights_sabcj_pos, erange, spin_pol, sig, res, lti, rattle_eigenvals, norm_max, norm_intg)
+        spectrum2 = _get_generic_spectrum_helper(edata, weights_sabcj_neg, erange, spin_pol, sig, res, lti, rattle_eigenvals, norm_max, norm_intg)
+        spectrum = np.array([spectrum1, spectrum2])
+    return erange, spectrum
+
+def _get_generic_spectrum_helper(edata, weights_sabcj, erange, spin_pol, sig, res, lti, rattle_eigenvals, norm_max, norm_intg):
     if not lti:
         erange, spectrum = get_generic_gsmear_spectrum(edata, weights_sabcj, erange, spin_pol, sig, res=res)
     elif not edata.lti_allowed:
@@ -104,7 +121,7 @@ def get_generic_spectrum(
         spectrum = spectrum / np.max(spectrum)
     elif norm_intg:
         spectrum = spectrum / trapezoid(spectrum, erange)
-    return erange, spectrum
+    return spectrum
 
 
 def get_generic_lti_spectrum(

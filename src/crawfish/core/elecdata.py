@@ -28,6 +28,8 @@ from crawfish.utils.indexing import get_kmap_from_edata, get_atom_orb_labels_dic
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.inputs import JDFTXInfile
 from pymatgen.io.jdftx.outputs import JDFTXOutfile
+from pymatgen.io.ase import AseAtomsAdaptor
+from ase.visualize import view
 from pymatgen.core.structure import Structure
 from pymatgen.core.units import Ha_to_eV
 from pathlib import Path
@@ -37,6 +39,8 @@ import warnings
 warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
 warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
+
+cache_mats = ["pcohp_tj", "pcobi_tj", "pdos_tj"]
 
 class ElecData:
     """Class for handling electronic data from JDFTx calculations.
@@ -94,7 +98,10 @@ class ElecData:
     _broadening: REAL_DTYPE = 0.01
     _broadening_type: str = "Fermi"
     #
-    _pcohp_tj_cache: CachedFunction = CachedFunction()
+    use_cache_default: bool | None = None
+    pcohp_tj_cache: CachedFunction = CachedFunction()
+    pcobi_tj_cache: CachedFunction = CachedFunction()
+    pdos_tj_cache: CachedFunction = CachedFunction()
     """
     Picture adjustments
     -------------------
@@ -105,6 +112,14 @@ class ElecData:
     Making the projection vector at each state square also enables techniques requiring
     dual spaces of bands and orbitals (not yet implemented)
     """
+
+    def view_structure(self, **kwargs):
+        """View structure using ASE's view method.
+
+        View structure using ASE's view method.
+        """
+        atoms = AseAtomsAdaptor.get_atoms(self.structure)
+        view(atoms, **kwargs)
 
     @property
     def trim_excess_bands(self) -> bool:
@@ -246,7 +261,7 @@ class ElecData:
         Return pymatgen structure object from calculation.
         """
         if self.jdftx:
-            return self.outfile.slices[-1].structure
+            return self.outfile.structure
         else:
             return self._structure
 
@@ -699,7 +714,9 @@ class ElecData:
         return self._lti_allowed
 
     @classmethod
-    def from_calc_dir(cls, calc_dir: Path, prefix: str | None = None) -> ElecData:
+    def from_calc_dir(
+        cls, calc_dir: Path, prefix: str | None = None, use_cache_default: bool | None = None,
+        autosave_cache: bool = True) -> ElecData:
         """Create ElecData instance from JDFTx calculation directory.
 
         Create ElecData instance from JDFTx calculation directory.
@@ -711,7 +728,9 @@ class ElecData:
         prefix : str, optional
             Prefix of files in calculation directory, by default None
         """
-        instance = ElecData(calc_dir=Path(calc_dir), prefix=prefix)
+        instance = ElecData(
+            calc_dir=Path(calc_dir), prefix=prefix, use_cache_default=use_cache_default, autosave_cache=autosave_cache
+            )
         return instance
 
     @classmethod
@@ -794,7 +813,9 @@ class ElecData:
         instance = ElecData(calc_dir=None)
         return instance
 
-    def __init__(self, calc_dir: Path, prefix: str | None = None, jdftx: bool = True):
+    def __init__(
+            self, calc_dir: Path, prefix: str | None = None, jdftx: bool = True, use_cache_default: bool | None = None,
+            autosave_cache: bool = True):
         """Initialize ElecData instance.
 
         Initialize ElecData instance.
@@ -805,6 +826,12 @@ class ElecData:
             Path to calculation directory.
         prefix : str, optional
             Prefix of files in calculation directory, by default None
+        jdftx : bool, optional
+            If True, calculation directory is a JDFTx calculation, by default True
+        use_cache_default : bool, optional
+            If True, cache of (state, band) matrices for computed pDOS/pCOHP plots is used by default, by default None
+        autosave_cache : bool, optional
+            If True, cache of (state, band) matrices for newly computed pDOS/pCOHP plots are saved automatically, by default True
         """
         if jdftx:
             self.fprefix = self._get_fprefix(prefix)
@@ -812,6 +839,14 @@ class ElecData:
             if calc_dir is not None:
                 self._set_files_paths()
                 self.alloc_elec_data()
+        else:
+            self.calc_dir = calc_dir
+        self.autosave_cache = autosave_cache
+        self._init_caches()
+        self.use_cache_default = use_cache_default
+
+    
+        
 
     def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings"]):
         if self.fprefix is None:
@@ -821,7 +856,7 @@ class ElecData:
             filepath = self._get_filepath_generic(suffix)
             if filepath is None and filetype not in optional_sufficies:
                 raise FileNotFoundError(
-                    f"File not found for suffix {suffix} \n hint: Make sure prefix does not contain '.'"
+                    f"File not found for suffix {suffix} in calculation directory {self.calc_dir} \n hint: Make sure prefix does not contain '.'"
                 )
             setattr(self, f"{filetype}file_filepath", filepath)
 
@@ -882,15 +917,36 @@ class ElecData:
         _ = self.proj_tju
         self.norm_idx = None
         return None
+    
+    def _init_caches(self):
+        self.cache_dir = self.calc_dir / ".crawfish_cache"
+        self.cache_dir.mkdir(exist_ok=True)
+        for mat in cache_mats:
+            setattr(self, f"{mat}_cache", CachedFunction(self.cache_dir / f"{mat}.npz", auto_save=self.autosave_cache))
+        self.load_cache()
 
-    def _compute_pcohp_tj(
-        self, orbs_u: list[int], orbs_v: list[int]
-        ):
-        h_uu = edata.h_uu
-        proj_tju = edata.proj_tju
-        wk_t = edata.wk_t
-        pcohp_tj = _get_gen_tj(proj_tju, h_uu, wk_t, orbs_u, orbs_v)
-        return pcohp_tj
+    def backup_cache(self) -> None:
+        """Backup cache of projections.
+
+        Backup cache of projections.
+        """
+        self.cache_dir = self.calc_dir / ".crawfish_cache"
+        self.cache_dir.mkdir(exist_ok=True)
+        for mat in cache_mats:
+            cached_func: CachedFunction = getattr(self, f"{mat}_cache")
+            cached_func.save_cache()
+        
+
+    def load_cache(self) -> None:
+        """Load cache of projections.
+
+        Load cache of projections.
+        """
+        self.cache_dir = self.calc_dir / ".crawfish_cache"
+        self.cache_dir.mkdir(exist_ok=True)
+        for mat in cache_mats:
+            cached_func: CachedFunction = getattr(self, f"{mat}_cache")
+            cached_func.load_cache()
 
 
 def count_ions(ionnames: list[str]) -> tuple[list[str], list[int]]:
