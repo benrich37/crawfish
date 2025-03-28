@@ -167,9 +167,9 @@ def get_kmap_from_edata(edata: ElecData) -> list[str]:
 
 orb_ref_list = [
     ["s"],
-    ["px", "py", "pz"],
-    ["dxy", "dxz", "dyz", "dx2y2", "dz2"],
-    ["fx3-3xy2", "fyx2-yz2", "fxz2", "fz3", "fyz2", "fxyz", "f3yx2-y3"],
+    ["py", "pz", "ps"],
+    ["dxy", "dyz", "dz2", "dxz", "dx2-y2"],
+    ["fy(3x2-y2)", "fxyz", "fyz2", "fz3", "fxz2", "fz(x2-y2)", "fx(x2-3y2)"],
 ]
 
 

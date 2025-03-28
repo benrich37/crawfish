@@ -28,6 +28,8 @@ from crawfish.utils.indexing import get_kmap_from_edata, get_atom_orb_labels_dic
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.inputs import JDFTXInfile
 from pymatgen.io.jdftx.outputs import JDFTXOutfile
+from pymatgen.io.ase import AseAtomsAdaptor
+from ase.visualize import view
 from pymatgen.core.structure import Structure
 from pymatgen.core.units import Ha_to_eV
 from pathlib import Path
@@ -37,6 +39,8 @@ import warnings
 warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
 warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
+
+cache_mats = ["pcohp_tj", "pcobi_tj", "pdos_tj"]
 
 class ElecData:
     """Class for handling electronic data from JDFTx calculations.
@@ -96,6 +100,8 @@ class ElecData:
     #
     use_cache_default: bool | None = None
     pcohp_tj_cache: CachedFunction = CachedFunction()
+    pcobi_tj_cache: CachedFunction = CachedFunction()
+    pdos_tj_cache: CachedFunction = CachedFunction()
     """
     Picture adjustments
     -------------------
@@ -106,6 +112,14 @@ class ElecData:
     Making the projection vector at each state square also enables techniques requiring
     dual spaces of bands and orbitals (not yet implemented)
     """
+
+    def view_structure(self, **kwargs):
+        """View structure using ASE's view method.
+
+        View structure using ASE's view method.
+        """
+        atoms = AseAtomsAdaptor.get_atoms(self.structure)
+        view(atoms, **kwargs)
 
     @property
     def trim_excess_bands(self) -> bool:
@@ -842,7 +856,7 @@ class ElecData:
             filepath = self._get_filepath_generic(suffix)
             if filepath is None and filetype not in optional_sufficies:
                 raise FileNotFoundError(
-                    f"File not found for suffix {suffix} \n hint: Make sure prefix does not contain '.'"
+                    f"File not found for suffix {suffix} in calculation directory {self.calc_dir} \n hint: Make sure prefix does not contain '.'"
                 )
             setattr(self, f"{filetype}file_filepath", filepath)
 
@@ -907,7 +921,7 @@ class ElecData:
     def _init_caches(self):
         self.cache_dir = self.calc_dir / ".crawfish_cache"
         self.cache_dir.mkdir(exist_ok=True)
-        for mat in ["pcohp_tj"]:
+        for mat in cache_mats:
             setattr(self, f"{mat}_cache", CachedFunction(self.cache_dir / f"{mat}.npz", auto_save=self.autosave_cache))
         self.load_cache()
 
@@ -918,7 +932,7 @@ class ElecData:
         """
         self.cache_dir = self.calc_dir / ".crawfish_cache"
         self.cache_dir.mkdir(exist_ok=True)
-        for mat in ["pcohp_tj"]:
+        for mat in cache_mats:
             cached_func: CachedFunction = getattr(self, f"{mat}_cache")
             cached_func.save_cache()
         
@@ -930,7 +944,7 @@ class ElecData:
         """
         self.cache_dir = self.calc_dir / ".crawfish_cache"
         self.cache_dir.mkdir(exist_ok=True)
-        for mat in ["pcohp_tj"]:
+        for mat in cache_mats:
             cached_func: CachedFunction = getattr(self, f"{mat}_cache")
             cached_func.load_cache()
 

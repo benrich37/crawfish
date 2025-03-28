@@ -77,7 +77,7 @@ def get_use_cache(use_cache_arg: bool | None, use_cache_default: bool | None) ->
         Whether to use caching.
     """
     if ((use_cache_default is None) and (use_cache_arg is None)):
-        return False
+        return True
     elif not use_cache_arg is None:
         return use_cache_arg
     else:
