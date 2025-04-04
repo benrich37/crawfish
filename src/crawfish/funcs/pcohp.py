@@ -94,7 +94,7 @@ def get_pcohp(
     }
     return get_generic_spectrum(edata, pcohp_tj, **kwargs)
 
-def get_pcobi(
+def get_pcomo(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
     idcs2: list[int] | int | None = None,
@@ -113,9 +113,9 @@ def get_pcobi(
     use_cache: bool | None = None,
     sep_channels: bool = False,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
-    """Get the pCOBI spectrum for the system of interest.
+    """Get the pCOMO spectrum for the system of interest.
 
-    Get the energy array / pCOBI spectrum pair for the system of interest.
+    Get the energy array / pCOMO spectrum pair for the system of interest.
 
     Parameters
     ----------
@@ -127,9 +127,6 @@ def get_pcobi(
         The elements of interest.
     orbs(1/2) : list[str] | str | None
         The orbitals of interest.
-    lite : bool
-        Use the lite version of the method
-        (less expenive if performing multiple pcoop/pcohps with the same ElecData object).
     erange: np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
     sig : REAL_DTYPE
@@ -158,7 +155,7 @@ def get_pcobi(
     """
     edata = edata_input_to_edata(edata_input)
     use_cache = get_use_cache(use_cache, edata.use_cache_default)
-    pcobi_tj = _get_pcoo_tj(
+    pcomo_tj = _get_pcomo_tj(
         edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2,
         use_cache=use_cache
         )
@@ -173,7 +170,7 @@ def get_pcobi(
         "norm_intg": norm_intg,
         "sep_channels": sep_channels,
     }
-    return get_generic_spectrum(edata, pcobi_tj, **kwargs)
+    return get_generic_spectrum(edata, pcomo_tj, **kwargs)
 
 
 def get_ipcohp(
@@ -237,7 +234,7 @@ def _compute_pcohp_tj(
 
 # Cite (C. A. Coulson, Proc. Roy. Soc. (London) 169A, 419 (1939).)
 
-def get_ipcobi(
+def get_ipcomo(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
     idcs2: list[int] | int | None = None,
@@ -251,7 +248,7 @@ def get_ipcobi(
 ):
     edata = edata_input_to_edata(edata_input)
     use_cache = get_use_cache(use_cache, edata.use_cache_default)
-    pcobi_tj = _get_pcoo_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2, use_cache=use_cache)
+    pcobi_tj = _get_pcomo_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2, use_cache=use_cache)
     kwargs = {
         "spin_pol": spin_pol,
         "use_fillings": use_fillings,
@@ -260,7 +257,7 @@ def get_ipcobi(
     return es, cs
 
 
-def _get_pcoo_tj(
+def _get_pcomo_tj(
         edata: ElecData,
         idcs1: list[int] | int | None,
         elements1: list[str] | str | None,
@@ -273,7 +270,7 @@ def _get_pcoo_tj(
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
-    compute_func = lambda u, v: _compute_pcobi_tj(edata, u, v)
+    compute_func = lambda u, v: _compute_pcomo_tj(edata, u, v)
     if use_cache:
         pcohp_tj = edata.pcobi_tj_cache.compute_or_retrieve(
             orbs_u, orbs_v, compute_func
@@ -282,7 +279,7 @@ def _get_pcoo_tj(
         pcohp_tj = compute_func(orbs_u, orbs_v)
     return pcohp_tj
 
-def _compute_pcobi_tj(
+def _compute_pcomo_tj(
         edata: ElecData,
         orbs_u: list[int],
         orbs_v: list[int],
