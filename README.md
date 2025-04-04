@@ -53,7 +53,7 @@ $$
 
 2. **pCOMO**
 The project Crystal Orbital Mobile Order (pCOMO) is a novel equation for an ancient concept - Coulson's "Mobile Order." This equation is most similar to pCOOP, sharing the same signage convention (bonding = positive, antibonding = negative, nonbonding = zero) but with a noticable lack of orbital overlap, $S_{\mu,\nu}$. This equation is an unquestionable step down from the familiar equations in the crystal orbital formalism family (pCOOP, pCOHP, and pCOBI). However, this equation provides an added convenience as the orbital overlap term $S_{\mu,\nu}$ may be harder to obtain than the KS projection coefficients used to evaluate $T_{\nu,j}$. While the disadvantages to this equation are obvious, the lack of orbital overlap does not influence the identification of a peak as bonding, antibonding, or non-bonding.
-As orbital overlap is only currently approximated as $left|T_{\mu,j}^*T_{\nu,j}\right|$ for JDFTx, this is the only faithfully represented bonding equation in this package.
+As orbital overlap is only currently approximated as $\left|T_{\mu,j}^*T_{\nu,j}\right|$ for JDFTx, this is the only faithfully represented bonding equation in this package.
 
 $$
 pCOMO(E,\mu,\nu)=\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
