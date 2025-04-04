@@ -158,7 +158,7 @@ def get_pcobi(
     """
     edata = edata_input_to_edata(edata_input)
     use_cache = get_use_cache(use_cache, edata.use_cache_default)
-    pcobi_tj = _get_pcobi_tj(
+    pcobi_tj = _get_pcoo_tj(
         edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2,
         use_cache=use_cache
         )
@@ -235,6 +235,7 @@ def _compute_pcohp_tj(
     return pcohp_tj
 
 
+# Cite (C. A. Coulson, Proc. Roy. Soc. (London) 169A, 419 (1939).)
 
 def get_ipcobi(
     edata_input: ElecData | str | Path,
@@ -250,7 +251,7 @@ def get_ipcobi(
 ):
     edata = edata_input_to_edata(edata_input)
     use_cache = get_use_cache(use_cache, edata.use_cache_default)
-    pcobi_tj = _get_pcobi_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2, use_cache=use_cache)
+    pcobi_tj = _get_pcoo_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2, use_cache=use_cache)
     kwargs = {
         "spin_pol": spin_pol,
         "use_fillings": use_fillings,
@@ -259,7 +260,7 @@ def get_ipcobi(
     return es, cs
 
 
-def _get_pcobi_tj(
+def _get_pcoo_tj(
         edata: ElecData,
         idcs1: list[int] | int | None,
         elements1: list[str] | str | None,
