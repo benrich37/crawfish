@@ -52,6 +52,184 @@ def get_generic_integrate(
     return es, cs
 
 
+
+
+
+
+def get_erange_cache_dir(edata: ElecData, erange: np.ndarray):
+    """Return the energy range cache directory.
+
+    Return the energy range cache directory.
+    """
+    emin = erange[0]
+    emax = erange[-1]
+    estep = erange[1] - erange[0]
+    gen_cache_dir = edata.cache_sub_dir
+    erange_cache_dir = gen_cache_dir / f"erange_{emin}_{emax}_{estep}"
+    erange_cache_dir.mkdir(parents=True, exist_ok=True)
+    return erange_cache_dir
+
+
+def get_spectrum_file_name_func_args_prefix(func_args_dict: dict) -> str:
+    """Return the spectrum file name function arguments prefix.
+
+    Return the spectrum file name function arguments prefix. Gives portion
+    of file name that encodes the function arguments.
+    """
+    # Sort the keys by alphabetical order
+    sorted_keys = sorted(func_args_dict.keys())
+    sorted_vals = [str(func_args_dict[key]) for key in sorted_keys]
+    # Join the sorted keys and values into a string
+    func_args_str = "_".join([f"{key}_{val}" for key, val in zip(sorted_keys, sorted_vals)])
+    # Remove any whitespace
+    func_args_str = func_args_str.replace(" ", "")
+    return func_args_str
+
+def get_spectrum_file_name_spectrum_args_suffix(
+    spin_pol: bool = False,
+    sig: REAL_DTYPE = SIGMA_DEFAULT,
+    lti: bool = False,
+    rattle_eigenvals: bool = False,
+    norm_max: bool = False,
+    norm_intg: bool = False,
+    sep_channels: bool = False,
+):
+    """Return the spectrum file name spectrum arguments suffix.
+
+    Return the spectrum file name spectrum arguments suffix. Gives portion
+    of file name that encodes the spectrum evaluation arguments.
+    """
+    p1 = f"lti_{lti}"
+    if lti:
+        p1 += f"_rattle_{rattle_eigenvals}"
+    else:
+        p1 += f"_sig_{sig}"
+    p2s = [
+        f"norm_max_{norm_max}",
+        f"norm_intg_{norm_intg}",
+        f"sep_channels_{sep_channels}",
+        f"spin_pol_{spin_pol}",
+    ]
+    p2 = "_".join([p for p in p2s])
+    return f"{p1}_{p2}"
+
+        
+    
+
+def get_spectrum_file_name(
+    func_args_dict: dict,
+    spin_pol: bool = False,
+    sig: REAL_DTYPE = SIGMA_DEFAULT,
+    lti: bool = False,
+    rattle_eigenvals: bool = False,
+    norm_max: bool = False,
+    norm_intg: bool = False,
+    sep_channels: bool = False,
+    ) -> str:
+    """Return the spectrum file name.
+
+    Return the spectrum file name.
+    """
+    prefix = get_spectrum_file_name_func_args_prefix(func_args_dict)
+    suffix = get_spectrum_file_name_spectrum_args_suffix(
+        spin_pol=spin_pol,
+        sig=sig,
+        lti=lti,
+        rattle_eigenvals=rattle_eigenvals,
+        norm_max=norm_max,
+        norm_intg=norm_intg,
+        sep_channels=sep_channels,
+    )
+    return f"{prefix}_{suffix}.npy"
+
+def get_spectrum_file_path(
+    edata: ElecData,
+    func_name: str,
+    func_args_dict: dict,
+    erange: np.ndarray[REAL_DTYPE] | None = None,
+    spin_pol: bool = False,
+    sig: REAL_DTYPE = SIGMA_DEFAULT,
+    res: REAL_DTYPE = RES_DEFAULT,
+    lti: bool = False,
+    rattle_eigenvals: bool = False,
+    norm_max: bool = False,
+    norm_intg: bool = False,
+    sep_channels: bool = False,
+):
+    if erange is None:
+        erange = get_erange(edata, erange, res=res)
+    erange_cache_dir = get_erange_cache_dir(edata, erange)
+    func_cache_dir = erange_cache_dir / func_name
+    func_cache_dir.mkdir(parents=True, exist_ok=True)
+    file_name = get_spectrum_file_name(
+        func_args_dict,
+        spin_pol=spin_pol,
+        sig=sig,
+        lti=lti,
+        rattle_eigenvals=rattle_eigenvals,
+        norm_max=norm_max,
+        norm_intg=norm_intg,
+        sep_channels=sep_channels,
+    )
+    file_path = func_cache_dir / file_name
+    return file_path
+
+def evaluate_or_retrieve_generic_spectrum(
+    edata: ElecData,
+    weights_tj: np.ndarray[REAL_DTYPE],
+    func_name: str,
+    func_args_dict: dict,
+    erange: np.ndarray[REAL_DTYPE] | None = None,
+    spin_pol: bool = False,
+    sig: REAL_DTYPE = SIGMA_DEFAULT,
+    res: REAL_DTYPE = RES_DEFAULT,
+    lti: bool = False,
+    rattle_eigenvals: bool = False,
+    norm_max: bool = False,
+    norm_intg: bool = False,
+    sep_channels: bool = False,
+    use_cached_spectrum: bool = True,
+    save_spectrum: bool = True,
+):
+    spectrum_file_path = get_spectrum_file_path(
+        edata,
+        func_name,
+        func_args_dict,
+        erange=erange,
+        spin_pol=spin_pol,
+        sig=sig,
+        res=res,
+        lti=lti,
+        rattle_eigenvals=rattle_eigenvals,
+        norm_max=norm_max,
+        norm_intg=norm_intg,
+        sep_channels=sep_channels,
+    )
+    if spectrum_file_path.is_file() and use_cached_spectrum:
+        spectrum = np.load(spectrum_file_path)
+    else:
+        erange, spectrum = get_generic_spectrum(
+            edata,
+            weights_tj,
+            erange=erange,
+            spin_pol=spin_pol,
+            sig=sig,
+            res=res,
+            lti=lti,
+            rattle_eigenvals=rattle_eigenvals,
+            norm_max=norm_max,
+            norm_intg=norm_intg,
+            sep_channels=sep_channels,
+        )
+        if save_spectrum:
+            np.save(spectrum_file_path, spectrum)
+    if erange is None:
+        erange = get_erange(edata, erange, res=res)
+    return erange, spectrum
+
+
+
+
 def get_generic_spectrum(
     edata: ElecData,
     weights_tj: np.ndarray[REAL_DTYPE],

@@ -5,7 +5,7 @@ Module for user methods to get PCOOP spectrum.
 
 from crawfish.utils.arg_correction import check_repeat
 from crawfish.core.elecdata import ElecData
-from crawfish.core.operations.matrix import _get_gen_tj
+from crawfish.core.operations.matrix import _get_gen_tj_coef_uu
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
 from crawfish.utils.arg_correction import edata_input_to_edata
@@ -107,5 +107,5 @@ def _get_pcoop_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2):
     p_uu = edata.p_uu
     proj_tju = edata.proj_tju
     wk_t = edata.wk_t
-    pcoop_tj = _get_gen_tj(proj_tju, p_uu, wk_t, orbs_u, orbs_v)
+    pcoop_tj = _get_gen_tj_coef_uu(proj_tju, p_uu, wk_t, orbs_u, orbs_v)
     return pcoop_tj

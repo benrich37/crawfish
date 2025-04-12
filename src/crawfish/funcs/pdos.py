@@ -8,7 +8,7 @@ from crawfish.core.operations.matrix import get_pdos_tj
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
 from crawfish.utils.arg_correction import edata_input_to_edata
-from crawfish.funcs.general import get_generic_spectrum, SIGMA_DEFAULT, RES_DEFAULT, get_generic_integrate
+from crawfish.funcs.general import evaluate_or_retrieve_generic_spectrum, SIGMA_DEFAULT, RES_DEFAULT, get_generic_integrate
 from pathlib import Path
 import numpy as np
 
@@ -26,6 +26,8 @@ def get_pdos(
     rattle_eigenvals: bool = False,
     norm_max: bool = False,
     norm_intg: bool = False,
+    use_cached_spectrum: bool = True,
+    save_spectrum: bool = True,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
     """Get the PDOS spectrum for the system of interest.
 
@@ -71,8 +73,15 @@ def get_pdos(
         "rattle_eigenvals": rattle_eigenvals,
         "norm_max": norm_max,
         "norm_intg": norm_intg,
+        "use_cached_spectrum": use_cached_spectrum,
+        "save_spectrum": save_spectrum,
+        "func_args_dict": {
+            "idcs": idcs,
+            "elements": elements,
+            "orbs": orbs,
+        },
     }
-    return get_generic_spectrum(edata, pdos_tj, **kwargs)
+    return evaluate_or_retrieve_generic_spectrum(edata, pdos_tj, "pdos", **kwargs)
 
 
 def get_ipdos(
