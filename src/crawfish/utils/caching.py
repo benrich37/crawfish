@@ -3,6 +3,9 @@ import numpy as np
 from functools import lru_cache
 from pathlib import Path
 from crawfish.utils.typing import REAL_DTYPE
+from crawfish.io.general import safe_load
+
+
 
 class CachedFunction:
     
@@ -67,8 +70,8 @@ class CachedFunction:
         
     def load_cache(self):
         """Load cache from a file"""
-        if Path(self.cache_file).exists():
-            loaded = np.load(self.cache_file, allow_pickle=True)
+        loaded = safe_load(Path(self.cache_file), allow_pickle=True)
+        if loaded is not None:
             keys = [tuple(tuple(k) for k in key) for key in loaded['keys']]
             values = loaded['values']
             self.cache = dict(zip(keys, values))

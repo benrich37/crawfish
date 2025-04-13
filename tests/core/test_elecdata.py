@@ -93,8 +93,8 @@ def test_set_file_paths():
     with pytest.raises(RuntimeError):
         edata._set_files_paths()
     for nonoptional in ["out", "eigenvals", "bandProjections"]:
-        src_file = exdir_path / ref_file
-        dst_file = tmp_dir / ref_file
+        src_file = exdir_path / nonoptional
+        dst_file = tmp_dir / nonoptional
         remove(dst_file)
         with pytest.raises(FileNotFoundError):
             ElecData(tmp_dir)
@@ -110,19 +110,6 @@ def test_set_file_paths():
             assert getattr(edata, opt_var) is None
         if src_file.exists():
             copy(src_file, dst_file)
-    # No longer raises warning due to automatic occupations calculation
-    # # Values returning None with warning
-    # for optional, opt_vars in [("fillings", ["occ_sabcj"])]:
-    #     src_file = exdir_path / optional
-    #     dst_file = tmp_dir / optional
-    #     if dst_file.exists():
-    #         remove(dst_file)
-    #     edata = ElecData(tmp_dir)
-    #     for opt_var in opt_vars:
-    #         with pytest.warns(Warning):
-    #             getattr(edata, opt_var)
-    #     if src_file.exists():
-    #         copy(src_file, dst_file)
     rmtree(tmp_dir)
 
 
@@ -137,63 +124,6 @@ def test_get_fprefix():
     assert edata._get_fprefix("prefix") == "prefix."
     with pytest.raises(ValueError, match="prefix must be a string or None"):
         edata._get_fprefix(1)
-
-
-# def test_norm_projs_t1():
-#     from crawfish.core.elecdata import ElecData
-
-#     exdir_path = excddir / "N2_bare_min"
-#     edata = ElecData(exdir_path)
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     og_sums = [np.sum(proj_tju_2[:, j, :]) for j in range(edata.nbands)]
-#     sum_sample = og_sums[0]
-#     same_sums = [sum_sample == og_sums[j] for j in range(edata.nbands)]
-#     assert False in same_sums
-#     edata.norm_projs_t1()
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     for j in range(edata.nbands):
-#         assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(edata.nstates)
-#     edata.norm_projs_t2()
-#     edata.norm_projs_t1()
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     for j in range(edata.nbands):
-#         assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(edata.nstates)
-#     edata.unnorm_projs()
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     for j in range(edata.nbands):
-#         assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(og_sums[j])
-#     edata.norm_projs_t1(mute_excess_bands=True)
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     for j in range(edata.nproj):
-#         assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(edata.nstates)
-#     for j in range(edata.nproj, edata.nbands):
-#         assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(0)
-
-
-# def test_norm_projs_t2():
-#     from crawfish.core.elecdata import ElecData
-
-#     exdir_path = excddir / "N2_bare_min"
-#     edata = ElecData(exdir_path)
-#     proj_tju = edata.proj_tju
-#     np.sum(proj_tju[:, :, 0])
-#     same_sums = [np.sum(proj_tju[:, :, u]) == pytest.approx(edata.nstates) for u in range(edata.nproj)]
-#     assert False in same_sums
-#     edata.norm_projs_t2()
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     for u in range(edata.nproj):
-#         assert np.sum(proj_tju_2[:, :, u]) == pytest.approx(edata.nstates)
-#     edata.norm_projs_t1()
-#     edata.norm_projs_t2()
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     for u in range(edata.nproj):
-#         assert np.sum(proj_tju_2[:, :, u]) == pytest.approx(edata.nstates)
-#     edata.norm_projs_t2(mute_excess_bands=True)
-#     proj_tju_2 = np.array(np.conj(edata.proj_tju) * edata.proj_tju)
-#     for u in range(edata.nproj):
-#         assert np.sum(proj_tju_2[:, :, u]) == pytest.approx(edata.nstates)
-#     for j in range(edata.nproj, edata.nbands):
-#         assert np.sum(proj_tju_2[:, j, :]) == pytest.approx(0)
 
 
 def test__get_data_and_path():

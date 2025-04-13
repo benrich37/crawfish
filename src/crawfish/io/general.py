@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Callable, Any
 from functools import wraps
+import numpy as np
+import zlib
 
 
 def format_dir_path(path: Path | str) -> Path:
@@ -112,3 +114,19 @@ def read_file(file_name: str) -> list[str]:
         texts = f.readlines()
     f.close()
     return texts
+
+
+def safe_load(filepath: Path, allow_pickle: bool = True) -> Any:
+    """
+    Safely load a numpy array from a file. If the file is corrupted, it will be deleted.
+    """
+    if not filepath.exists():
+        return None
+    try:
+        return np.load(filepath, allow_pickle=allow_pickle)
+    except (zlib.error) as e:
+        print(f"Error loading {filepath}: {e}")
+        print("Deleting corrupted file.")
+        if filepath.exists():
+            filepath.unlink()
+        return None

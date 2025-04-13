@@ -6,7 +6,7 @@ electronic data from JDFTx calculations.
 
 from __future__ import annotations
 import numpy as np
-from crawfish.core.operations.matrix import get_h_uu_p_uu_s_uu, normalize_square_proj_tju, los_projs_for_orbs
+from crawfish.core.operations.matrix import get_h_t_uu_p_t_uu_s_t_uu, get_h_uu_p_uu_s_uu, normalize_square_proj_tju, los_projs_for_orbs, get_weighted_overlap_tjuv
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
     get_nstates_from_bandfile_filepath,
@@ -18,9 +18,11 @@ from crawfish.io.data_parsing import (
     is_complex_bandfile_filepath,
     _get_lti_allowed,
     get_kfolding,
+    get_ks_t,
     get_wk_t,
     get_nspecies_from_bandfile_filepath,
     get_norbsperatom_from_edata,
+    save_bandfile_header,
 )
 from crawfish.utils.caching import CachedFunction
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
@@ -35,12 +37,41 @@ from pymatgen.core.units import Ha_to_eV
 from pathlib import Path
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
+from math import erf
+from crawfish.io.general import safe_load
 
 warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
 warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
 
-cache_mats = ["pcohp_tj", "pcobi_tj", "pdos_tj"]
+cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
+
+edata_setting_key_shorthand_dict = {
+    "trim_excess_bands": "trimj",
+    "los_orbs": "lou",
+    "p_uu_consistent": "p-c",
+    "norm_eigs_for_h": "h-en"
+}
+
+def get_edata_settings_str(edata: ElecData) -> str:
+    """Return the ElecData settings string.
+
+    Return the ElecData settings string. Gives portion of file name that encodes
+    parts of the ElecData settings that would effect the character of the spectra.
+    """
+    parts_dict = {
+        "trim_excess_bands": edata.trim_excess_bands,
+        "los_orbs": edata.los_orbs,
+        "p_uu_consistent": edata.p_uu_consistent,
+        "norm_eigs_for_h": edata.norm_eigs_for_h,
+    }
+    # Sort the keys by alphabetical order
+    sorted_keys = sorted(parts_dict.keys())
+    # Sort the values by the sorted keys
+    sorted_vals = [str(parts_dict[key]) for key in sorted_keys]
+    # Join the sorted keys and values into a string
+    parts_str = "_".join([f"{edata_setting_key_shorthand_dict[key]}_{val}" for key, val in zip(sorted_keys, sorted_vals)])
+    return parts_str
 
 class ElecData:
     """Class for handling electronic data from JDFTx calculations.
@@ -51,6 +82,7 @@ class ElecData:
 
     jdftx: bool = True
     fprefix: str = ""
+    ##
     bandfile_suffix: str = "bandProjections"
     kptsfile_suffix: str = "kPts"
     eigfile_suffix: str = "eigenvals"
@@ -66,17 +98,29 @@ class ElecData:
     outfile_filepath: Path | None = None
     gvecfile_filepath: Path | None = None
     wfnfile_filepath: Path | None = None
+    ##
+    proj_tju_filename: str = "proj_tju.npy"
+    bandfile_header_filename: str = "bandProjections_header"
     #
+    proj_tju_filepath: Path | None = None
+    bandfile_header_filepath: Path | None = None
+    ##
+    _outfile: JDFTXOutfile | None = None
+    _infile: JDFTXInfile | None = None
+    ##
     _nstates: int | None = None
     _nbands: int | None = None
     _nproj: int | None = None
     _nspin: int | None = None
     _e_tj: np.ndarray[REAL_DTYPE] | None = None
     _proj_tju: np.ndarray[REAL_DTYPE] | np.ndarray[COMPLEX_DTYPE] | None = None
-
+    _weighted_overlap_tjuv: np.ndarray[REAL_DTYPE] | None = None
     _p_uu: np.ndarray[REAL_DTYPE] | None = None
     _h_uu: np.ndarray[REAL_DTYPE] | None = None
     _s_uu: np.ndarray[REAL_DTYPE] | None = None
+    _p_t_uu: np.ndarray[REAL_DTYPE] | None = None
+    _s_t_uu: np.ndarray[REAL_DTYPE] | None = None
+    _h_t_uu: np.ndarray[REAL_DTYPE] | None = None
     _occ_tj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
@@ -100,7 +144,12 @@ class ElecData:
     #
     use_cache_default: bool | None = None
     pcohp_tj_cache: CachedFunction = CachedFunction()
+    pcoop_tj_cache: CachedFunction = CachedFunction()
     pcobi_tj_cache: CachedFunction = CachedFunction()
+    tsep_pcohp_tj_cache: CachedFunction = CachedFunction()
+    tsep_pcoop_tj_cache: CachedFunction = CachedFunction()
+    tsep_pcobi_tj_cache: CachedFunction = CachedFunction()
+    pcomo_tj_cache: CachedFunction = CachedFunction()
     pdos_tj_cache: CachedFunction = CachedFunction()
     """
     Picture adjustments
@@ -130,26 +179,10 @@ class ElecData:
         if value != self._trim_excess_bands:
             self._trim_excess_bands = value
             self.alloc_elec_data()
+            self._init_caches()
 
-    _trim_excess_bands: bool = True
+    _trim_excess_bands: bool = False
 
-    """
-    backfill_excess_bands: If True, fills in the projection values for bands and fillings not selected into
-    the final band. This is useful for preserving k-space character that might be
-    inherited by certain orbitals.
-    """
-
-    @property
-    def backfill_excess_bands(self) -> bool:
-        return self._backfill_excess_bands
-
-    @backfill_excess_bands.setter
-    def backfill_excess_bands(self, value: bool):
-        if value != self._backfill_excess_bands:
-            self._backfill_excess_bands = value
-            self.alloc_elec_data()
-
-    _backfill_excess_bands: bool = False
     """
     los_orbs: If True, performs Lowdin symmetric orthogonalization on the projections at each state. This may
     seem conterintuitive in a framework centered around how orbitals interact with each other,
@@ -170,43 +203,7 @@ class ElecData:
             self.alloc_elec_data()
 
     _los_orbs: bool = True
-    """
-    s_tj_uu_real: If True, the imaginary part of the band/state resolved overlap matrix is discarded.
-    Following Coulson's definition of partial mobile bond order, this would be done by setting
-    s_tj_uv' = 1/2*(s_tj_uv + s_tj_uv^*). However, it is equivalent and more efficient to simply use
-    s_tj_uv' = Re(s_tj_uv).
-    """
 
-    @property
-    def s_tj_uu_real(self) -> bool:
-        return self._s_tj_uu_real
-
-    @s_tj_uu_real.setter
-    def s_tj_uu_real(self, value: bool):
-        if value != self._s_tj_uu_real:
-            self._s_tj_uu_real = value
-            self.alloc_elec_data()
-
-    _s_tj_uu_real: bool = True
-    """
-    s_tj_uu_pos: If True, the band/state resolved overlap matrix is made positive by subtracting out the
-    minimum entry to the tensor, and then rescaling such that sum_{t,j,u,v} s_tj_uv matches the original
-    tensor sum before subtraction. This is useful first conceptually as negative overlap does not make
-    intuitive sense, and second mechanically as negative entries can lead to bizarre artifacts when used
-    to created p_tj_uu and h_tj_uu.
-    """
-
-    @property
-    def s_tj_uu_pos(self) -> bool:
-        return self._s_tj_uu_pos
-
-    @s_tj_uu_pos.setter
-    def s_tj_uu_pos(self, value: bool):
-        if value != self._s_tj_uu_pos:
-            self._s_tj_uu_pos = value
-            self.alloc_elec_data()
-
-    _s_tj_uu_pos: bool = True
     """
     p_uu_consistent: If True, p_uu is first built as p_tj_uu (a population matrix at each state and band), and
     each projection matrix is normalized such that (where v signifies an independent orbital index from u) sum_{u,v} p_tj_uv = f_tj
@@ -223,9 +220,28 @@ class ElecData:
     def p_uu_consistent(self, value: bool):
         if value != self._p_uu_consistent:
             self._p_uu_consistent = value
+            self._init_caches()
             self.alloc_elec_data()
+            
 
     _p_uu_consistent: bool = True
+
+    """
+    norm_eigs_for_h: WRITE ME
+    """
+
+    @property
+    def norm_eigs_for_h(self) -> bool:
+        return self._norm_eigs_for_h
+
+    @norm_eigs_for_h.setter
+    def norm_eigs_for_h(self, value: bool):
+        if value != self._norm_eigs_for_h:
+            self._norm_eigs_for_h = value
+            self._init_caches()
+            self.alloc_elec_data()
+            
+    _norm_eigs_for_h: bool = True
 
     @property
     def infile(self) -> JDFTXInfile | None:
@@ -234,7 +250,9 @@ class ElecData:
         Return JDFTx input file object from calculation.
         """
         if self.jdftx:
-            return JDFTXInfile.from_file(self.calc_dir / f"{self.fprefix}in")
+            if self._infile is None:
+                self._infile = JDFTXInfile.from_file(self.calc_dir / f"{self.fprefix}in")
+            return self._infile
 
     @property
     def outfile(self) -> JDFTXOutfile | None:
@@ -243,7 +261,9 @@ class ElecData:
         Return JDFTx output file object from calculation.
         """
         if self.jdftx:
-            return JDFTXOutfile.from_file(self.outfile_filepath)
+            if self._outfile is None:
+                self._outfile = JDFTXOutfile.from_file(self.outfile_filepath)
+            return self._outfile
 
     @property
     def bandstructure(self) -> BandStructure:
@@ -296,7 +316,7 @@ class ElecData:
         """
         if self._nstates is None:
             if self.jdftx:
-                self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_filepath)
+                self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_header_filepath)
         return self._nstates
 
     @property
@@ -307,7 +327,7 @@ class ElecData:
         """
         if self._nbands is None:
             if self.jdftx:
-                self._nbands = get_nbands_from_bandfile_filepath(self.bandfile_filepath)
+                self._nbands = get_nbands_from_bandfile_filepath(self.bandfile_header_filepath)
         return self._nbands
 
     @property
@@ -318,7 +338,7 @@ class ElecData:
         """
         if self._nproj is None:
             if self.jdftx:
-                self._nproj = get_nproj_from_bandfile_filepath(self.bandfile_filepath)
+                self._nproj = get_nproj_from_bandfile_filepath(self.bandfile_header_filepath)
         return self._nproj
 
     @property
@@ -329,7 +349,7 @@ class ElecData:
         """
         if self._norbsperatom is None:
             if self.jdftx:
-                self._norbsperatom = get_norbsperatom_from_bandfile_filepath(self.bandfile_filepath)
+                self._norbsperatom = get_norbsperatom_from_bandfile_filepath(self.bandfile_header_filepath)
             else:
                 self._norbsperatom = get_norbsperatom_from_edata(self)
         return self._norbsperatom
@@ -342,7 +362,7 @@ class ElecData:
         """
         if self._nspecies is None:
             if self.jdftx:
-                self._nspecies = get_nspecies_from_bandfile_filepath(self.bandfile_filepath)
+                self._nspecies = get_nspecies_from_bandfile_filepath(self.bandfile_header_filepath)
             else:
                 unique_names, _ = count_ions(self.ion_names)
                 self._nspecies = len(list(self.atom_orb_labels_dict.keys()))
@@ -420,10 +440,37 @@ class ElecData:
         """
         if self._proj_tju is None:
             if self.jdftx:
-                self._proj_tju = get_proj_tju_from_file(self.bandfile_filepath)
+                #self._proj_tju = get_proj_tju_from_file(self.bandfile_filepath)
+                self._set_proj_tju()
             else:
                 self._proj_tju = self.user_proj_tju.copy()
         return self._proj_tju
+    
+    def _set_proj_tju(self) -> None:
+        """ Set the _proj_tju variable.
+
+        Set the _proj_tju variable. Loads from a precompiled binary file if available.
+        Else, loads from the dumped text file and backs it up as a binary file, along
+        with a stripped text file only containing the header.
+        """
+        loaded_from_bandfile = False
+        proj_tju = safe_load(self.proj_tju_filepath, allow_pickle=False)
+        if proj_tju is None:
+            proj_tju = get_proj_tju_from_file(self.bandfile_filepath)
+            loaded_from_bandfile = True
+        self._proj_tju = proj_tju
+        if loaded_from_bandfile:
+            self._cache_proj_tju()
+
+    def _cache_proj_tju(self) -> None:
+        """ Back up bandprojections file in easier to load pieces.
+
+        Back up bandprojections file as a [nstates, nbands, nproj] complex numpy array,
+        along with a truncated file only containing the bandprojections header. 
+        """
+        np.save(self.proj_tju_filepath, self._proj_tju)
+        save_bandfile_header(self.bandfile_filepath, self.bandfile_header_filepath)
+            
 
 
     @property
@@ -480,8 +527,6 @@ class ElecData:
             raise ValueError(f"Unknown broadening type {value}")
         self._broadening_type = value
 
-
-
     @property
     def occ_tj(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return occupations of calculation.
@@ -496,6 +541,8 @@ class ElecData:
                 else:
                     btype = self._broadening_type
                     broad = self._broadening
+                def bfunc(eig):
+                    return calculate_filling_nobroad(0.0, eig, self.mu)
                 if isinstance(btype, str):
                     if btype == "Fermi":
 
@@ -519,10 +566,6 @@ class ElecData:
                             return calculate_filling_nobroad(0.0, eig, self.mu)
                     else:
                         raise ValueError(f"Unknown broadening type {btype}")
-                elif btype is None:
-
-                    def bfunc(eig):
-                        return calculate_filling_nobroad(0.0, eig, self.mu)
                 self._occ_tj = bfunc(self.e_tj)
             else:
                 fillings = np.fromfile(self.fillingsfile_filepath)
@@ -538,25 +581,110 @@ class ElecData:
         else:
             raise ValueError(f"Invalid shape for occupation array {np.shape(value)}")
 
+    def set_weighted_overlap_tjuv(self) -> None:
+        if self._weighted_overlap_tjuv is None:
+            self._weighted_overlap_tjuv = get_weighted_overlap_tjuv(
+                self.proj_tju,
+                self.wk_t,
+            )
+
+    def reval_mat_uu(self) -> None:
+        """Re-evaluate the matrices for the current settings.
+
+        Re-evaluate the matrices for the current settings. Only re-evaluate if the
+        the matrices were ever evaluated in the first place.
+        """
+        mat_names = ["h_t_uu", "p_t_uu", "s_t_uu", "h_uu", "p_uu", "s_uu"]
+        for arr_name in mat_names:
+            val = getattr(self, f"_{arr_name}")
+            if val is not None:
+                self.set_mat_uu()
+                break
+
     def set_mat_uu(self) -> None:
-        h_uu, p_uu, s_uu = get_h_uu_p_uu_s_uu(
-            self.proj_tju,
-            self.e_tj,
-            self.occ_tj,
-            self.wk_t,
-            s_real=self.s_tj_uu_real,
-            s_pos=self.s_tj_uu_pos,
-            p_sc=self.p_uu_consistent,
-        )
-        self._h_uu = h_uu
-        self._p_uu = p_uu
-        self._s_uu = s_uu
+        missing = False
+        mat_names = ["h_t_uu", "p_t_uu", "s_t_uu", "h_uu", "p_uu", "s_uu"]
+        for arr_name in mat_names:
+            arr_cache_path = self.cache_sub_dir / f"{arr_name}.npy"
+            arr = safe_load(arr_cache_path, allow_pickle=False)
+            if arr is None:
+                missing = True
+                break
+        if missing:
+            h_t_uu, p_t_uu, s_t_uu = get_h_t_uu_p_t_uu_s_t_uu(
+                self.proj_tju,
+                self.e_tj,
+                self.occ_tj,
+                self.wk_t,
+                p_sc=self.p_uu_consistent,
+                norm_eigs_for_h=self.norm_eigs_for_h,
+                mu=self.mu,
+            )
+            h_uu, p_uu, s_uu = get_h_uu_p_uu_s_uu(
+                self.proj_tju,
+                self.e_tj,
+                self.occ_tj,
+                self.wk_t,
+                p_sc=self.p_uu_consistent,
+                norm_eigs_for_h=self.norm_eigs_for_h,
+                mu=self.mu,
+            )
+            print("saving to", self.cache_sub_dir)
+            np.save(self.cache_sub_dir / f"h_t_uu.npy", h_t_uu)
+            np.save(self.cache_sub_dir / f"p_t_uu.npy", p_t_uu)
+            np.save(self.cache_sub_dir / f"s_t_uu.npy", s_t_uu)
+            np.save(self.cache_sub_dir / f"h_uu.npy", h_uu)
+            np.save(self.cache_sub_dir / f"p_uu.npy", p_uu)
+            np.save(self.cache_sub_dir / f"s_uu.npy", s_uu)
+            self._h_t_uu = h_t_uu
+            self._p_t_uu = p_t_uu
+            self._s_t_uu = s_t_uu
+            self._h_uu = h_uu
+            self._p_uu = p_uu
+            self._s_uu = s_uu
+        else:
+            print("loading from", self.cache_sub_dir)
+            for arr_name in mat_names:
+                # Not using safe_load here - corrupted or missing files were already identified.
+                # If that doesn't make this process safe, an error should be raised.
+                setattr(self, f"_{arr_name}", np.load(self.cache_sub_dir / f"{arr_name}.npy"))
+
+
+    @property
+    def h_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return state-resolved hamiltonian matrix of calculation.
+
+        Return state-resolved hamiltonian matrix of calculation in shape (nstate, nproj, nproj).
+        """
+        if self._h_t_uu is None:
+            self.set_mat_uu()
+        return self._h_t_uu
+
+    @property
+    def p_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return state-resolved projection matrix of calculation.
+
+        Return state-resolved projection matrix of calculation in shape (nstate, nproj, nproj).
+        """
+        if self._p_t_uu is None:
+            self.set_mat_uu()
+        return self._p_t_uu
+
+    @property
+    def s_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return state-resolved overlap matrix of calculation.
+
+        Return state-resolved overlap matrix of calculation in shape (nstate, nproj, nproj).
+        """
+        if self._s_t_uu is None:
+            self.set_mat_uu()
+        return self._s_t_uu
 
     @property
     def h_uu(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return hamiltonian matrix of calculation.
 
-        Return hamiltonian matrix of calculation in shape (nstates, nstates).
+        Return hamiltonian matrix of calculation in shape (nproj, nproj).
         """
         if self._h_uu is None:
             self.set_mat_uu()
@@ -566,7 +694,7 @@ class ElecData:
     def p_uu(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return projection matrix of calculation.
 
-        Return projection matrix of calculation in shape (nstates, nstates).
+        Return projection matrix of calculation in shape (nproj, nproj).
         """
         if self._p_uu is None:
             self.set_mat_uu()
@@ -576,11 +704,20 @@ class ElecData:
     def s_uu(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return overlap matrix of calculation.
 
-        Return overlap matrix of calculation in shape (nstates, nstates).
+        Return overlap matrix of calculation in shape (nproj, nproj).
         """
         if self._s_uu is None:
             self.set_mat_uu()
         return self._s_uu
+    
+    @property
+    def weighted_overlap_tjuv(self) -> np.ndarray[COMPLEX_DTYPE] | None:
+        """Return weighted_overlap_tjuv.
+
+        Return weighted_overlap_tjuv in shape (nstates, nbands, nproj, nproj).
+        """
+        self.set_weighted_overlap_tjuv()
+        return self._weighted_overlap_tjuv
 
     @property
     def ion_orb_u_dict(self) -> dict[str, int]:
@@ -592,13 +729,11 @@ class ElecData:
         """
         return self.orbs_idx_dict
 
-
-
     @property
     def atom_orb_labels_dict(self) -> dict[str, int]:
         if self._atom_orb_labels_dict is None:
             if self.jdftx:
-                self._atom_orb_labels_dict = get_atom_orb_labels_dict(self.bandfile_filepath)
+                self._atom_orb_labels_dict = get_atom_orb_labels_dict(self.bandfile_header_filepath)
             else:
                 raise RuntimeError("atom_orb_labels_dict must be set by user for non-JDFTx calculations")
         return self._atom_orb_labels_dict
@@ -652,23 +787,25 @@ class ElecData:
                 f"Invalid shape for kpoint weights array {np.shape(value)} (must be nspin*nkpts long and 1-dimensional)"
             )
 
-    # @ks_t.setter
-    # def ks_t(self, value: np.ndarray[REAL_DTYPE]):
-    #     if value.shape == (self.nstates, 3):
-    #         self._ks_t = value
-    #     else:
-    #         raise ValueError(f"Invalid shape for kpoint coordinates array {np.shape(value)} (must be nstates x 3)")
+    
 
-    # @property
-    # def ks_t(self) -> np.ndarray[REAL_DTYPE] | None:
-    #     """Return kpoint coordinates.
+    @property
+    def ks_t(self) -> np.ndarray[REAL_DTYPE] | None:
+        """Return kpoint coordinates.
 
-    #     Return kpoint coordinates in shape (nspin, kfolding[0], kfolding[1], kfolding[2], 3).
-    #     """
-    #     if self._ks_t is None:
-    #         if self.jdftx and (self.lti_allowed and self.kptsfile_filepath is not None):
-    #             self._ks_t = get_ks_t(self.kptsfile_filepath)
-    #     return self._ks_t
+        Return kpoint coordinates in shape (nspin, kfolding[0], kfolding[1], kfolding[2], 3).
+        """
+        if self._ks_t is None:
+            if self.jdftx:
+                self._ks_t = get_ks_t(self.kptsfile_filepath, self.bandfile_header_filepath)
+        return self._ks_t
+    
+    @ks_t.setter
+    def ks_t(self, value: np.ndarray[REAL_DTYPE]):
+        if value.shape == (self.nstates, 3):
+            self._ks_t = value
+        else:
+            raise ValueError(f"Invalid shape for kpoint coordinates array {np.shape(value)} (must be nstates x 3)")
 
 
     @property
@@ -698,7 +835,7 @@ class ElecData:
         Return if band projections are complex. (required for coop/cohp analysis)
         """
         if self._complex_bandprojs is None:
-            self._complex_bandprojs = is_complex_bandfile_filepath(self.bandfile_filepath)
+            self._complex_bandprojs = is_complex_bandfile_filepath(self.bandfile_header_filepath)
         return self._complex_bandprojs
 
     @property
@@ -710,7 +847,7 @@ class ElecData:
         to refer to).
         """
         if self._lti_allowed is None:
-            self._lti_allowed = _get_lti_allowed(self.bandfile_filepath, self.outfile_filepath)
+            self._lti_allowed = _get_lti_allowed(self.bandfile_header_filepath, self.outfile_filepath)
         return self._lti_allowed
 
     @classmethod
@@ -838,6 +975,7 @@ class ElecData:
             self.calc_dir = Path(calc_dir)
             if calc_dir is not None:
                 self._set_files_paths()
+                self._set_backup_files_paths()
                 self.alloc_elec_data()
         else:
             self.calc_dir = calc_dir
@@ -865,6 +1003,34 @@ class ElecData:
         if not filepath.exists():
             return None
         return filepath
+    
+    def _set_backup_files_paths(self):
+        self.cache_dir = self.calc_dir / ".crawfish_cache"
+        self.cache_dir.mkdir(exist_ok=True)
+        self._write_cache_dir_readme()
+        for filetype in ["proj_tju", "bandfile_header"]:
+            filename = getattr(self, f"{filetype}_filename")
+            filepath = self._get_backup_filepath_generic(filename)
+            setattr(self, f"{filetype}_filepath", filepath)
+
+    def _write_cache_dir_readme(self):
+        cache_dir_readme_filepath = self.cache_dir / "readme.txt"
+        if not cache_dir_readme_filepath.exists():
+            with open(cache_dir_readme_filepath, "w") as f:
+                f.write("\n".join(cache_dir_readme_lines))
+            f.close()
+    
+
+    def _get_backup_filepath_generic(self, filename: str) -> Path | None:
+        # The file path does not need to exist, as elecdata will write them
+        filepath: Path = self.cache_dir / f"{filename}"
+        return filepath
+    
+    # def _get_cache_filepath_generic(self, filename: str) -> Path | None:
+    #     filepath: Path = self.cache_sub_dir / f"{filename}"
+    #     if not filepath.exists():
+    #         return None
+    #     return filepath
 
     @staticmethod
     def _get_fprefix(prefix: str | None = None):
@@ -881,30 +1047,26 @@ class ElecData:
     #######
 
     def alloc_elec_data(self):
-        _ = self.proj_tju
+        self._set_proj_tju()
+        #_ = self.proj_tju
         _ = self.occ_tj
         _ = self.e_tj
         if self.nbands < self.nproj:
             self.trim_excess_bands = False
             self.los_orbs = False
         if self.trim_excess_bands:
-            _nbands = self.nbands
             bestj = get_best_bands(self.proj_tju)
             _e_tj = self.e_tj[:, bestj]
             _proj_tju = self.proj_tju[:, bestj, :]
             _occ_tj = self.occ_tj[:, bestj]
             _proj_tju = normalize_square_proj_tju(_proj_tju)
-            if self.backfill_excess_bands:
-                for j in range(_nbands):
-                    if j not in best:
-                        _occ_tj[:, -1] += _occ_tj[:, j]
-                        _proj_tju[:, -1, :] += _proj_tju[:, j, :]
             self._e_tj = _e_tj
             self._proj_tju = _proj_tju
             self._occ_tj = _occ_tj
             self._nbands = self.nproj
         if self.los_orbs:
             self._proj_tju = los_projs_for_orbs(self.proj_tju)
+        self.reval_mat_uu()
 
     #################
 
@@ -919,31 +1081,34 @@ class ElecData:
         return None
     
     def _init_caches(self):
-        self.cache_dir = self.calc_dir / ".crawfish_cache"
-        self.cache_dir.mkdir(exist_ok=True)
+        # self.cache_dir = self.calc_dir / ".crawfish_cache"
+        # self.cache_dir.mkdir(exist_ok=True)
+        self.cache_sub_dir = self.cache_dir / get_edata_settings_str(self)
+        self.cache_sub_dir.mkdir(exist_ok=True, parents=True)
         for mat in cache_mats:
-            setattr(self, f"{mat}_cache", CachedFunction(self.cache_dir / f"{mat}.npz", auto_save=self.autosave_cache))
-        self.load_cache()
+            setattr(self, f"{mat}_cache", CachedFunction(self.cache_sub_dir / f"{mat}.npz", auto_save=self.autosave_cache))
+        self.load_caches()
 
     def backup_cache(self) -> None:
-        """Backup cache of projections.
+        """Backup cache of "tj" matrices.
 
-        Backup cache of projections.
+        Backup cache of "tj" matrices.
         """
-        self.cache_dir = self.calc_dir / ".crawfish_cache"
-        self.cache_dir.mkdir(exist_ok=True)
+        # self.cache_dir = self.calc_dir / ".crawfish_cache"
+        # self.cache_dir.mkdir(exist_ok=True)
         for mat in cache_mats:
             cached_func: CachedFunction = getattr(self, f"{mat}_cache")
             cached_func.save_cache()
         
 
-    def load_cache(self) -> None:
-        """Load cache of projections.
+    def load_caches(self) -> None:
+        """Load caches of "tj" matrices.
 
-        Load cache of projections.
+        Load caches of "tj" matrices.
         """
         self.cache_dir = self.calc_dir / ".crawfish_cache"
         self.cache_dir.mkdir(exist_ok=True)
+        self.cache_sub_dir = self.cache_dir / get_edata_settings_str(self)
         for mat in cache_mats:
             cached_func: CachedFunction = getattr(self, f"{mat}_cache")
             cached_func.load_cache()
@@ -1050,23 +1215,51 @@ def calculate_filling_fermi(broadening: float, eig: float, efermi: float) -> flo
 # @jit(nopython=True)
 def calculate_filling_gauss(broadening: float, eig: float, efermi: float) -> float:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - math.erf(x))
+    filling = 0.5 * (1 - erf(x))
     return filling
 
 
 # @jit(nopython=True)
 def calculate_filling_mp1(broadening: float, eig: float, efermi: float) -> float:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - math.erf(x)) - x * np.exp(-1 * x**2) / (2 * np.pi**0.5)
+    filling = 0.5 * (1 - erf(x)) - x * np.exp(-1 * x**2) / (2 * np.pi**0.5)
     return filling
 
 
 # @jit(nopython=True)
 def calculate_filling_cold(broadening: float, eig: float, efermi: float) -> float:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - math.erf(x + 0.5**0.5)) + np.exp(-1 * (x + 0.5**0.5) ** 2) / (2 * np.pi) ** 0.5
+    filling = 0.5 * (1 - erf(x + 0.5**0.5)) + np.exp(-1 * (x + 0.5**0.5) ** 2) / (2 * np.pi) ** 0.5
     return filling
 
+# @jit(nopython=True)
 def calculate_filling_nobroad(broadening: float, eig: float, efermi: float) -> float:
     filling = np.heaviside(eig, efermi)
     return filling
+
+
+cache_dir_readme_lines = [
+    "This is the crawfish cache directory for this calculation directory.",
+    "",
+    "The files within this directory are stored here for faster loading in subsequent analyses.",
+    "",
+    "The files `proj_tju.npy` and `bandProjections_header` contain all of the data contained in",
+    "the original `bandProjections` file for <50% the size, and can be parsed at <1% the time.",
+    "",
+    "The directories in this directory are named after the settings used for the created ElecData",
+    "object. Within each of these directories are the binary files for the evaluated atomic",
+    "matrices (ie h_t_uu, h_uu, p_t_uu, ...) for those particular settings, as well as ",
+    "pickled weight matrices for creating pdos/pcomo/pcoop/pcohp/pcobi spectra. Use of ",
+    "the latter pickled matrices can be disabled when running the spectral functions with ",
+    "`use_cache`.",
+    "",
+    "The sub-directories of these sub-directories are named after particular energy ranges (with",
+    " the syntax `erange_emin_emax_estep`). Within these sub-sub-directories are  ",
+    "sub-sub-sub-directories named after spectral functions (pdos/pcomo...) and hold ",
+    "binary files of evaluated spectra, named after settings used to create the spectrum ",
+    "(ie the ion indices, orbitals selected, spin separation, lti parameters, ...). ",
+    "These spectra are saved and loaded by default when running the spectral functions, ",
+    "but can be disabled by `use_cached_spectrum` (to disable loading) and ",
+    "`save_spectrum` (to disable saving). This functionality provides the most utility ",
+    "for lti spectra. Gaussian spectra still get a speed-up, but it is hardly noticable.",
+]

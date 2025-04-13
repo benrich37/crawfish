@@ -1,7 +1,7 @@
 from crawfish.utils.testing import EXAMPLE_CALC_DIRS_DIR
 from crawfish.funcs.pcohp import get_pcohp
 from crawfish.core.operations.vector import get_uneven_integrated_array
-from crawfish.core.operations.matrix import _get_gen_tj, get_h_uu_p_uu_s_uu
+from crawfish.core.operations.matrix import _get_gen_tj_coef_uu, get_h_uu_p_uu_s_uu
 from crawfish.core.elecdata import ElecData
 import matplotlib.pyplot as plt
 
@@ -24,7 +24,7 @@ erange, pdos = get_pcohp(edata, idcs1=0, idcs2=1, lti=False, res=0.001, norm_max
 ax[0].plot(erange, pdos)
 
 h_uu, p_uu, s_uu = get_h_uu_p_uu_s_uu(edata.proj_tju, edata.e_tj, edata.occ_tj, edata.wk_t)
-pcohp_tj = _get_gen_tj(edata.proj_tju, h_uu, edata.wk_t, [0, 1, 2, 3], [4, 5, 6, 7])
+pcohp_tj = _get_gen_tj_coef_uu(edata.proj_tju, h_uu, edata.wk_t, [0, 1, 2, 3], [4, 5, 6, 7])
 pcohp_sabcj = pcohp_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
 e_sabcj = edata.e_sabcj
 es, integs = get_uneven_integrated_array(e_sabcj, pcohp_sabcj)
