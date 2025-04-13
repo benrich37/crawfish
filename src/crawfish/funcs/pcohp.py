@@ -171,7 +171,7 @@ def _compute_pcohp_tj(
         ):
     weighted_overlaps_tjuv = edata.weighted_overlap_tjuv
     if state_sep:
-        h_t_uu = edata.h_t_uu
+        h_t_uu = edata.h_t_uu * 1/edata.wk_t[:, np.newaxis, np.newaxis]
         pcohp_tj = _get_gen_tj_coef_tuu(weighted_overlaps_tjuv, h_t_uu, orbs_u, orbs_v)
     else:
         h_uu = edata.h_uu
@@ -472,7 +472,7 @@ def _compute_pcoop_tj(
     check_repeat(orbs_u, orbs_v)
     weighted_overlaps_tjuv = edata.weighted_overlap_tjuv
     if state_sep:
-        s_t_uu = edata.s_t_uu
+        s_t_uu = edata.s_t_uu * 1/edata.wk_t[:, np.newaxis, np.newaxis]
         pcoop_tj = _get_gen_tj_coef_tuu(weighted_overlaps_tjuv, s_t_uu, orbs_u, orbs_v)
     else:
         s_uu = edata.s_uu
@@ -624,9 +624,9 @@ def _compute_pcobi_tj(
     check_repeat(orbs_u, orbs_v)
     weighted_overlaps_tjuv = edata.weighted_overlap_tjuv
     if state_sep:
-        p_t_uu = edata.s_t_uu
+        p_t_uu = edata.p_t_uu * 1/edata.wk_t[:, np.newaxis, np.newaxis]
         pcobi_tj = _get_gen_tj_coef_tuu(weighted_overlaps_tjuv, p_t_uu, orbs_u, orbs_v)
     else:
-        p_uu = edata.s_uu
+        p_uu = edata.p_uu
         pcobi_tj = _get_gen_tj_coef_uu(weighted_overlaps_tjuv, p_uu, orbs_u, orbs_v)
     return pcobi_tj
