@@ -59,7 +59,19 @@ $$
 pCOMO(E,\mu,\nu)=\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
 $$
 
-3. **pCOHP**
+3. **pCOOP**
+
+$$
+pCOOP(E,\mu,\nu)=S_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+$$
+
+4. **pCOBI**
+
+$$
+pCOBI(E,\mu,\nu)=P_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+$$
+
+5. **pCOHP**
 
 $$
 pCOHP(E,\mu,\nu)=H_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
@@ -77,7 +89,6 @@ $$
 P_{j,t,\mu,\nu} = Re\left[T_{\mu,j}^*(t)T_{\nu,j}(t)\right] f_j(t) w_t
 $$
 
-A similar technique (pCOOP) is available but not reccomended as it is currently benchmarking very poorly in this implementation.
 
 ## Why and when should I use `crawfish`?
 
