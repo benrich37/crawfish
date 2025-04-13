@@ -289,6 +289,45 @@ def parse_kptsfile(kptsfile: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndar
     return wk_list, k_points_list, nstates
 
 
+def parse_kptsfrom_bandfile_header(bandfile_header_filepath: str | Path) -> tuple[list[REAL_DTYPE], list[np.ndarray[REAL_DTYPE]], int]:
+    r"""Parse kpts file.
+
+    Parse the kpts file.
+
+    Parameters
+    ----------
+    kptsfile : str | Path
+        Path to kpts file.
+
+    Returns
+    -------
+    wk_list: list[REAL_DTYPE]
+        List of weights for each kpoint
+    k_points_list: list[np.ndarray[REAL_DTYPE]]
+        List of k-points.
+    nStates: int
+        Number of states.
+
+    r"""
+    wk_list: list[REAL_DTYPE] = []
+    k_points_list: list[list[REAL_DTYPE]] = []
+    kpt_lines = []
+    with open(bandfile_header_filepath, "r") as f:
+        for line in f:
+            if line.startswith("#"):
+                if ";" in line:
+                    _line = line.split(";")[0].lstrip("#")
+                    kpt_lines.append(_line)
+    for line in kpt_lines:
+        k_points = line.split("[")[1].split("]")[0].strip().split()
+        k_points_floats: list[REAL_DTYPE] = [REAL_DTYPE(v) for v in k_points]
+        k_points_list.append(k_points_floats)
+        wk = REAL_DTYPE(line.split("]")[1].strip().split()[0])
+        wk_list.append(wk)
+    nstates = len(wk_list)
+    return wk_list, k_points_list, nstates
+
+
 class _Kpts:
     def __init__(
         self,
@@ -647,7 +686,7 @@ def get_wk_t(
 #     return ks_sabc
 
 
-def get_ks_t(kptsfile_filepath: Path | str) -> np.ndarray[REAL_DTYPE]:
+def get_ks_t(kptsfile_filepath: Path | str, bandfile_header_filepath: Path | str | None) -> np.ndarray[REAL_DTYPE]:
     r"""Return the k-point coordinates.
 
     Return the k-point coordinates. Assumes k-point file exists and mesh is regular.
@@ -661,9 +700,16 @@ def get_ks_t(kptsfile_filepath: Path | str) -> np.ndarray[REAL_DTYPE]:
     kfolding : list[int]
         kpt folding
     r"""
-    wk, _ks, nstates = parse_kptsfile(kptsfile_filepath)
-    ks = np.array(_ks, dtype=REAL_DTYPE)
-    return ks
+    _ks = None
+    if ((not Path(kptsfile_filepath).exists()) and (not bandfile_header_filepath is None)):
+        wk, _ks, nstates = parse_kptsfrom_bandfile_header(bandfile_header_filepath)
+    else:
+        wk, _ks, nstates = parse_kptsfile(kptsfile_filepath)
+    if not _ks is None:
+        ks = np.array(_ks, dtype=REAL_DTYPE)
+        return ks
+    else:
+        return None
 
 
 # def _get_kpts_info_handler_astuple(
@@ -829,6 +875,24 @@ def _parse_bandfile_reader(
                 proj_tju[istate, iband] = np.array(token_parser(tokens))
     return proj_tju
 
+def save_bandfile_header(bandfile_filepath: Path, bandfile_header_filepath: Path):
+    """ Save the header of bandfile_filepath to bandfile_header_filepath.
+
+    Save the header of the file at bandfile_filepath to bandfile_header_filepath.
+    """
+    bandfile = read_file(bandfile_filepath)
+    header_text: list[str] = []
+    nspecies = get_nspecies_from_bandfile_filepath(bandfile_filepath)
+    for line, text in enumerate(bandfile):
+        if line >= nspecies + 2:
+            # Only include state headers after general header
+            if text.startswith("#"):
+                header_text.append(text)
+        else:
+            header_text.append(text)
+    with open(bandfile_header_filepath, "w") as f:
+        f.write("\n".join(header_text))
+
 
 def _complex_token_parser(tokens: list[str]) -> np.ndarray[COMPLEX_DTYPE]:
     out = np.zeros(int(len(tokens) / 2), dtype=COMPLEX_DTYPE)
@@ -992,3 +1056,5 @@ def _get_input_coord_vars_from_outfile(
                 elif "Initializing the Grid" in line:
                     break
     return names, posns, R
+
+

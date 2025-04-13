@@ -22,6 +22,7 @@ from crawfish.io.data_parsing import (
     get_wk_t,
     get_nspecies_from_bandfile_filepath,
     get_norbsperatom_from_edata,
+    save_bandfile_header,
 )
 from crawfish.utils.caching import CachedFunction
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
@@ -81,6 +82,7 @@ class ElecData:
 
     jdftx: bool = True
     fprefix: str = ""
+    ##
     bandfile_suffix: str = "bandProjections"
     kptsfile_suffix: str = "kPts"
     eigfile_suffix: str = "eigenvals"
@@ -96,10 +98,16 @@ class ElecData:
     outfile_filepath: Path | None = None
     gvecfile_filepath: Path | None = None
     wfnfile_filepath: Path | None = None
+    ##
+    proj_tju_filename: str = "proj_tju.npy"
+    bandfile_header_filename: str = "bandProjections_header"
     #
+    proj_tju_filepath: Path | None = None
+    bandfile_header_filepath: Path | None = None
+    ##
     _outfile: JDFTXOutfile | None = None
     _infile: JDFTXInfile | None = None
-    #
+    ##
     _nstates: int | None = None
     _nbands: int | None = None
     _nproj: int | None = None
@@ -308,7 +316,7 @@ class ElecData:
         """
         if self._nstates is None:
             if self.jdftx:
-                self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_filepath)
+                self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_header_filepath)
         return self._nstates
 
     @property
@@ -319,7 +327,7 @@ class ElecData:
         """
         if self._nbands is None:
             if self.jdftx:
-                self._nbands = get_nbands_from_bandfile_filepath(self.bandfile_filepath)
+                self._nbands = get_nbands_from_bandfile_filepath(self.bandfile_header_filepath)
         return self._nbands
 
     @property
@@ -330,7 +338,7 @@ class ElecData:
         """
         if self._nproj is None:
             if self.jdftx:
-                self._nproj = get_nproj_from_bandfile_filepath(self.bandfile_filepath)
+                self._nproj = get_nproj_from_bandfile_filepath(self.bandfile_header_filepath)
         return self._nproj
 
     @property
@@ -341,7 +349,7 @@ class ElecData:
         """
         if self._norbsperatom is None:
             if self.jdftx:
-                self._norbsperatom = get_norbsperatom_from_bandfile_filepath(self.bandfile_filepath)
+                self._norbsperatom = get_norbsperatom_from_bandfile_filepath(self.bandfile_header_filepath)
             else:
                 self._norbsperatom = get_norbsperatom_from_edata(self)
         return self._norbsperatom
@@ -354,7 +362,7 @@ class ElecData:
         """
         if self._nspecies is None:
             if self.jdftx:
-                self._nspecies = get_nspecies_from_bandfile_filepath(self.bandfile_filepath)
+                self._nspecies = get_nspecies_from_bandfile_filepath(self.bandfile_header_filepath)
             else:
                 unique_names, _ = count_ions(self.ion_names)
                 self._nspecies = len(list(self.atom_orb_labels_dict.keys()))
@@ -432,10 +440,37 @@ class ElecData:
         """
         if self._proj_tju is None:
             if self.jdftx:
-                self._proj_tju = get_proj_tju_from_file(self.bandfile_filepath)
+                #self._proj_tju = get_proj_tju_from_file(self.bandfile_filepath)
+                self._set_proj_tju()
             else:
                 self._proj_tju = self.user_proj_tju.copy()
         return self._proj_tju
+    
+    def _set_proj_tju(self) -> None:
+        """ Set the _proj_tju variable.
+
+        Set the _proj_tju variable. Loads from a precompiled binary file if available.
+        Else, loads from the dumped text file and backs it up as a binary file, along
+        with a stripped text file only containing the header.
+        """
+        loaded_from_bandfile = False
+        proj_tju = safe_load(self.proj_tju_filepath, allow_pickle=False)
+        if proj_tju is None:
+            proj_tju = get_proj_tju_from_file(self.bandfile_filepath)
+            loaded_from_bandfile = True
+        self._proj_tju = proj_tju
+        if loaded_from_bandfile:
+            self._cache_proj_tju()
+
+    def _cache_proj_tju(self) -> None:
+        """ Back up bandprojections file in easier to load pieces.
+
+        Back up bandprojections file as a [nstates, nbands, nproj] complex numpy array,
+        along with a truncated file only containing the bandprojections header. 
+        """
+        np.save(self.proj_tju_filepath, self._proj_tju)
+        save_bandfile_header(self.bandfile_filepath, self.bandfile_header_filepath)
+            
 
 
     @property
@@ -698,7 +733,7 @@ class ElecData:
     def atom_orb_labels_dict(self) -> dict[str, int]:
         if self._atom_orb_labels_dict is None:
             if self.jdftx:
-                self._atom_orb_labels_dict = get_atom_orb_labels_dict(self.bandfile_filepath)
+                self._atom_orb_labels_dict = get_atom_orb_labels_dict(self.bandfile_header_filepath)
             else:
                 raise RuntimeError("atom_orb_labels_dict must be set by user for non-JDFTx calculations")
         return self._atom_orb_labels_dict
@@ -761,8 +796,8 @@ class ElecData:
         Return kpoint coordinates in shape (nspin, kfolding[0], kfolding[1], kfolding[2], 3).
         """
         if self._ks_t is None:
-            if self.jdftx and (self.lti_allowed and self.kptsfile_filepath is not None):
-                self._ks_t = get_ks_t(self.kptsfile_filepath)
+            if self.jdftx:
+                self._ks_t = get_ks_t(self.kptsfile_filepath, self.bandfile_header_filepath)
         return self._ks_t
     
     @ks_t.setter
@@ -800,7 +835,7 @@ class ElecData:
         Return if band projections are complex. (required for coop/cohp analysis)
         """
         if self._complex_bandprojs is None:
-            self._complex_bandprojs = is_complex_bandfile_filepath(self.bandfile_filepath)
+            self._complex_bandprojs = is_complex_bandfile_filepath(self.bandfile_header_filepath)
         return self._complex_bandprojs
 
     @property
@@ -812,7 +847,7 @@ class ElecData:
         to refer to).
         """
         if self._lti_allowed is None:
-            self._lti_allowed = _get_lti_allowed(self.bandfile_filepath, self.outfile_filepath)
+            self._lti_allowed = _get_lti_allowed(self.bandfile_header_filepath, self.outfile_filepath)
         return self._lti_allowed
 
     @classmethod
@@ -940,6 +975,7 @@ class ElecData:
             self.calc_dir = Path(calc_dir)
             if calc_dir is not None:
                 self._set_files_paths()
+                self._set_backup_files_paths()
                 self.alloc_elec_data()
         else:
             self.calc_dir = calc_dir
@@ -967,6 +1003,34 @@ class ElecData:
         if not filepath.exists():
             return None
         return filepath
+    
+    def _set_backup_files_paths(self):
+        self.cache_dir = self.calc_dir / ".crawfish_cache"
+        self.cache_dir.mkdir(exist_ok=True)
+        self._write_cache_dir_readme()
+        for filetype in ["proj_tju", "bandfile_header"]:
+            filename = getattr(self, f"{filetype}_filename")
+            filepath = self._get_backup_filepath_generic(filename)
+            setattr(self, f"{filetype}_filepath", filepath)
+
+    def _write_cache_dir_readme(self):
+        cache_dir_readme_filepath = self.cache_dir / "readme.txt"
+        if not cache_dir_readme_filepath.exists():
+            with open(cache_dir_readme_filepath, "w") as f:
+                f.write("\n".join(cache_dir_readme_lines))
+            f.close()
+    
+
+    def _get_backup_filepath_generic(self, filename: str) -> Path | None:
+        # The file path does not need to exist, as elecdata will write them
+        filepath: Path = self.cache_dir / f"{filename}"
+        return filepath
+    
+    # def _get_cache_filepath_generic(self, filename: str) -> Path | None:
+    #     filepath: Path = self.cache_sub_dir / f"{filename}"
+    #     if not filepath.exists():
+    #         return None
+    #     return filepath
 
     @staticmethod
     def _get_fprefix(prefix: str | None = None):
@@ -983,7 +1047,8 @@ class ElecData:
     #######
 
     def alloc_elec_data(self):
-        _ = self.proj_tju
+        self._set_proj_tju()
+        #_ = self.proj_tju
         _ = self.occ_tj
         _ = self.e_tj
         if self.nbands < self.nproj:
@@ -1016,8 +1081,8 @@ class ElecData:
         return None
     
     def _init_caches(self):
-        self.cache_dir = self.calc_dir / ".crawfish_cache"
-        self.cache_dir.mkdir(exist_ok=True)
+        # self.cache_dir = self.calc_dir / ".crawfish_cache"
+        # self.cache_dir.mkdir(exist_ok=True)
         self.cache_sub_dir = self.cache_dir / get_edata_settings_str(self)
         self.cache_sub_dir.mkdir(exist_ok=True, parents=True)
         for mat in cache_mats:
@@ -1029,8 +1094,8 @@ class ElecData:
 
         Backup cache of "tj" matrices.
         """
-        self.cache_dir = self.calc_dir / ".crawfish_cache"
-        self.cache_dir.mkdir(exist_ok=True)
+        # self.cache_dir = self.calc_dir / ".crawfish_cache"
+        # self.cache_dir.mkdir(exist_ok=True)
         for mat in cache_mats:
             cached_func: CachedFunction = getattr(self, f"{mat}_cache")
             cached_func.save_cache()
@@ -1171,3 +1236,30 @@ def calculate_filling_cold(broadening: float, eig: float, efermi: float) -> floa
 def calculate_filling_nobroad(broadening: float, eig: float, efermi: float) -> float:
     filling = np.heaviside(eig, efermi)
     return filling
+
+
+cache_dir_readme_lines = [
+    "This is the crawfish cache directory for this calculation directory.",
+    "",
+    "The files within this directory are stored here for faster loading in subsequent analyses.",
+    "",
+    "The files `proj_tju.npy` and `bandProjections_header` contain all of the data contained in",
+    "the original `bandProjections` file for <50% the size, and can be parsed at <1% the time.",
+    "",
+    "The directories in this directory are named after the settings used for the created ElecData",
+    "object. Within each of these directories are the binary files for the evaluated atomic",
+    "matrices (ie h_t_uu, h_uu, p_t_uu, ...) for those particular settings, as well as ",
+    "pickled weight matrices for creating pdos/pcomo/pcoop/pcohp/pcobi spectra. Use of ",
+    "the latter pickled matrices can be disabled when running the spectral functions with ",
+    "`use_cache`.",
+    "",
+    "The sub-directories of these sub-directories are named after particular energy ranges (with",
+    " the syntax `erange_emin_emax_estep`). Within these sub-sub-directories are  ",
+    "sub-sub-sub-directories named after spectral functions (pdos/pcomo...) and hold ",
+    "binary files of evaluated spectra, named after settings used to create the spectrum ",
+    "(ie the ion indices, orbitals selected, spin separation, lti parameters, ...). ",
+    "These spectra are saved and loaded by default when running the spectral functions, ",
+    "but can be disabled by `use_cached_spectrum` (to disable loading) and ",
+    "`save_spectrum` (to disable saving). This functionality provides the most utility ",
+    "for lti spectra. Gaussian spectra still get a speed-up, but it is hardly noticable.",
+]
