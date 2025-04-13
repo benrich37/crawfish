@@ -2,210 +2,140 @@ import pytest
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 import numpy as np
 
+def test_get_weighted_overlap_tjuv():
+    from crawfish.core.operations.matrix import get_weighted_overlap_tjuv
 
-# def test_get_p_uvjsabc():
-#     from crawfish.core.operations.matrix import get_p_uvjsabc
+    nproj = 3
+    nstates = 3
+    nbands = 3
 
-#     nproj = 3
-#     nspin = 2
-#     nka = 4
-#     nkb = 3
-#     nkc = 2
-#     nbands = 3
-#     nstates = nspin * nka * nkb * nkc
-#     proj_sabcju = np.zeros([nspin, nka, nkb, nkc, nbands, nproj], dtype=COMPLEX_DTYPE)
-#     proj_sabcju += np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     proj_sabcju += 1j * np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     p_uvjsabc = get_p_uvjsabc(proj_sabcju)
-#     shape_expected = (nproj, nproj, nbands, nspin, nka, nkb, nkc)
-#     assert len(p_uvjsabc.shape) == len(shape_expected)
-#     for i in range(len(shape_expected)):
-#         assert p_uvjsabc.shape[i] == shape_expected[i]
-#     assert isinstance(p_uvjsabc[0, 0, 0, 0, 0, 0, 0], REAL_DTYPE)
-#     assert not isinstance(p_uvjsabc[0, 0, 0, 0, 0, 0, 0], COMPLEX_DTYPE)
-#     assert all(np.isclose(p_uvjsabc.flatten(), 2.0))
-#     p_uvjsabc = get_p_uvjsabc(proj_sabcju, orbs_u=[2])
-#     assert p_uvjsabc[0, 0, 0, 0, 0, 0, 0] == pytest.approx(0.0)
-#     proj_sabcju[0, 0, 0, 0, 0, 0] = 0.0
-#     p_uvjsabc = get_p_uvjsabc(proj_sabcju)
-#     assert p_uvjsabc[0, 0, 0, 0, 0, 0, 0] == pytest.approx(0.0)
+    proj_tju = (np.random.random([nstates, nbands, nproj]) - 0.5) + 1j*(np.random.random([nstates, nbands, nproj]) - 0.5)
+    wk_t = np.random.random([nstates])
+    weighted_overlap_tjuv = get_weighted_overlap_tjuv(proj_tju, wk_t)
+    for t in range(nstates):
+        for j in range(nbands):
+            for u in range(nproj):
+                for v in range(u, nproj):
+                    assert np.isclose(
+                        weighted_overlap_tjuv[t,j,u,v],
+                        wk_t[t]*(np.conj(proj_tju[t,j,u])*proj_tju[t,j,v])
+                    )
 
 
-# def test_get_h_uvsabc():
-#     from crawfish.core.operations.matrix import get_h_uvsabc, get_p_uvjsabc
+def test_get_overlap_tjuv():
+    from crawfish.core.operations.matrix import get_overlap_tjuv
 
-#     nproj = 3
-#     nspin = 2
-#     nka = 1
-#     nkb = 1
-#     nkc = 1
-#     nbands = 2
-#     proj_sabcju = np.zeros([nspin, nka, nkb, nkc, nbands, nproj], dtype=COMPLEX_DTYPE)
-#     proj_sabcju += np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     proj_sabcju += 1j * np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     p_uvjsabc = get_p_uvjsabc(proj_sabcju)
-#     e_sabcj = np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE) * (-1)
-#     h_uvsabc = get_h_uvsabc(p_uvjsabc, e_sabcj)
-#     for u in range(nproj):
-#         for v in range(nproj):
-#             for s in range(nspin):
-#                 for a in range(nka):
-#                     for b in range(nkb):
-#                         for c in range(nkc):
-#                             assert h_uvsabc[u, v, s, a, b, c] == pytest.approx(-2 * nbands)
-#     h_uvsabc = get_h_uvsabc(p_uvjsabc, e_sabcj, orbs_u=[0], orbs_v=[1])
-#     for s in range(nspin):
-#         for a in range(nka):
-#             for b in range(nkb):
-#                 for c in range(nkc):
-#                     for u in range(nproj):
-#                         for v in range(nproj):
-#                             if u == 0 and v == 1:
-#                                 assert h_uvsabc[u, v, s, a, b, c] == pytest.approx(-2 * nbands)
-#                             else:
-#                                 assert h_uvsabc[u, v, s, a, b, c] == pytest.approx(0.0)
-#     p_uvjsabc[0, 2, :, :, :, :, :] *= -1
-#     h_uvsabc = get_h_uvsabc(p_uvjsabc, e_sabcj, orbs_u=[0], orbs_v=[1, 2])
-#     for s in range(nspin):
-#         for a in range(nka):
-#             for b in range(nkb):
-#                 for c in range(nkc):
-#                     for u in range(nproj):
-#                         for v in range(nproj):
-#                             if u == 0 and v == 1:
-#                                 assert h_uvsabc[u, v, s, a, b, c] == pytest.approx(-2 * nbands)
-#                             elif u == 0 and v == 2:
-#                                 assert h_uvsabc[u, v, s, a, b, c] == pytest.approx(2 * nbands)
-#                             else:
-#                                 assert h_uvsabc[u, v, s, a, b, c] == pytest.approx(0.0)
+    nproj = 3
+    nstates = 3
+    nbands = 3
 
+    proj_tju = (np.random.random([nstates, nbands, nproj]) - 0.5) + 1j*(np.random.random([nstates, nbands, nproj]) - 0.5)
+    overlap_tjuv = get_overlap_tjuv(proj_tju)
+    for t in range(nstates):
+        for j in range(nbands):
+            for u in range(nproj):
+                for v in range(u, nproj):
+                    assert np.isclose(
+                        overlap_tjuv[t,j,u,v],
+                        np.conj(proj_tju[t,j,u])*proj_tju[t,j,v]
+                    )
 
-# def test_get_pcoop_sabcj():
-#     from crawfish.core.operations.matrix import get_p_uvjsabc, get_pcoop_sabcj
+def test_get_s_tj_uu():
+    from crawfish.core.operations.matrix import get_s_tj_uu
 
-#     nproj = 3
-#     nspin = 2
-#     nka = 1
-#     nkb = 1
-#     nkc = 1
-#     nbands = 2
-#     np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE) * (-1)
-#     proj_sabcju = np.zeros([nspin, nka, nkb, nkc, nbands, nproj], dtype=COMPLEX_DTYPE)
-#     proj_sabcju += np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     proj_sabcju += 1j * np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     p_uvjsabc = get_p_uvjsabc(proj_sabcju)
-#     # h_uvsabc = get_h_uvsabc(p_uvjsabc, e_sabcj)
-#     orbs_u = [0]
-#     orbs_v = [1]
-#     pcoop_sabcj = get_pcoop_sabcj(p_uvjsabc, orbs_u, orbs_v)
-#     for s in range(nspin):
-#         for a in range(nka):
-#             for b in range(nkb):
-#                 for c in range(nkc):
-#                     for j in range(nbands):
-#                         # pcoop[s,a,b,c,j] = sum(proj_u,v)
-#                         # only one orbital in each set, and p_uvjsabc is 2 everywhere
-#                         assert pcoop_sabcj[s, a, b, c, j] == pytest.approx(2)
-#     # encode anti-bonding in final band by setting all P elements for that band to negative
-#     p_uvjsabc[:, :, -1, :, :, :, :] *= -1
-#     pcoop_sabcj = get_pcoop_sabcj(p_uvjsabc, orbs_u, orbs_v)
-#     for s in range(nspin):
-#         for a in range(nka):
-#             for b in range(nkb):
-#                 for c in range(nkc):
-#                     for j in range(nbands):
-#                         if j < nbands - 1:
-#                             # assert is expected bonding value
-#                             assert pcoop_sabcj[s, a, b, c, j] == pytest.approx(2)
-#                         else:
-#                             # assert is expected anti-bonding value
-#                             assert pcoop_sabcj[s, a, b, c, j] == pytest.approx(-2)
+    nproj = 3
+    nstates = 3
+    nbands = 3
+
+    proj_tju = (np.random.random([nstates, nbands, nproj]) - 0.5) + 1j*(np.random.random([nstates, nbands, nproj]) - 0.5)
+    s_tj_uu = get_s_tj_uu(proj_tju)
+    for t in range(nstates):
+        for j in range(nbands):
+            for u in range(nproj):
+                for v in range(u, nproj):
+                    assert np.isclose(
+                        s_tj_uu[t,j,u,v],
+                        REAL_DTYPE(np.abs(np.conj(proj_tju[t,j,u])*proj_tju[t,j,v])**2)
+                    )
+
+def test_get_p_tj_uu():
+    from crawfish.core.operations.matrix import get_s_tj_uu, get_p_tj_uu
+
+    nproj = 3
+    nstates = 3
+    nbands = 3
+
+    proj_tju = (np.random.random([nstates, nbands, nproj]) - 0.5) + 1j*(np.random.random([nstates, nbands, nproj]) - 0.5)
+    s_tj_uu = get_s_tj_uu(proj_tju)
+    wk_t = np.random.random([nstates])
+    occ_tj = np.random.random([nstates, nbands])
+    p_tj_uu_direct = get_p_tj_uu(s_tj_uu, occ_tj, wk_t, sys_consistent=False)
+    p_tj_uu_consistent = get_p_tj_uu(s_tj_uu, occ_tj, wk_t, sys_consistent=True)
+    for t in range(nstates):
+        for j in range(nbands):
+            tj_sum = np.sum(s_tj_uu[t,j,:,:].flatten())
+            assert np.isclose(
+                np.sum(p_tj_uu_consistent[t,j,:,:].flatten()),
+                wk_t[t]*occ_tj[t,j]
+            )
+            for u in range(nproj):
+                for v in range(u, nproj):
+                    assert np.isclose(
+                        p_tj_uu_direct[t,j,u,v],
+                        occ_tj[t,j]*wk_t[t]*s_tj_uu[t,j,u,v]
+                    )
+                    assert np.isclose(
+                        p_tj_uu_consistent[t,j,u,v],
+                        occ_tj[t,j]*wk_t[t]*s_tj_uu[t,j,u,v]/tj_sum
+                    )
 
 
-# def test_get_pcohp_sabcj():
-#     from crawfish.core.operations.matrix import get_h_uvsabc, get_p_uvjsabc, get_pcohp_sabcj
+def test_get_h_tj_uu():
+    from crawfish.core.operations.matrix import get_s_tj_uu, get_p_tj_uu, get_h_tj_uu
 
-#     nproj = 3
-#     nspin = 2
-#     nka = 1
-#     nkb = 1
-#     nkc = 1
-#     nbands = 3
-#     e_sabcj = np.ones([nspin, nka, nkb, nkc, nbands], dtype=REAL_DTYPE) * (-1)
-#     proj_sabcju = np.zeros([nspin, nka, nkb, nkc, nbands, nproj], dtype=COMPLEX_DTYPE)
-#     proj_sabcju += np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     proj_sabcju += 1j * np.ones([nspin, nka, nkb, nkc, nbands, nproj])
-#     p_uvjsabc = get_p_uvjsabc(proj_sabcju)
-#     h_uvsabc = get_h_uvsabc(p_uvjsabc, e_sabcj)
-#     orbs_u = [0]
-#     orbs_v = [1]
-#     pcohp_sabcj = get_pcohp_sabcj(p_uvjsabc, h_uvsabc, orbs_u, orbs_v)
-#     for s in range(nspin):
-#         for a in range(nka):
-#             for b in range(nkb):
-#                 for c in range(nkc):
-#                     for j in range(nbands):
-#                         # 2**2 comes from "2" value multiplied in twice (once from p_uvjsabc, once from h_uvsabc constructed from p_uvjsabc)
-#                         # nbands factor comes from summing over all bands in constructing h_uvsabc
-#                         # negative sign comes from the negative sign in the h_uvsabc (eigenvalues set all to -1)
-#                         assert pcohp_sabcj[s, a, b, c, j] == pytest.approx(-(2**2) * nbands)
-#     # encode anti-bonding in final band by setting all P elements for that band to negative
-#     p_uvjsabc[:, :, -1, :, :, :, :] *= -1
-#     h_uvsabc = get_h_uvsabc(p_uvjsabc, e_sabcj)
-#     pcohp_sabcj = get_pcohp_sabcj(p_uvjsabc, h_uvsabc, orbs_u, orbs_v)
-#     # first "2" for bonding elements of p_uvjsabc,
-#     # "-2*(nbands-1)" for part of h_uvsabc for sum over bonding bands (all but last),
-#     # and "-2*1" for part of h_uvsabc for sum over antibonding band
-#     expected_bonding = 2 * (-2 * (nbands - 1) - (-2 * 1))
-#     # Same as expected_bonding in magnitude as pulls from same [u,v] from h_uvsabc,
-#     # but negative sign from negative sign of p_uvjsabc at the antibonding band
-#     expected_antibonding = -2 * (-2 * (nbands - 1) - (-2 * 1))
-#     for s in range(nspin):
-#         for a in range(nka):
-#             for b in range(nkb):
-#                 for c in range(nkc):
-#                     for j in range(nbands):
-#                         if j < nbands - 1:
-#                             assert pcohp_sabcj[s, a, b, c, j] == pytest.approx(expected_bonding)
-#                         else:
-#                             assert pcohp_sabcj[s, a, b, c, j] == pytest.approx(expected_antibonding)
+    nproj = 3
+    nstates = 3
+    nbands = 3
 
+    proj_tju = (np.random.random([nstates, nbands, nproj]) - 0.5) + 1j*(np.random.random([nstates, nbands, nproj]) - 0.5)
+    wk_t = np.random.random([nstates])
+    occ_tj = np.random.random([nstates, nbands])
+    e_tj = np.random.random([nstates, nbands]) - 0.5
+    s_tj_uu = get_s_tj_uu(proj_tju)
+    p_tj_uu = get_p_tj_uu(s_tj_uu, occ_tj, wk_t, sys_consistent=True)
+    h_tj_uu = get_h_tj_uu(p_tj_uu, e_tj)
+    for t in range(nstates):
+        for j in range(nbands):
+            for u in range(nproj):
+                for v in range(u, nproj):
+                    assert np.isclose(
+                        h_tj_uu[t,j,u,v],
+                        p_tj_uu[t,j,u,v]*e_tj[t,j]
+                    )
 
 def test_get_pdos_tj():
     from crawfish.core.operations.matrix import get_pdos_tj
 
-    nproj = 1
-    nspin = 1
-    nka = 1
-    nkb = 1
-    nkc = 1
+    nproj = 3
+    orbs_1 = np.array(list(range(nproj)))
+    orbs_2 = np.array([0,int(nproj-1)])
+    nstates = 3
     nbands = 3
-    nstates = nspin * nka * nkb * nkc
-    e_tj = np.ones([nstates, nbands], dtype=REAL_DTYPE) * (-1)
-    e_tj[:, 0] -= 1
-    e_tj[:, -1] += 1
-    proj_tju = np.zeros([nstates, nbands, nproj], dtype=COMPLEX_DTYPE)
-    proj_tju += np.ones([nstates, nbands, nproj])
-    proj_tju += 1j * np.ones([nstates, nbands, nproj])
-    orb_idx = 0
-    pdos_tj = get_pdos_tj(proj_tju, [orb_idx])
+
+    proj_tju = (np.random.random([nstates, nbands, nproj]) - 0.5) + 1j*(np.random.random([nstates, nbands, nproj]) - 0.5)
+    wk_t = np.random.random([nstates])
+    pdos_tj_1 = get_pdos_tj(proj_tju, orbs_1, wk_t)
+    pdos_tj_2 = get_pdos_tj(proj_tju, orbs_2, wk_t)
     for t in range(nstates):
         for j in range(nbands):
-            _v1 = proj_tju[t, j, orb_idx]
-            v1 = np.conj(_v1) * _v1
-            v2 = proj_tju[t, j]
-            assert v1 == pytest.approx(v2)
-    proj_tju[:, -1, :] *= 0
-    pdos_tj = get_pdos_tj(proj_tju, [orb_idx])
-    for t in range(nstates):
-        for j in range(nbands):
-            if j < nbands - 1:
-                _v1 = proj_tju[t, j, orb_idx]
-                v1 = np.conj(_v1) * _v1
-                v2 = pdos_tj[t, j]
-                assert v1 == pytest.approx(v2)
-            else:
-                assert pdos_tj[t, j] == pytest.approx(0.0)
+            assert np.isclose(
+                pdos_tj_1[t,j], 
+                np.sum((np.abs(proj_tju[t,j,orbs_1])**2).flatten())*wk_t[t]
+            )
+            assert np.isclose(
+                pdos_tj_2[t,j], 
+                np.sum((np.abs(proj_tju[t,j,orbs_2])**2).flatten())*wk_t[t]
+            )
 
 
 def test_mod_weights_for_ebounds():

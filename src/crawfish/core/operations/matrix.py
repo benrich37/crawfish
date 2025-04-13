@@ -9,7 +9,7 @@ from numba import jit
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 
-def get_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[REAL_DTYPE | COMPLEX_DTYPE]:
+def get_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[REAL_DTYPE]:
     r"""Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
 
     Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
@@ -460,25 +460,29 @@ def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLE
     return low_proj_tju
 
 
-def los_projs_for_bands(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
-    """Perform LOS on projections for band orthogonality.
+# def los_projs_for_bands(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
+#     """Perform LOS on projections for band orthogonality.
 
-    Perform Lowdin symmetric orthogonalization on projections for band orthogonality.
+#     Perform Lowdin symmetric orthogonalization on projections for band orthogonality.
 
-    Parameters
-    ----------
-    proj_sabcju : np.ndarray[COMPLEX_DTYPE]
-        Projections in shape (nstates, nbands, nproj).
-    """
-    low_proj_tju = np.zeros_like(proj_tju)
-    nstates = np.shape(proj_tju)[0]
-    for t in range(nstates):
-        s_uu = np.tensordot(proj_tju[t].conj().T, proj_tju[t], axes=([0], [1]))
-        eigs, low_u = np.linalg.eigh(s_uu)
-        nsqrt_ss_uu = np.eye(len(eigs)) * (eigs ** (-0.5))
-        low_s_uu = np.dot(low_u, np.dot(nsqrt_ss_uu, low_u.T.conj()))
-        low_proj_tju[t, :, :] += np.tensordot(proj_tju[t], low_s_uu, axes=([0], [1]))
-    return low_proj_tju
+#     Parameters
+#     ----------
+#     proj_sabcju : np.ndarray[COMPLEX_DTYPE]
+#         Projections in shape (nstates, nbands, nproj).
+#     """
+#     low_proj_tju = np.zeros_like(proj_tju)
+#     nstates = np.shape(proj_tju)[0]
+#     for t in range(nstates):
+#         s_uu = np.tensordot(proj_tju[t].conj().T, proj_tju[t], axes=([0], [1]))
+#         eigs, low_u = np.linalg.eigh(s_uu)
+#         # nsqrt_ss_uu = np.eye(len(eigs)) * (eigs ** (-0.5))
+#         # low_s_uu = np.dot(low_u, np.dot(nsqrt_ss_uu, low_u.T.conj()))
+#         # TODO: The following two lines were stolen from pyscf. Figure out if pyscf should just be a dependency,
+#         # and dispatch orthogonalization to it.
+#         idx = eigs > 1e-15
+#         low_s_uu = np.dot(low_u[:,idx]/np.sqrt(eigs[idx]), low_u[:,idx].conj().T)
+#         low_proj_tju[t, :, :] += np.tensordot(proj_tju[t], low_s_uu, axes=([0], [1]))
+#     return low_proj_tju
 
 
 # def get_t1_loss(proj_tju, nStates):
