@@ -4,8 +4,7 @@ Module for user methods to get DOS and PDOS spectra.
 """
 
 from crawfish.core.elecdata import ElecData
-from crawfish.core.operations.matrix import get_pdos_tj
-from crawfish.utils.typing import REAL_DTYPE
+from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
 from crawfish.utils.arg_correction import edata_input_to_edata
 from crawfish.funcs.general import get_generic_spectrum, SIGMA_DEFAULT, RES_DEFAULT, get_generic_integrate, evaluate_or_retrieve_generic_spectrum
@@ -164,3 +163,25 @@ def get_ipdos(
     }
     es, cs = get_generic_integrate(edata, pdos_tj, **kwargs)
     return es, cs
+
+def get_pdos_tj(
+    proj_tju: np.ndarray[COMPLEX_DTYPE], orbs: list[int], wk_t: np.ndarray[REAL_DTYPE]
+) -> np.ndarray[REAL_DTYPE]:
+    r"""Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
+
+    Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
+    where u encompasses indices for orbitals of interest.
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray
+        The projection vector T_{u}^{j,s,a,b,c} = <u | \phi_{j,s,a,b,c}>
+    orbs : list[int]
+        The list of orbitals to evaluate
+    r"""
+    t, j, u = np.shape(proj_tju)
+    pdos_tj = np.zeros([t, j], dtype=REAL_DTYPE)
+    for orb in orbs:
+        pdos_tj += np.abs(proj_tju[:, :, orb]) ** 2
+    pdos_tj *= wk_t[:, np.newaxis]
+    return pdos_tj

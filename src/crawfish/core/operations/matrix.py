@@ -285,28 +285,6 @@ def _get_gen_tj_coef_tuu_jit(gen_tj, coef_tuu, wk_cw_tj_uu, orbs_u, orbs_v):
                     gen_tj[t,:] += val
     return gen_tj
 
-def get_pdos_tj(
-    proj_tju: np.ndarray[COMPLEX_DTYPE], orbs: list[int], wk_t: np.ndarray[REAL_DTYPE]
-) -> np.ndarray[REAL_DTYPE]:
-    r"""Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
-
-    Return the projected density of states tensor PDOS_{s,a,b,c,j} = Sum_{u} |P_{u}^{j,s,a,b,c}|^2 w_{s,a,b,c}.
-    where u encompasses indices for orbitals of interest.
-
-    Parameters
-    ----------
-    proj_tju : np.ndarray
-        The projection vector T_{u}^{j,s,a,b,c} = <u | \phi_{j,s,a,b,c}>
-    orbs : list[int]
-        The list of orbitals to evaluate
-    r"""
-    t, j, u = np.shape(proj_tju)
-    pdos_tj = np.zeros([t, j], dtype=REAL_DTYPE)
-    for orb in orbs:
-        pdos_tj += np.abs(proj_tju[:, :, orb]) ** 2
-    pdos_tj *= wk_t[:, np.newaxis]
-    return pdos_tj
-
 
 def mod_weights_for_ebounds(
     weights_sabcj: np.ndarray[REAL_DTYPE], e_sabcj: np.ndarray[REAL_DTYPE], ebounds: list[REAL_DTYPE]
