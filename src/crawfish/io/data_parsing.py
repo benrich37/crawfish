@@ -891,7 +891,7 @@ def save_bandfile_header(bandfile_filepath: Path, bandfile_header_filepath: Path
         else:
             header_text.append(text)
     with open(bandfile_header_filepath, "w") as f:
-        f.write("\n".join(header_text))
+        f.write("".join(header_text))
 
 
 def _complex_token_parser(tokens: list[str]) -> np.ndarray[COMPLEX_DTYPE]:
