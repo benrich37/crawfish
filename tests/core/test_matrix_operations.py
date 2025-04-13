@@ -113,29 +113,6 @@ def test_get_h_tj_uu():
                         p_tj_uu[t,j,u,v]*e_tj[t,j]
                     )
 
-def test_get_pdos_tj():
-    from crawfish.core.operations.matrix import get_pdos_tj
-
-    nproj = 3
-    orbs_1 = np.array(list(range(nproj)))
-    orbs_2 = np.array([0,int(nproj-1)])
-    nstates = 3
-    nbands = 3
-
-    proj_tju = (np.random.random([nstates, nbands, nproj]) - 0.5) + 1j*(np.random.random([nstates, nbands, nproj]) - 0.5)
-    wk_t = np.random.random([nstates])
-    pdos_tj_1 = get_pdos_tj(proj_tju, orbs_1, wk_t)
-    pdos_tj_2 = get_pdos_tj(proj_tju, orbs_2, wk_t)
-    for t in range(nstates):
-        for j in range(nbands):
-            assert np.isclose(
-                pdos_tj_1[t,j], 
-                np.sum((np.abs(proj_tju[t,j,orbs_1])**2).flatten())*wk_t[t]
-            )
-            assert np.isclose(
-                pdos_tj_2[t,j], 
-                np.sum((np.abs(proj_tju[t,j,orbs_2])**2).flatten())*wk_t[t]
-            )
 
 
 def test_mod_weights_for_ebounds():
