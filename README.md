@@ -86,7 +86,13 @@ $$
 and
 
 $$
-P_{j,t,\mu,\nu} = Re\left[T_{\mu,j}^*(t)T_{\nu,j}(t)\right] f_j(t) w_t
+P_{j,t,\mu,\nu} = S_{j,t,\mu,\nu} f_j(t) w_t
+$$
+
+and
+
+$$
+S_{j,t,\mu,\nu} = \langle \mu | \psi_j(t) \rangle \langle \psi_j(t) | \nu \rangle
 $$
 
 
