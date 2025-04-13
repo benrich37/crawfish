@@ -92,7 +92,7 @@ $$
 and
 
 $$
-S_{j,t,\mu,\nu} = \langle \mu | \psi_j(t) \rangle \langle \psi_j(t) | \nu \rangle
+S_{j,t,\mu,\nu} = \left|\langle \mu | \psi_j(t) \rangle \langle \psi_j(t) | \nu \rangle\right|^2
 $$
 
 
