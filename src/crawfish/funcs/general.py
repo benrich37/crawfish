@@ -37,6 +37,7 @@ def get_generic_integrate(
     weights_sabcj = _weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if use_fillings:
         weights_sabcj *= edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands]) / np.max(edata.occ_tj)
+    es = None
     if spin_pol:
         cs = []
         for s in range(edata.nspin):
@@ -296,9 +297,9 @@ def _get_generic_spectrum_helper(edata, weights_sabcj, erange, spin_pol, sig, re
             edata, weights_sabcj, erange, spin_pol, res=res, rattle_eigenvals=rattle_eigenvals
         )
     if norm_max:
-        spectrum = spectrum / np.max(spectrum)
+        spectrum = spectrum / np.max(np.abs(spectrum))
     elif norm_intg:
-        spectrum = spectrum / trapezoid(spectrum, erange)
+        spectrum = spectrum / trapezoid(np.abs(spectrum), erange)
     return spectrum
 
 

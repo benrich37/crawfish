@@ -7,6 +7,8 @@ from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 import numpy as np
 from pathlib import Path
+from functools import wraps
+from typing import TypeVar, Callable, Any, cast, ParamSpec
 
 
 def edata_input_to_edata(edata_input: ElecData | str | Path) -> ElecData:
@@ -82,3 +84,52 @@ def get_use_cache(use_cache_arg: bool | None, use_cache_default: bool | None) ->
         return use_cache_arg
     else:
         return use_cache_default
+    
+
+
+
+T = TypeVar('T')  # Type of the first argument
+P = ParamSpec('P')  # Parameter specification for remaining arguments
+
+def create_wrapper(transformer: Callable[[T], T]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """
+    Creates a wrapper for functions that transforms their first argument.
+    
+    Args:
+        transformer: Function that transforms the first argument
+        
+    Returns:
+        A decorator that can be applied to any function
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not args:
+                return func(*args, **kwargs)
+            
+            # Transform the first argument and preserve all others
+            new_args = (transformer(cast(T, args[0])),) + args[1:]
+            return func(*new_args, **kwargs)
+        
+        return wrapper
+    
+    return decorator
+
+def _assert_complex_bandprojections(edata_input: ElecData | str | Path) -> None:
+    """
+    Assert that the band projections are complex. Wrapper for functions that require complex band projections.
+    
+    Args:
+        edata: The ElecData object to check
+        
+    Raises:
+        ValueError: If the band projections are not complex
+    """
+    edata = edata_input_to_edata(edata_input)
+    if edata.jdftx and (not edata.bandprojfile_is_complex):
+        raise ValueError(
+            "Band projections are not complex - remember to set 'band-projection-params yes no' "
+            "in your jdftx in file. Aborting bonding analysis. (Data still good for pDOS analysis)"
+            )
+    
+assert_complex_bandprojections = create_wrapper(_assert_complex_bandprojections)
