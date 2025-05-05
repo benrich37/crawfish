@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 from crawfish.funcs.general import SIGMA_DEFAULT, RES_DEFAULT
 
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_pcohp(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -109,7 +109,7 @@ def get_pcohp(
 
 
 
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_ipcohp(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -181,7 +181,7 @@ def _compute_pcohp_tj(
 
 
 # Cite (C. A. Coulson, Proc. Roy. Soc. (London) 169A, 419 (1939).)
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_pcomo(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -272,7 +272,7 @@ def get_pcomo(
     }
     return evaluate_or_retrieve_generic_spectrum(edata, pcomo_tj, "pcomo", **kwargs)
 
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_ipcomo(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -329,7 +329,7 @@ def _compute_pcomo_tj(
     return pcohp_tj
 
 
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_pcoop(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -411,7 +411,7 @@ def get_pcoop(
     }
     return evaluate_or_retrieve_generic_spectrum(edata, pcoop_tj, "pcoop", **kwargs)
 
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_ipcoop(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -463,7 +463,7 @@ def _get_pcoop_tj(
         pcoop_tj = compute_func(orbs_u, orbs_v)
     return pcoop_tj
 
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def _compute_pcoop_tj(
         edata: ElecData,
         orbs_u: list[int],
@@ -481,7 +481,7 @@ def _compute_pcoop_tj(
     return pcoop_tj
 
 ##
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_pcobi(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -563,7 +563,7 @@ def get_pcobi(
     }
     return evaluate_or_retrieve_generic_spectrum(edata, pcobi_tj, "pcobi", **kwargs)
 
-@assert_complex_bandprojections
+#@assert_complex_bandprojections
 def get_ipcobi(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
