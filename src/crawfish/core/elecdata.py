@@ -262,7 +262,7 @@ class ElecData:
         """
         if self.jdftx:
             if self._outfile is None:
-                self._outfile = JDFTXOutfile.from_file(self.outfile_filepath)
+                self._outfile = JDFTXOutfile.from_file(self.outfile_filepath, none_slice_on_error=True)
             return self._outfile
 
     @property
