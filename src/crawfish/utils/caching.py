@@ -1,14 +1,10 @@
 from typing import List, Dict, Tuple
 import numpy as np
-from functools import lru_cache
 from pathlib import Path
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.io.general import safe_load
-from typing import Any
-from crawfish.core.elecdata import ElecData
-from crawfish.utils.arg_correction import get_erange
+from typing import Any, TYPE_CHECKING
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
-from crawfish.utils.typing import cs_formatter
 
 
 
@@ -263,12 +259,11 @@ def get_generic_cache_dir(parent_dir: Path, prefix: str, metadata_dict: dict):
         cache_dir = write_new_generic_cache_dir(parent_dir, prefix, metadata_dict)
         return cache_dir
 
-def get_erange_cache_dir(edata: ElecData, erange: np.ndarray):
+def get_erange_cache_dir(parent_dir: Path, erange: np.ndarray):
     """Return the energy range cache directory.
 
     Return the energy range cache directory.
     """
-    parent_dir = edata.cache_sub_dir
     prefix = "erange"
     metadata_dict = {
         "emin": erange[0],
@@ -277,35 +272,3 @@ def get_erange_cache_dir(edata: ElecData, erange: np.ndarray):
     }
     return get_generic_cache_dir(parent_dir, prefix, metadata_dict)
 
-def get_spectrum_file_path(
-    edata: ElecData,
-    func_name: str,
-    func_args_dict: dict,
-    erange: np.ndarray[REAL_DTYPE] | None = None,
-    spin_pol: bool = False,
-    sig: REAL_DTYPE = 0.0,
-    res: REAL_DTYPE = 0.0,
-    lti: bool = False,
-    rattle_eigenvals: bool = False,
-    norm_max: bool = False,
-    norm_intg: bool = False,
-    sep_channels: bool = False,
-):
-    if erange is None:
-        erange = get_erange(edata, erange, res=res)
-    erange_cache_dir = get_erange_cache_dir(edata, erange)
-    metadata_dict = func_args_dict.copy()
-    metadata_dict["spin_pol"] = spin_pol
-    metadata_dict["sig"] = sig
-    metadata_dict["lti"] = lti
-    metadata_dict["rattle_eigenvals"] = rattle_eigenvals
-    metadata_dict["norm_max"] = norm_max
-    metadata_dict["norm_intg"] = norm_intg
-    metadata_dict["sep_channels"] = sep_channels
-    spec_cache_dir = get_generic_cache_dir(
-        erange_cache_dir,
-        func_name,
-        metadata_dict,
-    )
-    file_path = spec_cache_dir / "spec.npy"
-    return file_path

@@ -7,7 +7,7 @@ from crawfish.core.elecdata import ElecData
 from crawfish.core.operations.vector import get_gauss_smear_spectrum, get_lti_spectrum, get_uneven_integrated_array
 from crawfish.utils.arg_correction import get_erange
 from crawfish.utils.typing import REAL_DTYPE, cs_formatter, COMPLEX_DTYPE
-from crawfish.utils.caching import get_spectrum_file_path
+from crawfish.utils.caching import get_generic_cache_dir, get_erange_cache_dir
 from copy import deepcopy
 import numpy as np
 from scipy.integrate import trapezoid
@@ -263,3 +263,36 @@ def get_generic_gsmear_spectrum(
     cs = get_gauss_smear_spectrum(erange, edata.e_sabcj, weights_sabcj, sig)
     spectrum = cs_formatter(cs, spin_pol)
     return erange, spectrum
+
+def get_spectrum_file_path(
+    edata: ElecData,
+    func_name: str,
+    func_args_dict: dict,
+    erange: np.ndarray[REAL_DTYPE] | None = None,
+    spin_pol: bool = False,
+    sig: REAL_DTYPE = 0.0,
+    res: REAL_DTYPE = 0.0,
+    lti: bool = False,
+    rattle_eigenvals: bool = False,
+    norm_max: bool = False,
+    norm_intg: bool = False,
+    sep_channels: bool = False,
+):
+    if erange is None:
+        erange = get_erange(edata, erange, res=res)
+    erange_cache_dir = get_erange_cache_dir(edata.cache_sub_dir, erange)
+    metadata_dict = func_args_dict.copy()
+    metadata_dict["spin_pol"] = spin_pol
+    metadata_dict["sig"] = sig
+    metadata_dict["lti"] = lti
+    metadata_dict["rattle_eigenvals"] = rattle_eigenvals
+    metadata_dict["norm_max"] = norm_max
+    metadata_dict["norm_intg"] = norm_intg
+    metadata_dict["sep_channels"] = sep_channels
+    spec_cache_dir = get_generic_cache_dir(
+        erange_cache_dir,
+        func_name,
+        metadata_dict,
+    )
+    file_path = spec_cache_dir / "spec.npy"
+    return file_path
