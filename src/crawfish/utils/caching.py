@@ -178,13 +178,13 @@ def is_matching_value(
     """
     if isinstance(v_from_args, str):
         return is_matching_str(v_from_file, v_from_args)
-    elif isinstance(v_from_args, float):
+    elif type(v_from_args) in [float, np.float32, np.float64]:
         return is_matching_float(v_from_file, v_from_args)
-    elif isinstance(v_from_args, int):
+    elif type(v_from_args) in [int, np.int32, np.int64]:
         return is_matching_int(v_from_file, v_from_args)
-    elif isinstance(v_from_args, bool):
+    elif type(v_from_args) in [bool, np.bool_]:
         return is_matching_bool(v_from_file, v_from_args)
-    elif isinstance(v_from_args, list):
+    elif type(v_from_args) in [list, np.ndarray]:
         return is_matching_list(v_from_file, v_from_args)
     elif isinstance(v_from_args, dict):
         return is_matching_metadata(v_from_file, v_from_args)
