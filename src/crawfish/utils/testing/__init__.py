@@ -9,6 +9,8 @@ TEST_FILES_DIR = Path(ROOT) / ".." / "tests" / "files"
 EXAMPLE_FILES_DIR = TEST_FILES_DIR / "io" / "example_files"
 EXAMPLE_CALC_DIRS_DIR = TEST_FILES_DIR / "io" / "example_calc_dirs"
 TMP_FILES_DIR = TEST_FILES_DIR / "io" / "tmp_files"
+# This directory should be empty before committing, so creation is required.
+TMP_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def approx_idx(arr: np.ndarray[REAL_DTYPE], val: REAL_DTYPE) -> int:
