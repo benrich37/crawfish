@@ -1,7 +1,7 @@
 from crawfish.core.elecdata import ElecData
 from crawfish.core.operations.matrix import _add_kweights
 from crawfish.utils.testing import EXAMPLE_CALC_DIRS_DIR, approx_idx
-from crawfish.funcs.pcoop import get_pcoop
+from crawfish.funcs.pcohp import get_pcoop
 import numpy as np
 import pytest
 

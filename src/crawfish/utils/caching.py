@@ -176,7 +176,9 @@ def is_matching_value(
 
     Check if the values match.
     """
-    if isinstance(v_from_args, str):
+    if v_from_args is None:
+        return v_from_file is None
+    elif isinstance(v_from_args, str):
         return is_matching_str(v_from_file, v_from_args)
     elif type(v_from_args) in [float, np.float32, np.float64]:
         return is_matching_float(v_from_file, v_from_args)
