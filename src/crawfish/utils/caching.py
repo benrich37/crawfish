@@ -110,39 +110,41 @@ def is_matching_str(v_from_file: str, v_from_args: str) -> bool:
     """
     return v_from_file.strip() == v_from_args.strip()
 
+_listlikes = (list, np.ndarray, range, tuple, set)
+_boollikes = (bool, np.bool_)
+_intlikes = (int, np.int32, np.int64)
+_floatlikes = (float, np.float32, np.float64)
+_realnumlikes = _floatlikes + _intlikes
 
-def is_matching_float(v_from_file: str, v_from_args: float) -> bool:
+def is_matching_float(v_from_file: _realnumlikes, v_from_args: _floatlikes) -> bool:
     """Check if the float values match.
 
     Check if the float values match.
     """
-    try:
-        v_from_file = float(v_from_file)
-    except (ValueError, TypeError):
-        return False
+    # try:
+    #     v_from_file = float(v_from_file)
+    # except (ValueError, TypeError):
+    #     return False
     return np.isclose(v_from_file, v_from_args)
 
-def is_matching_int(v_from_file: str, v_from_args: int) -> bool:
+def is_matching_int(v_from_file: _realnumlikes, v_from_args: _intlikes) -> bool:
     """Check if the int values match.
 
     Check if the int values match.
     """
-    try:
-        v_from_file = int(v_from_file)
-    except (ValueError, TypeError):
-        return False
-    return v_from_file == v_from_args
+    # try:
+    #     v_from_file = int(v_from_file)
+    # except (ValueError, TypeError):
+    #     return False
+    #return v_from_file == v_from_args
+    return np.isclose(v_from_file, v_from_args)
 
-def is_matching_bool(v_from_file: str, v_from_args: bool) -> bool:
+def is_matching_bool(v_from_file: _boollikes, v_from_args: _boollikes) -> bool:
     """Check if the bool values match.
 
     Check if the bool values match.
     """
-    try:
-        v_from_file = bool(v_from_file)
-    except (ValueError, TypeError):
-        return False
-    return v_from_file == v_from_args
+    return bool(v_from_file == v_from_args)
 
 
 def list_contains_val(test_list: list[Any], val: Any) -> bool:
@@ -152,19 +154,18 @@ def list_contains_val(test_list: list[Any], val: Any) -> bool:
     """
     return any([is_matching_value(v, val) for v in test_list])
 
-def is_matching_list(v_from_file: Any, v_from_args: list[Any]) -> bool:
+def is_matching_list(v_from_file: _listlikes, v_from_args: _listlikes) -> bool:
     """Check if the list values match.
 
     Check if the list values match.
     """
-    try:
-        v_from_file = eval(str(v_from_file))
-    except (ValueError, TypeError):
+    # Convert to lists here so they're easier to work with
+    test_v_from_file = list(v_from_file)
+    test_v_from_args = list(v_from_args)
+    if len(test_v_from_file) != len(test_v_from_args):
         return False
-    if len(v_from_file) != len(v_from_args):
-        return False
-    for subv in v_from_args:
-        if not list_contains_val(v_from_file, subv):
+    for subv in test_v_from_args:
+        if not list_contains_val(test_v_from_file, subv):
             return False
     return True
 
@@ -176,22 +177,46 @@ def is_matching_value(
 
     Check if the values match.
     """
-    if v_from_args is None:
+    if not is_same_type_robust(v_from_file, v_from_args):
+        return False
+    elif v_from_args is None:
         return v_from_file is None
     elif isinstance(v_from_args, str):
         return is_matching_str(v_from_file, v_from_args)
-    elif type(v_from_args) in [float, np.float32, np.float64]:
-        return is_matching_float(v_from_file, v_from_args)
-    elif type(v_from_args) in [int, np.int32, np.int64]:
-        return is_matching_int(v_from_file, v_from_args)
-    elif type(v_from_args) in [bool, np.bool_]:
+    elif type(v_from_args) in _boollikes:
         return is_matching_bool(v_from_file, v_from_args)
-    elif type(v_from_args) in [list, np.ndarray]:
+    elif type(v_from_args) in _listlikes:
         return is_matching_list(v_from_file, v_from_args)
     elif isinstance(v_from_args, dict):
         return is_matching_metadata(v_from_file, v_from_args)
+    # This can possibly be reduced to just comparing _realnumlikes, but keeping it explicit for now
+    elif type(v_from_args) in _floatlikes:
+        return is_matching_float(v_from_file, v_from_args)
+    elif type(v_from_args) in _intlikes:
+        return is_matching_int(v_from_file, v_from_args)
     else:
         raise ValueError(f"Unsupported type {type(v_from_args)} for value {v_from_args}.")
+    
+
+
+def is_same_type_robust(v1: Any, v2: Any) -> bool:
+    """Check if the two values are of the same type.
+
+    Check if the two values are of the same type.
+    """
+    if v1 is None:
+        return v2 is None
+    elif isinstance(v1, str):
+        return isinstance(v2, str)
+    # Bools are also recognized as real numbers, so we need to check for them first
+    elif isinstance(v1, _boollikes):
+        return isinstance(v2, _boollikes)
+    elif isinstance(v1, _realnumlikes):
+        return isinstance(v2, _realnumlikes)
+    elif isinstance(v1, _listlikes):
+        return isinstance(v2, _listlikes)
+    elif isinstance(v1, dict):
+        return isinstance(v2, dict)
     
 
 def is_matching_metadata(
