@@ -5,6 +5,8 @@ from crawfish.utils.typing import REAL_DTYPE
 from crawfish.io.general import safe_load
 from typing import Any, TYPE_CHECKING
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
+from json import dump, dumps, loads, load
+import pickle
 
 
 
@@ -80,27 +82,68 @@ class CachedFunction:
                 self.cache[key] = np.array(self.cache[key], dtype=self.arr_dtype)
 
 
+# def parse_generic_metadata(cache_dir: Path) -> dict:
+#     """Parse the metadata from the cache directory.
+
+#     Parse the metadata from the cache directory.
+#     """
+#     metadata_file = cache_dir / "metadata.txt"
+#     vals = {}
+#     with open(metadata_file, "r") as f:
+#         for line in f:
+#             vals = eval(line.strip())
+#             break
+#     return vals
+
+# def parse_generic_metadata(cache_dir: Path) -> dict:
+#     """Parse the metadata from the cache directory.
+
+#     Parse the metadata from the cache directory.
+#     """
+#     metadata_file = cache_dir / "metadata.txt"
+#     vals = {}
+#     with open(metadata_file, "r") as f:
+#         vals = loads(f.read())
+#     return vals
+
 def parse_generic_metadata(cache_dir: Path) -> dict:
     """Parse the metadata from the cache directory.
 
     Parse the metadata from the cache directory.
     """
-    metadata_file = cache_dir / "metadata.txt"
-    vals = {}
-    with open(metadata_file, "r") as f:
-        for line in f:
-            vals = eval(line.strip())
-            break
+    metadata_file = cache_dir / "metadata.pickle"
+    if not metadata_file.is_file():
+        return {}
+    with open(metadata_file, "rb") as f:
+        vals = pickle.load(f)
     return vals
+
+# def write_generic_metadata(cache_dir: Path, metadata_dict: dict):
+#     """Write the metadata to the cache directory.
+
+#     Write the metadata to the cache directory.
+#     """
+#     metadata_file = cache_dir / "metadata.txt"
+#     with open(metadata_file, "w") as f:
+#         f.write(str(metadata_dict))
+
+# def write_generic_metadata(cache_dir: Path, metadata_dict: dict):
+#     """Write the metadata to the cache directory.
+
+#     Write the metadata to the cache directory.
+#     """
+#     metadata_file = cache_dir / "metadata.txt"
+#     with open(metadata_file, "w") as f:
+#         dump(metadata_dict, f)
 
 def write_generic_metadata(cache_dir: Path, metadata_dict: dict):
     """Write the metadata to the cache directory.
 
     Write the metadata to the cache directory.
     """
-    metadata_file = cache_dir / "metadata.txt"
-    with open(metadata_file, "w") as f:
-        f.write(str(metadata_dict))
+    metadata_file = cache_dir / "metadata.pickle"
+    with open(metadata_file, "wb") as f:
+        pickle.dump(metadata_dict, f)
     
 
 def is_matching_str(v_from_file: str, v_from_args: str) -> bool:
