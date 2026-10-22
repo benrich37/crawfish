@@ -35,7 +35,7 @@ Settings that change derived tensors (`trim_excess_bands`, `los_orbs`, `p_uu_con
 **Spectrum pipeline** (`funcs/`): each public `get_<mode>` / `get_i<mode>` in `funcs/pcohp.py` and `funcs/dos.py` does the following:
 1. Resolves `ElecData | path` through `utils/arg_correction.edata_input_to_edata`.
 2. Maps atom indices, elements and orbital labels to orbital indices with `utils/indexing.get_orb_idcs`.
-3. Builds a `(t, j)` weight array from `edata.weighted_overlap_tjuv` and a coefficient matrix (`h_uu`, `s_uu`, `p_uu`, or per-state `*_t_uu` when `state_sep=True`) using `core/operations/matrix._get_gen_tj_coef_uu`/`_tuu`.
+3. Builds a `(t, j)` weight array from `edata.proj_tju` and a coefficient matrix (`h_uu`, `s_uu`, `p_uu`, or per-state `*_t_uu` when `state_sep=True`) using `core/operations/matrix._get_gen_tj_coef_uu`/`_tuu`. These compute only the requested `(u, v)` overlaps. Don't build full `(t, j, u, u)` tensors in the pipeline (`get_h_p_s_t_uu_and_uu` builds the h/p/s matrices in one pass for this reason). The old 4D functions remain only as test references.
 4. Hands that to `funcs/general.evaluate_or_retrieve_generic_spectrum`, which smears it onto `erange` (Gaussian via `core/operations/vector.get_gauss_smear_spectrum`, or linear tetrahedron via `libtetrabz` when `lti=True`). Integrated variants use `get_generic_integrate`.
 
 All spectrum functions return `(erange, spectrum)`. To add a new analysis mode, copy this `get_X` → `_get_X_tj` → `_compute_X_tj` structure.

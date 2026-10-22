@@ -6,7 +6,7 @@ electronic data from JDFTx calculations.
 
 from __future__ import annotations
 import numpy as np
-from crawfish.core.operations.matrix import get_h_t_uu_p_t_uu_s_t_uu, get_h_uu_p_uu_s_uu, normalize_square_proj_tju, los_projs_for_orbs, get_weighted_overlap_tjuv
+from crawfish.core.operations.matrix import get_h_p_s_t_uu_and_uu, normalize_square_proj_tju, los_projs_for_orbs, get_weighted_overlap_tjuv
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
     get_nstates_from_bandfile_filepath,
@@ -615,16 +615,7 @@ class ElecData:
                 missing = True
                 break
         if missing:
-            h_t_uu, p_t_uu, s_t_uu = get_h_t_uu_p_t_uu_s_t_uu(
-                self.proj_tju,
-                self.e_tj,
-                self.occ_tj,
-                self.wk_t,
-                p_sc=self.p_uu_consistent,
-                norm_eigs_for_h=self.norm_eigs_for_h,
-                mu=self.mu,
-            )
-            h_uu, p_uu, s_uu = get_h_uu_p_uu_s_uu(
+            h_t_uu, p_t_uu, s_t_uu, h_uu, p_uu, s_uu = get_h_p_s_t_uu_and_uu(
                 self.proj_tju,
                 self.e_tj,
                 self.occ_tj,

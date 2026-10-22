@@ -163,12 +163,9 @@ def get_h_t_uu_p_t_uu_s_t_uu(
     wk_t : np.ndarray
         The k-point weights w_{t}
     r"""
-    h_tj_uu, p_tj_uu, s_tj_uu = get_h_tj_uu_p_tj_uu_s_tj_uu(
+    h_t_uu, p_t_uu, s_t_uu, _, _, _ = get_h_p_s_t_uu_and_uu(
         proj_tju, e_tj, occ_tj, wk_t, p_sc=p_sc, mu=mu, norm_eigs_for_h=norm_eigs_for_h
     )
-    h_t_uu = np.sum(h_tj_uu, axis=1)
-    p_t_uu = np.sum(p_tj_uu, axis=1)
-    s_t_uu = np.sum(s_tj_uu, axis=1)
     return h_t_uu, p_t_uu, s_t_uu
 
 def get_h_uu_p_uu_s_uu(
@@ -196,36 +193,138 @@ def get_h_uu_p_uu_s_uu(
     wk_t : np.ndarray
         The k-point weights w_{t}
     r"""
-    h_tj_uu, p_tj_uu, s_tj_uu = get_h_tj_uu_p_tj_uu_s_tj_uu(
+    _, _, _, h_uu, p_uu, s_uu = get_h_p_s_t_uu_and_uu(
         proj_tju, e_tj, occ_tj, wk_t, p_sc=p_sc, norm_eigs_for_h=norm_eigs_for_h, mu=mu
     )
-    h_uu = np.sum(h_tj_uu, axis=(0, 1))
-    p_uu = np.sum(p_tj_uu, axis=(0, 1))
-    s_uu = np.sum(s_tj_uu, axis=(0, 1))
     return h_uu, p_uu, s_uu
 
 
+def get_h_p_s_t_uu_and_uu(
+    proj_tju: np.ndarray[COMPLEX_DTYPE],
+    e_tj: np.ndarray[REAL_DTYPE],
+    occ_tj: np.ndarray[REAL_DTYPE],
+    wk_t: np.ndarray[REAL_DTYPE],
+    p_sc: bool = True,
+    norm_eigs_for_h: bool = True,
+    mu: float | None = None
+):
+    r"""Get the state-resolved and total Hamiltonian, Population, and Overlap matrices in one pass.
+
+    Equivalent to summing the output of `get_h_tj_uu_p_tj_uu_s_tj_uu` over j (for the *_t_uu matrices)
+    and over t and j (for the *_uu matrices), but without ever building the (t, j, u, u) tensors.
+    Peak memory is the three (t, u, u) outputs plus O(u^2) scratch.
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray
+        The projection tensor T_{t,j,u} = <\phi_{t,j} | u>
+    e_tj : np.ndarray
+        The planewave eigenvalue tensor E_{t,j} = <\phi_{t,j} | \hat{H} | \phi_{t,j}>
+    occ_tj : np.ndarray
+        The occupation tensor occ_{t,j} = <\phi_{t,j} | \phi_{t,j}>
+    wk_t : np.ndarray
+        The k-point weights w_{t}
+    r"""
+    t, _, u = np.shape(proj_tju)
+    if norm_eigs_for_h:
+        e_tj = e_tj - mu
+    h_t_uu = np.zeros([t, u, u], dtype=REAL_DTYPE)
+    p_t_uu = np.zeros([t, u, u], dtype=REAL_DTYPE)
+    s_t_uu = np.zeros([t, u, u], dtype=REAL_DTYPE)
+    h_uu = np.zeros([u, u], dtype=REAL_DTYPE)
+    p_uu = np.zeros([u, u], dtype=REAL_DTYPE)
+    s_uu = np.zeros([u, u], dtype=REAL_DTYPE)
+    _get_h_p_s_t_uu_and_uu_jit(h_t_uu, p_t_uu, s_t_uu, h_uu, p_uu, s_uu, proj_tju, e_tj, occ_tj, wk_t, p_sc)
+    return h_t_uu, p_t_uu, s_t_uu, h_uu, p_uu, s_uu
+
+
+# error_model="numpy" so a band with zero projections gives nan (as the numpy version does) instead of raising
+@jit(nopython=True, error_model="numpy")
+def _get_h_p_s_t_uu_and_uu_jit(h_t_uu, p_t_uu, s_t_uu, h_uu, p_uu, s_uu, proj_tju, e_tj, occ_tj, wk_t, p_sc):
+    _t, _j, _u = np.shape(proj_tju)
+    s_tj_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    h_acc_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    p_acc_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    s_acc_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    for t in range(_t):
+        h_acc_uu[:, :] = 0.0
+        p_acc_uu[:, :] = 0.0
+        s_acc_uu[:, :] = 0.0
+        for j in range(_j):
+            # Only the upper triangle is filled and accumulated - s_tj_uu is symmetric
+            s_sum = REAL_DTYPE(0)
+            for u in range(_u):
+                for v in range(u, _u):
+                    # Matches get_s_tj_uu: the real part of the overlap is taken before squaring
+                    x = REAL_DTYPE((np.conj(proj_tju[t, j, u]) * proj_tju[t, j, v]).real)
+                    s_tj_uu[u, v] = x * x
+                    s_sum += s_tj_uu[u, v] if u == v else REAL_DTYPE(2) * s_tj_uu[u, v]
+            p_coef = REAL_DTYPE(occ_tj[t, j]) * REAL_DTYPE(wk_t[t])
+            if p_sc:
+                p_coef /= s_sum
+            h_coef = p_coef * REAL_DTYPE(e_tj[t, j])
+            for u in range(_u):
+                for v in range(u, _u):
+                    s_acc_uu[u, v] += s_tj_uu[u, v]
+                    p_acc_uu[u, v] += p_coef * s_tj_uu[u, v]
+                    h_acc_uu[u, v] += h_coef * s_tj_uu[u, v]
+        for u in range(_u):
+            for v in range(u, _u):
+                h_t_uu[t, u, v] = h_acc_uu[u, v]
+                h_t_uu[t, v, u] = h_acc_uu[u, v]
+                p_t_uu[t, u, v] = p_acc_uu[u, v]
+                p_t_uu[t, v, u] = p_acc_uu[u, v]
+                s_t_uu[t, u, v] = s_acc_uu[u, v]
+                s_t_uu[t, v, u] = s_acc_uu[u, v]
+                h_uu[u, v] += h_acc_uu[u, v]
+                p_uu[u, v] += p_acc_uu[u, v]
+                s_uu[u, v] += s_acc_uu[u, v]
+    for u in range(_u):
+        for v in range(u + 1, _u):
+            h_uu[v, u] = h_uu[u, v]
+            p_uu[v, u] = p_uu[u, v]
+            s_uu[v, u] = s_uu[u, v]
+
+
 def _get_gen_tj_coef_uu(
-    weighted_overlaps_tj_uv: np.ndarray[COMPLEX_DTYPE],
+    proj_tju: np.ndarray[COMPLEX_DTYPE],
+    wk_t: np.ndarray[REAL_DTYPE],
     coef_uu: np.ndarray[REAL_DTYPE],
     orbs_u: list[int],
     orbs_v: list[int],
 ) -> np.ndarray:
-    t, j, u, _ = np.shape(weighted_overlaps_tj_uv)
+    r"""Get gen_{t,j} = Sum_{u!=v} coef_{u,v} w_{t} Re(T_{t,j,u}^* T_{t,j,v}).
+
+    Computes only the requested (u, v) overlaps directly from the projections, so the
+    (t, j, u, u) weighted overlap tensor is never built.
+    r"""
+    t, j, _ = np.shape(proj_tju)
     gen_tj = np.zeros([t, j], dtype=REAL_DTYPE)
-    return np.array(np.real(_get_gen_tj_coef_uu_jit(gen_tj, coef_uu, weighted_overlaps_tj_uv, orbs_u, orbs_v)), dtype=REAL_DTYPE)
-
-
-@jit(nopython=True)
-def _get_gen_tj_coef_uu_jit(gen_tj, coef_uu, weighted_overlaps_tj_uv, orbs_u, orbs_v):
-    for u in orbs_u:
-        for v in orbs_v:
-            if not u == v:
-                gen_tj += coef_uu[u, v] * weighted_overlaps_tj_uv[:, :, u, v]
+    _get_gen_tj_coef_uu_jit(
+        gen_tj, coef_uu, proj_tju, wk_t, np.asarray(orbs_u, dtype=np.int64), np.asarray(orbs_v, dtype=np.int64)
+    )
     return gen_tj
 
 
+@jit(nopython=True)
+def _get_gen_tj_coef_uu_jit(gen_tj, coef_uu, proj_tju, wk_t, orbs_u, orbs_v):
+    _t, _j, _ = np.shape(proj_tju)
+    for t in range(_t):
+        for j in range(_j):
+            val = REAL_DTYPE(0)
+            for u in orbs_u:
+                for v in orbs_v:
+                    if not u == v:
+                        val += REAL_DTYPE(coef_uu[u, v]) * REAL_DTYPE((np.conj(proj_tju[t, j, u]) * proj_tju[t, j, v]).real)
+            gen_tj[t, j] += val * REAL_DTYPE(wk_t[t])
+
+
 def get_weighted_overlap_tjuv(proj_tju, wk_t):
+    """Get the full (t, j, u, u) weighted overlap tensor.
+
+    Not used by the spectrum functions (which compute only the overlaps they need via
+    `_get_gen_tj_coef_uu`/`_get_gen_tj_coef_tuu`) as its size is nstates*nbands*nproj^2.
+    """
     t, j, u = np.shape(proj_tju)
     wk_cw_tj_uu = np.zeros([t, j, u, u], dtype=COMPLEX_DTYPE)
     return np.array(np.real(_get_weighted_overlap_tjuv_jit(wk_cw_tj_uu, proj_tju, wk_t)), dtype=REAL_DTYPE)
@@ -264,26 +363,34 @@ def _get_overlap_tjuv_jit(wk_cw_tj_uv, proj_tju):
 
 
 def _get_gen_tj_coef_tuu(
-    weighted_overlaps_tj_uv: np.ndarray[COMPLEX_DTYPE],
+    proj_tju: np.ndarray[COMPLEX_DTYPE],
     coef_tuu: np.ndarray[REAL_DTYPE],
     orbs_u: list[int],
     orbs_v: list[int],
 ) -> np.ndarray:
-    t, j, u, _ = np.shape(weighted_overlaps_tj_uv)
+    r"""Get gen_{t,j} = Sum_{u!=v} coef_{t,u,v} Re(T_{t,j,u}^* T_{t,j,v}).
+
+    No k-point weight is applied, so coef_tuu should already carry it (as h_t_uu, p_t_uu and s_t_uu do).
+    r"""
+    t, j, _ = np.shape(proj_tju)
     gen_tj = np.zeros([t, j], dtype=REAL_DTYPE)
-    return np.array(np.real(_get_gen_tj_coef_tuu_jit(gen_tj, coef_tuu, weighted_overlaps_tj_uv, orbs_u, orbs_v)), dtype=REAL_DTYPE)
+    _get_gen_tj_coef_tuu_jit(
+        gen_tj, coef_tuu, proj_tju, np.asarray(orbs_u, dtype=np.int64), np.asarray(orbs_v, dtype=np.int64)
+    )
+    return gen_tj
 
 
 @jit(nopython=True)
-def _get_gen_tj_coef_tuu_jit(gen_tj, coef_tuu, wk_cw_tj_uu, orbs_u, orbs_v):
-    trange = list(range(np.shape(gen_tj)[0]))
-    for u in orbs_u:
-        for v in orbs_v:
-            if not u == v:
-                for t in trange:
-                    val = coef_tuu[t, u, v] * wk_cw_tj_uu[t, :, u, v]
-                    gen_tj[t,:] += val
-    return gen_tj
+def _get_gen_tj_coef_tuu_jit(gen_tj, coef_tuu, proj_tju, orbs_u, orbs_v):
+    _t, _j, _ = np.shape(proj_tju)
+    for t in range(_t):
+        for j in range(_j):
+            val = REAL_DTYPE(0)
+            for u in orbs_u:
+                for v in orbs_v:
+                    if not u == v:
+                        val += REAL_DTYPE(coef_tuu[t, u, v]) * REAL_DTYPE((np.conj(proj_tju[t, j, u]) * proj_tju[t, j, v]).real)
+            gen_tj[t, j] += val
 
 
 def mod_weights_for_ebounds(
