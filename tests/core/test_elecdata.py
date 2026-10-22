@@ -78,6 +78,20 @@ def test_elecdata_properties():
         assert len(proj.shape) == len(proj_var.split("_")[-1])
 
 
+def test_settings_change_updates_cache_sub_dir():
+    from crawfish.core.elecdata import ElecData, get_edata_settings_str
+
+    exdir_path = excddir / "N2_bare_min"
+    edata = ElecData(exdir_path)
+    for setting in ["trim_excess_bands", "los_orbs", "p_uu_consistent", "norm_eigs_for_h"]:
+        start_val = getattr(edata, setting)
+        setattr(edata, setting, not start_val)
+        assert edata.cache_sub_dir.name == get_edata_settings_str(edata)
+        assert edata.pcohp_tj_cache.cache_file.parent == edata.cache_sub_dir
+        setattr(edata, setting, start_val)
+        assert edata.cache_sub_dir.name == get_edata_settings_str(edata)
+
+
 def test_set_file_paths():
     from crawfish.core.elecdata import ElecData
 

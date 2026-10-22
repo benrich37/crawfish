@@ -92,6 +92,7 @@ def evaluate_or_retrieve_generic_spectrum(
         sep_channels=sep_channels,
     )
     if spectrum_file_path.is_file() and use_cached_spectrum:
+        # print(f"Using cached spectrum at {spectrum_file_path}")
         spectrum = np.load(spectrum_file_path)
     else:
         erange, spectrum = get_generic_spectrum(

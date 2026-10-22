@@ -39,6 +39,7 @@ from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWa
 import warnings
 from math import erf
 from crawfish.io.general import safe_load
+import shutil
 
 warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
 warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
@@ -201,6 +202,7 @@ class ElecData:
         if value != self._los_orbs:
             self._los_orbs = value
             self.alloc_elec_data()
+            self._init_caches()
 
     _los_orbs: bool = True
 
@@ -971,6 +973,7 @@ class ElecData:
             If True, cache of (state, band) matrices for newly computed pDOS/pCOHP plots are saved automatically, by default True
         """
         if jdftx:
+            self.jdftx = jdftx
             self.fprefix = self._get_fprefix(prefix)
             self.calc_dir = Path(calc_dir)
             if calc_dir is not None:
@@ -982,6 +985,32 @@ class ElecData:
         self.autosave_cache = autosave_cache
         self._init_caches()
         self.use_cache_default = use_cache_default
+
+    def reset_cache(self):
+        """Reset the cache of ElecData instance.
+
+        Reset the cache of ElecData instance. Helpful when downloading updated data for a JDFTx calculation
+        that has already been processed.
+        """
+        # Collect data needed to re-initialize the instance
+        calc_dir = self.calc_dir
+        autosave_cache = self.autosave_cache
+        use_cache_default = self.use_cache_default
+        prefix = self.fprefix.rstrip(".")
+        jdftx = self.jdftx
+        cache_top_dir = self.cache_dir
+        # Delete cache directory recursively
+        if cache_top_dir is not None and cache_top_dir.exists():
+            shutil.rmtree(str(cache_top_dir), ignore_errors=True)
+        # Re-initialize the instance with the collected data
+        self.__init__(
+            calc_dir=calc_dir,
+            prefix=prefix,
+            jdftx=jdftx,
+            use_cache_default=use_cache_default,
+            autosave_cache=autosave_cache
+        )
+        
 
     
         
@@ -1052,8 +1081,9 @@ class ElecData:
         _ = self.occ_tj
         _ = self.e_tj
         if self.nbands < self.nproj:
-            self.trim_excess_bands = False
-            self.los_orbs = False
+            # Set private values directly - callers re-init caches after this returns
+            self._trim_excess_bands = False
+            self._los_orbs = False
         if self.trim_excess_bands:
             bestj = get_best_bands(self.proj_tju)
             _e_tj = self.e_tj[:, bestj]

@@ -292,6 +292,10 @@ def find_generic_cache_dir(parent_dir: Path, prefix: str, metadata_dict: dict):
     """Find the generic cache directory.
     Find the generic cache directory.
     """
+    # TODO: `is_generic_cache_dir` is actually kind of expensive - what we can probably do is generate
+    # a hash of the metadata_dict trim down the cache_dirs to only those with those hashes 
+    # so we don't have to check every single one, but also so we don't have to make sure the metadata_dict to
+    # hash map is totally unique)
     cache_dirs = get_preexisting_generic_cache_dirs(parent_dir, prefix)
     for cache_dir in cache_dirs:
         if is_generic_cache_dir(cache_dir, metadata_dict):
