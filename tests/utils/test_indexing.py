@@ -58,7 +58,7 @@ def test_get_el_orb_u_dict():
     el_orb_u_dict = get_el_orb_u_dict(edata, aidcs)
     assert len(list(el_orb_u_dict.keys())) == 1
     assert "N" in el_orb_u_dict
-    known_orb_labels = ["s", "px", "py", "pz"]
+    known_orb_labels = ["s", "py", "pz", "px"]
     assert len(list(el_orb_u_dict["N"].keys())) == len(known_orb_labels)
     for i, orb_label in enumerate(known_orb_labels):
         assert orb_label in el_orb_u_dict["N"]
