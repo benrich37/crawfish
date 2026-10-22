@@ -24,7 +24,7 @@ from crawfish.io.data_parsing import (
     get_norbsperatom_from_edata,
     save_bandfile_header,
 )
-from crawfish.utils.caching import CachedFunction
+from crawfish.utils.caching import CachedFunction, validate_cache_dir
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_kmap_from_edata, get_atom_orb_labels_dict
 from pymatgen.electronic_structure.bandstructure import BandStructure
@@ -46,6 +46,8 @@ warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
 
 cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
+# Output files read during analysis - changes to any of these invalidate the cache (Gvectors/wfns are located but never read)
+source_filetypes = ["band", "eig", "out", "kpts", "fillings"]
 
 edata_setting_key_shorthand_dict = {
     "trim_excess_bands": "trimj",
@@ -1036,11 +1038,20 @@ class ElecData:
     def _set_backup_files_paths(self):
         self.cache_dir = self.calc_dir / ".crawfish_cache"
         self.cache_dir.mkdir(exist_ok=True)
+        # Must run before anything is loaded from the cache (proj_tju.npy, matrices, weights, spectra)
+        validate_cache_dir(self.cache_dir, self._get_source_filepaths())
         self._write_cache_dir_readme()
         for filetype in ["proj_tju", "bandfile_header"]:
             filename = getattr(self, f"{filetype}_filename")
             filepath = self._get_backup_filepath_generic(filename)
             setattr(self, f"{filetype}_filepath", filepath)
+
+    def _get_source_filepaths(self) -> dict[str, Path | None]:
+        """Return the output files cached data is derived from, keyed by file suffix."""
+        return {
+            getattr(self, f"{filetype}file_suffix"): getattr(self, f"{filetype}file_filepath")
+            for filetype in source_filetypes
+        }
 
     def _write_cache_dir_readme(self):
         cache_dir_readme_filepath = self.cache_dir / "readme.txt"
@@ -1292,4 +1303,10 @@ cache_dir_readme_lines = [
     "but can be disabled by `use_cached_spectrum` (to disable loading) and ",
     "`save_spectrum` (to disable saving). This functionality provides the most utility ",
     "for lti spectra. Gaussian spectra still get a speed-up, but it is hardly noticable.",
+    "",
+    "`cache_stamp.json` records the size, modification time (POSIX/UTC) and sha256 of each output",
+    "file used, plus the crawfish version and commit that wrote the cache. On loading, the cache is",
+    "cleared if an output file changed, or partially cleared if the cache predates an update listed",
+    "in `crawfish/result_changes.py`. Files copied without preserving modification times are",
+    "compared by hash instead, so caches prepared on a remote machine stay valid.",
 ]

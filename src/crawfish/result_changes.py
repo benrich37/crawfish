@@ -1,0 +1,65 @@
+"""Registry of crawfish changes that alter analysis results.
+
+Every change that makes crawfish produce different numbers from the same output files (parsing,
+matrix construction, weights, smearing, ...) gets an entry in `RESULT_CHANGES`. Cached data is stamped
+with the commits of the entries the writing code knew about. When an ElecData opens a calculation's
+cache, any entry missing from that stamp means the cache predates it, and the affected stages are
+cleared and recomputed (see `crawfish.utils.caching.validate_cache_dir`).
+
+Adding an entry
+---------------
+commit : str
+    Hash of the commit that introduced the change. It is the entry's ID, so it must be unique and
+    must not be edited afterwards: editing it makes every cache look like it predates the entry.
+    The hash only exists after committing, so the entry usually goes in a follow-up commit. Caches
+    written in between are cleared too, which is harmless.
+version : str
+    crawfish version the change was made under. Recorded for reference, not compared.
+stage : str
+    Earliest cache stage the change affects. That stage and everything downstream of it is cleared.
+        "parse"    - parsed JDFTx outputs (proj_tju.npy, bandProjections_header)
+        "matrices" - h/p/s orbital matrices and cached (t, j) weight arrays
+        "spectra"  - cached spectra (erange_*/ directories)
+description : str
+    One line on what changed.
+
+Example::
+
+    ResultChange(
+        commit="0123abcd",
+        version="1.0.0",
+        stage="matrices",
+        description="Fix sign of off-diagonal h_uu elements when norm_eigs_for_h is False",
+    ),
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+# Ordered upstream -> downstream. Clearing a stage also clears every stage after it.
+CACHE_STAGES = ("parse", "matrices", "spectra")
+
+
+@dataclass(frozen=True)
+class ResultChange:
+    commit: str
+    version: str
+    stage: str
+    description: str
+
+    def __post_init__(self):
+        if self.stage not in CACHE_STAGES:
+            raise ValueError(f"Unknown cache stage {self.stage!r} (must be one of {CACHE_STAGES})")
+
+
+# Caches written before cache stamping existed have no stamp and are cleared in full,
+# so changes that predate stamping don't need entries here.
+RESULT_CHANGES: list[ResultChange] = [
+    ResultChange(
+        commit="6bb3bfa660781070fe9380e7440572f5f596e08e",
+        version="0.0.0",
+        stage="parse",
+        description="Initial commit (example entry)",
+    ),
+]
