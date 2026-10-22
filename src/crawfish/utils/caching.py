@@ -7,6 +7,26 @@ from typing import Any, TYPE_CHECKING
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from json import dump, dumps, loads, load
 import pickle
+import hashlib
+import os
+import shutil
+from datetime import datetime, timezone
+from crawfish.result_changes import CACHE_STAGES
+from crawfish.utils.versioning import get_code_stamp, get_postdating_changes
+
+ERANGE_CACHE_PREFIX = "erange"
+CACHE_STAMP_FILENAME = "cache_stamp.json"
+CACHE_STAMP_FORMAT = 1
+# mtimes are compared as POSIX timestamps (seconds since the epoch, UTC), so they don't depend on
+# the time zone of the machine that wrote or reads them. The tolerance absorbs filesystems/transfer
+# tools that truncate mtimes to whole (or even) seconds.
+MTIME_TOLERANCE = 2.0
+_FILE_STAMP_KEYS = ("size", "mtime", "sha256")
+_STAGE_CONTENTS = {
+    "parse": "all cached data",
+    "matrices": "cached matrices, weights and spectra",
+    "spectra": "cached spectra",
+}
 
 
 
@@ -338,11 +358,150 @@ def get_erange_cache_dir(parent_dir: Path, erange: np.ndarray):
 
     Return the energy range cache directory.
     """
-    prefix = "erange"
+    prefix = ERANGE_CACHE_PREFIX
     metadata_dict = {
         "emin": erange[0],
         "emax": erange[-1],
         "nstep": len(erange),
     }
     return get_generic_cache_dir(parent_dir, prefix, metadata_dict)
+
+
+def validate_cache_dir(cache_dir: Path, source_filepaths: dict[str, Path | None]) -> None:
+    """Clear stale parts of a calculation's cache directory, then re-stamp it.
+
+    The cache is stale if any source file changed (or appeared/disappeared) since the cache was
+    stamped, or if the crawfish code that stamped it predates an entry in
+    `crawfish.result_changes.RESULT_CHANGES`. A cache without a stamp is cleared entirely.
+
+    Parameters
+    ----------
+    cache_dir : Path
+        The `.crawfish_cache` directory of a calculation.
+    source_filepaths : dict[str, Path | None]
+        Files the cache was derived from, keyed by a stable name. None marks an optional file
+        that doesn't exist.
+    """
+    old_stamp = read_cache_stamp(cache_dir)
+    file_stamps = {}
+    clear_stage, reason = None, None
+    if old_stamp is None:
+        clear_stage, reason = "parse", "no valid cache stamp found"
+        file_stamps = {name: get_source_file_stamp(filepath) for name, filepath in source_filepaths.items()}
+    else:
+        changed_files = []
+        for name, filepath in source_filepaths.items():
+            changed, file_stamps[name] = compare_source_file(old_stamp["source_files"].get(name), filepath)
+            if changed:
+                changed_files.append(name)
+        if changed_files:
+            clear_stage, reason = "parse", f"source files changed ({', '.join(changed_files)})"
+        else:
+            changes = get_postdating_changes(old_stamp["code"])
+            if changes:
+                clear_stage = min((change.stage for change in changes), key=CACHE_STAGES.index)
+                reason = "cache predates result-changing updates: " + "; ".join(
+                    f"{change.version} ({change.commit[:8]}) {change.description}" for change in changes
+                )
+    if clear_stage is not None:
+        # Stay quiet for a freshly created (empty) cache directory
+        if old_stamp is not None or any(cache_dir.iterdir()):
+            print(f"Clearing {_STAGE_CONTENTS[clear_stage]} in {cache_dir}: {reason}")
+        clear_cache_stage(cache_dir, clear_stage)
+    new_stamp = {"format": CACHE_STAMP_FORMAT, "code": get_code_stamp(), "source_files": file_stamps}
+    if new_stamp != old_stamp:
+        write_cache_stamp(cache_dir, new_stamp)
+
+
+def clear_cache_stage(cache_dir: Path, stage: str) -> None:
+    """Delete the cached data of `stage` and every stage downstream of it."""
+    if stage == "parse":
+        targets = list(cache_dir.iterdir())
+    elif stage == "matrices":
+        # Per-settings sub-directories hold the matrices, weights and the spectra derived from them
+        targets = [p for p in cache_dir.iterdir() if p.is_dir()]
+    elif stage == "spectra":
+        targets = [
+            p for sub_dir in cache_dir.iterdir() if sub_dir.is_dir()
+            for p in sub_dir.glob(f"{ERANGE_CACHE_PREFIX}_*") if p.is_dir()
+        ]
+    else:
+        raise ValueError(f"Unknown cache stage {stage!r} (must be one of {CACHE_STAGES})")
+    for target in targets:
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+
+def read_cache_stamp(cache_dir: Path) -> dict | None:
+    """Return the cache stamp in `cache_dir`, or None if it is missing or unreadable."""
+    stamp_file = cache_dir / CACHE_STAMP_FILENAME
+    if not stamp_file.is_file():
+        return None
+    try:
+        with open(stamp_file, "r") as f:
+            stamp = load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(stamp, dict) or stamp.get("format") != CACHE_STAMP_FORMAT:
+        return None
+    if not isinstance(stamp.get("code"), dict) or not isinstance(stamp.get("source_files"), dict):
+        return None
+    for file_stamp in stamp["source_files"].values():
+        if file_stamp is not None and not all(key in file_stamp for key in _FILE_STAMP_KEYS):
+            return None
+    return stamp
+
+
+def write_cache_stamp(cache_dir: Path, stamp: dict) -> None:
+    """Write the cache stamp to `cache_dir` (atomically, so an interrupted write can't leave a partial stamp)."""
+    stamp_file = cache_dir / CACHE_STAMP_FILENAME
+    tmp_file = stamp_file.with_name(f"{stamp_file.name}.tmp")
+    with open(tmp_file, "w") as f:
+        dump(stamp, f, indent=2)
+    os.replace(tmp_file, stamp_file)
+
+
+def get_source_file_stamp(filepath: Path | None) -> dict | None:
+    """Return the size, modification time and content hash of a file, or None if it doesn't exist."""
+    if filepath is None or not filepath.is_file():
+        return None
+    stat = filepath.stat()
+    return {
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+        # Only for reading by eye - comparisons use the POSIX `mtime`
+        "mtime_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "sha256": get_file_hash(filepath),
+    }
+
+
+def compare_source_file(old_stamp: dict | None, filepath: Path | None) -> tuple[bool, dict | None]:
+    """Return whether a file changed since `old_stamp` was taken, along with its current stamp.
+
+    A file whose size and mtime both match is unchanged. If only the mtime moved, the file's hash
+    decides: copies that don't preserve mtimes (plain `scp`/`cp`, zip archives moved across time zones)
+    therefore don't invalidate caches prepared on another machine.
+    """
+    if filepath is None or not filepath.is_file():
+        return old_stamp is not None, None
+    if old_stamp is None:
+        return True, get_source_file_stamp(filepath)
+    stat = filepath.stat()
+    if stat.st_size != old_stamp["size"]:
+        return True, get_source_file_stamp(filepath)
+    if abs(stat.st_mtime - old_stamp["mtime"]) <= MTIME_TOLERANCE:
+        return False, old_stamp
+    new_stamp = get_source_file_stamp(filepath)
+    return new_stamp["sha256"] != old_stamp["sha256"], new_stamp
+
+
+def get_file_hash(filepath: Path, chunk_size: int = 1 << 20) -> str:
+    """Return the sha256 hex digest of a file, read in chunks to keep memory flat for large files."""
+    file_hash = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(chunk_size):
+            file_hash.update(chunk)
+    return file_hash.hexdigest()
 
