@@ -64,7 +64,20 @@ $$
 pX(E,\mu,\nu)=\sum_{j,t} w_t\, Re\left[C_{\mu,j}^*\, M_{\mu\nu}\, C_{\nu,j}\right]\delta(E-\epsilon_j(t))
 $$
 
-where $M = H$ for **pCOHP** (negative = bonding), $M = S$ for **pCOOP**, $M = D$ for **pCOBI**, and $M = 1$ for **pCOMO** (Coulson's mobile order). With `state_sep=True`, $M = M(t)$ is resolved by state, which sums the interaction over all periodic images of $\nu$. With `state_sep=False` (default), $M$ is the same-cell ($R=0$) element $M(R{=}0) = \sum_{t\in s} w_t M(t) / \sum_{t\in s} w_t$ for each spin channel $s$. Selecting other lattice images is still to come (`notes/theory_audit.md`, finding F3).
+where $M = H$ for **pCOHP** (negative = bonding), $M = S$ for **pCOOP**, $M = D$ for **pCOBI**, and $M = 1$ for **pCOMO** (Coulson's mobile order).
+
+**Which periodic image** of the second atom is meant is set by the `image` argument of every pair function. JDFTx's Bloch sums are $\phi_{\mu k} = \sum_R e^{ik\cdot R}\phi_\mu(r-\tau_\mu-R)$, with $\tau$ the atom positions exactly as JDFTx used them. The image of atom $b$ at $\tau_b+R$ (R in lattice vectors) therefore enters through
+
+$$
+M_{\mu\nu}(t) \;\to\; M_{\mu\nu}(R)\,e^{2\pi i k_t\cdot R}, \qquad M_{\mu\nu}(R) = \frac{\sum_{t\in s} w_t\, e^{-2\pi i k_t\cdot R} M_{\mu\nu}(t)}{\sum_{t\in s} w_t}
+$$
+
+for each spin channel $s$.
+- `image="nearest"` (default) uses, for each atom pair, the image nearest to the first atom. `get_pair_images(edata, idcs1=..., idcs2=...)` reports the $R$ and bond length used, and crawfish warns when several images are equally near.
+- `image=(n1, n2, n3)` uses that lattice vector for every pair.
+- `image="all"`, or the older `state_sep=True`, uses $M(t)$ directly, summing the interaction over every image.
+
+Images other than the same cell need the full k-mesh (run JDFTx with `symmetries none`). An $N_1\times N_2\times N_3$ mesh can't separate $R$ from $R + (N_1n_1, N_2n_2, N_3n_3)$, so $M(R)$ also contains those far images. Before this was fixed, crawfish always used the same-cell copy ($R=0$) whatever its distance. That is still available through `edata.legacy_lattice_image = True` (`notes/theory_audit.md`, finding F3; `examples/fix_comparisons/F3_lattice_images.ipynb`).
 
 Notes:
 - Summing the integrated pCOHP over all orbital pairs, including on-site ones, reproduces the band energy $\sum w f\epsilon$, up to the charge spilling of the projection.

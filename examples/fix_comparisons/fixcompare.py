@@ -32,6 +32,9 @@ from pymatgen.core.units import Ha_to_eV
 HERE = Path(__file__).resolve().parent
 FIGURE_DIR = HERE / "figures"
 N2_CALC_DIR = Path(EXAMPLE_CALC_DIRS_DIR) / "N2_bare_min"
+# Graphene primitive cell: 2 C, 23x23x1 k-mesh, symmetries none. Two of each C's three nearest neighbours are in
+# neighbouring cells, so inter-cell pairs matter (F3).
+GRAPHENE_CALC_DIR = Path(EXAMPLE_CALC_DIRS_DIR) / "graphene_1x1"
 
 # Finding id -> ElecData setting that restores the pre-fix behaviour. Names for unimplemented fixes are the ones
 # proposed in notes/theory_audit.md section 4.0; update them here if the implementation picks different names.
@@ -75,6 +78,30 @@ def load_edata_at(finding: str, fixed: bool, calc_dir: Path = N2_CALC_DIR, **set
             flags[LEGACY_FLAGS[later]] = True
     flags[LEGACY_FLAGS[finding]] = not fixed
     return load_edata(calc_dir, **flags, **settings)
+
+
+def wrapped_edata(edata: ElecData, atom_label: str, L) -> ElecData:
+    """Return `edata` re-described with atom `atom_label` moved by lattice vector L: the same crystal, wrapped differently.
+
+    JDFTx's Bloch sums carry cis(-2 pi pos.(k+G)) (SpeciesInfo_internal.h::Vnl_calc), so moving an atom by L
+    multiplies its projections <phi|O|psi> by exp(+2 pi i k.L). This mimics rerunning JDFTx with that atom's
+    coordinates shifted. Only this instance is changed (its class is swapped for a subclass with the new
+    structure), and the signed matrices are rebuilt in memory, not cached.
+    """
+    from crawfish.core.operations.matrix import get_h_s_d_t_uv
+
+    site = edata.kmap.index(atom_label)
+    shifted = edata.structure.copy()
+    shifted.replace(site, shifted[site].species, shifted.frac_coords[site] + np.asarray(L), coords_are_cartesian=False)
+    edata.__class__ = type("WrappedElecData", (type(edata),), {"structure": property(lambda self: shifted)})
+    phase_t = np.exp(2j * np.pi * (edata.ks_t.astype(np.float64) @ np.asarray(L, dtype=np.float64)))
+    proj = edata.proj_tju.copy()
+    proj[:, :, edata.orbs_idx_dict[atom_label]] *= phase_t[:, None, None].astype(proj.dtype)
+    edata._proj_tju = proj
+    edata._coef_tju = None
+    e_tj = edata.e_tj - edata.mu if edata.norm_eigs_for_h else edata.e_tj
+    edata._h_t_uv, edata._s_t_uv, edata._d_t_uv = get_h_s_d_t_uv(proj, edata.coef_tju, e_tj, edata.occ_tj)
+    return edata
 
 
 def savefig(fig, name: str) -> Path:

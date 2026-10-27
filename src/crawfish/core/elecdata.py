@@ -15,6 +15,7 @@ from crawfish.core.operations.matrix import (
     get_coef_tju,
     get_h_s_d_t_uv,
     get_r0_suv,
+    get_mat_r_suv,
 )
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
@@ -64,6 +65,7 @@ source_filetypes = ["band", "eig", "out", "kpts", "fillings"]
 edata_setting_key_shorthand_dict = {
     "legacy_orbital_phase": "lgph",
     "legacy_matrices": "lgmt",
+    "legacy_lattice_image": "lgri",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -79,6 +81,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
     parts_dict = {
         "legacy_orbital_phase": edata.legacy_orbital_phase,
         "legacy_matrices": edata.legacy_matrices,
+        "legacy_lattice_image": edata.legacy_lattice_image,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -241,6 +244,29 @@ class ElecData:
             self.alloc_elec_data()
 
     _legacy_matrices: bool = False
+
+    """
+    legacy_lattice_image: If False (default), pair spectra with image="nearest" (the default) use, for each atom
+    pair, the periodic image of the second atom nearest to the first: M_uv(R) e^{2 pi i k.R}, with R chosen by
+    distance from the positions JDFTx used. If True, "nearest" means R = (0,0,0) for every pair (the copy of the
+    second atom in the same cell, whatever its distance), which is what crawfish did before. That depends on how
+    the input happened to wrap the atoms into the cell. Explicit lattice vectors and image="all" behave the same
+    either way. Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F3.
+    """
+
+    @property
+    def legacy_lattice_image(self) -> bool:
+        return self._legacy_lattice_image
+
+    @legacy_lattice_image.setter
+    def legacy_lattice_image(self, value: bool):
+        if value != self._legacy_lattice_image:
+            self._legacy_lattice_image = value
+            # Only the choice of image changes (no matrices), but the weight and spectrum caches are per setting
+            self._init_caches()
+
+    _legacy_lattice_image: bool = False
 
     @property
     def trim_excess_bands(self) -> bool:
@@ -744,6 +770,13 @@ class ElecData:
     def get_mat_r0_suv(self, name: str) -> np.ndarray[COMPLEX_DTYPE]:
         """Return the R=0 (same-cell) element of signed matrix `name` ("h", "s" or "d") per spin, (nspin, nproj, nproj)."""
         return get_r0_suv(getattr(self, f"{name}_t_uv"), self.wk_t, self.nspin)
+
+    def get_mat_r_suv(self, name: str, R) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the real-space element <chi_u,0|M|chi_v,R> of signed matrix `name` ("h", "s" or "d") per spin.
+
+        R is a lattice vector (3 ints). Needs the full k-mesh; see `crawfish.core.operations.matrix.get_mat_r_suv`.
+        """
+        return get_mat_r_suv(getattr(self, f"{name}_t_uv"), self.wk_t, self.ks_t, self.nspin, R)
 
     def set_mat_uu(self) -> None:
         missing = False

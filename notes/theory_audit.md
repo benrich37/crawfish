@@ -30,8 +30,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | #  | Pri | Finding | Evidence | Fix needs JDFTx? | Status |
 |----|-----|---------|----------|------------------|--------|
 | F1 | P0 | JDFTx projections for orbitals with odd l carry a factor of i^l (relative to real orbitals). Crawfish takes `Re[T*_u T_v]`, which is identically ~0 for s–p, p–d (odd Δl) pairs. All s–p hybridization is dropped from pCOMO/pCOOP/pCOHP/pCOBI. | JDFTx source + Check 1 | No | **fixed** in `a22c558` (2026-10-27); legacy via `legacy_orbital_phase=True`; `result_changes.py` entry added |
-| F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_matrices=True`; `result_changes.py` entry to add after commit |
-| F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | open |
+| F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | **fixed** in `3d9ab1b` (2026-10-27); legacy via `legacy_matrices=True`; `result_changes.py` entry added |
+| F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_lattice_image=True`; `result_changes.py` entry to add after commit |
 | F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | open |
 | F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | open |
 | F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | open |
@@ -312,6 +312,287 @@ Sum rules, to use as tests:
   MP grid (see F5), atom positions exactly as JDFTx used them (verify that `JDFTXOutfile.structure` does not wrap
   them; open question Q2), and k-points from `kPts` or the bandProjections header (`ks_t`).
 
+#### F3 explained: the pCOHP equation before and after, and the misconceptions it clears up
+
+Written 2026-10-27 after working through F3 with the user, so the reasoning isn't lost. The notation follows the
+README:
+
+- $T_{\mu,j}(t)=\langle\phi_\mu|\hat O|\psi_j(t)\rangle$ is `proj_tju[t,j,u]`. The README writes
+  $\bra{\phi_\mu}\psi_j(t)\rangle$; $\hat O$ is the ultrasoft overlap operator, which JDFTx applies, and
+  $\hat O=1$ for norm-conserving pseudopotentials.
+- $\epsilon_j(t)$ is `e_tj`, $f_j(t)$ is `occ_tj` and $w_t$ is `wk_t`. The state index t is one (k-point, spin).
+- μ runs over orbitals on atom A and ν over orbitals on atom B. $\mu_F$ is the Fermi level (`edata.mu`), written
+  that way to avoid a clash with the orbital index.
+- $C_{\mu,j}(t)$ are the expansion coefficients; they equal $T$ after Löwdin orthonormalization (`los_orbs=True`).
+
+##### The old (wrong) equation: default `get_pcohp(..., state_sep=False)`, up to and including `3efe98f`
+
+$$
+pCOHP^{\,old}_{AB}(E)=\sum_{\mu\in A,\,\nu\in B} H^{old}_{\mu\nu}\sum_{j,t} w_t\,\mathrm{Re}\left[\langle\psi_j(t)|\hat O|\phi_\mu\rangle\langle\phi_\nu|\hat O|\psi_j(t)\rangle\right]\delta\big(E-\epsilon_j(t)\big)
+$$
+
+$$
+H^{old}_{\mu\nu}=\sum_{t',\,j'} w_{t'}\,f_{j'}(t')\,\big(\epsilon_{j'}(t')-\mu_F\big)\,
+\frac{\Big(\mathrm{Re}\left[\langle\psi_{j'}(t')|\hat O|\phi_\mu\rangle\langle\phi_\nu|\hat O|\psi_{j'}(t')\rangle\right]\Big)^2}
+{\sum_{\mu',\nu'}\Big(\mathrm{Re}\left[\langle\psi_{j'}(t')|\hat O|\phi_{\mu'}\rangle\langle\phi_{\nu'}|\hat O|\psi_{j'}(t')\rangle\right]\Big)^2}
+$$
+
+The −μ_F comes from `norm_eigs_for_h=True` and the per-band denominator from `p_uu_consistent=True`; both were
+defaults. The integrated value is $\sum_{j,t} f_j(t)\,(\ldots)$ without the δ.
+
+Three separate defects sit in these two lines:
+
+- **F1:** for odd l, JDFTx's $\langle\phi_\mu|$ is $i^l$ times a real orbital, so $\mathrm{Re}[\ldots]\approx 0$ for
+  s–p and p–d pairs.
+- **F2:** $H^{old}$ isn't $\langle\phi_\mu|\hat H|\phi_\nu\rangle$. It is squared (no sign), weighted by occupation,
+  normalized per band, and already summed over every band and state.
+- **F3:** $H^{old}_{\mu\nu}$ is the same number at every state t, so it factors out of the sum over k:
+  $IpCOHP^{old}_{AB}=\sum_{\mu\nu}H^{old}_{\mu\nu}\cdot\big[\sum_{j,t}w_t f_j(t)\,\mathrm{Re}(T^*_{\mu,j}T_{\nu,j})\big]$.
+  The bracket is the R = 0 element of the real-space density matrix: the bond order between μ and the copy of ν
+  at $\tau_B$ as written in the input, whatever its distance. Any weight that is constant across states would do
+  the same, including a correctly signed one, and `np.ones` in legacy pCOMO.
+
+##### The old code (verbatim at `3efe98f`; still in the repo as the legacy path, `legacy_matrices=True`)
+
+`src/crawfish/funcs/pcohp.py`:
+
+```python
+def _compute_pcohp_tj(
+        edata: ElecData,
+        orbs_u: list[int],
+        orbs_v: list[int],
+        state_sep: bool,
+        ):
+    if state_sep:
+        # h_t_uu already carries the k-point weight, so it is not applied again
+        pcohp_tj = _get_gen_tj_coef_tuu(edata.proj_tju, edata.h_t_uu, orbs_u, orbs_v)
+    else:
+        h_uu = edata.h_uu
+        pcohp_tj = _get_gen_tj_coef_uu(edata.proj_tju, edata.wk_t, h_uu, orbs_u, orbs_v)
+    return pcohp_tj
+```
+
+`src/crawfish/core/operations/matrix.py`. This is the weight kernel; `coef_uu` is `edata.h_uu`, one number per
+orbital pair, and the same at every t:
+
+```python
+@jit(nopython=True)
+def _get_gen_tj_coef_uu_jit(gen_tj, coef_uu, proj_tju, wk_t, orbs_u, orbs_v):
+    _t, _j, _ = np.shape(proj_tju)
+    for t in range(_t):
+        for j in range(_j):
+            val = REAL_DTYPE(0)
+            for u in orbs_u:
+                for v in orbs_v:
+                    if not u == v:
+                        val += REAL_DTYPE(coef_uu[u, v]) * REAL_DTYPE((np.conj(proj_tju[t, j, u]) * proj_tju[t, j, v]).real)
+            gen_tj[t, j] += val * REAL_DTYPE(wk_t[t])
+```
+
+`src/crawfish/core/operations/matrix.py` builds `h_uu`. The wrapper `get_h_p_s_t_uu_and_uu` first applies
+`e_tj = e_tj - mu` when `norm_eigs_for_h` is True. Note the square at `s_tj_uu[u, v] = x * x`, the occupation in
+`p_coef`, and the accumulation over every t into `h_uu`:
+
+```python
+# error_model="numpy" so a band with zero projections gives nan (as the numpy version does) instead of raising
+@jit(nopython=True, error_model="numpy")
+def _get_h_p_s_t_uu_and_uu_jit(h_t_uu, p_t_uu, s_t_uu, h_uu, p_uu, s_uu, proj_tju, e_tj, occ_tj, wk_t, p_sc):
+    _t, _j, _u = np.shape(proj_tju)
+    s_tj_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    h_acc_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    p_acc_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    s_acc_uu = np.zeros((_u, _u), dtype=REAL_DTYPE)
+    for t in range(_t):
+        h_acc_uu[:, :] = 0.0
+        p_acc_uu[:, :] = 0.0
+        s_acc_uu[:, :] = 0.0
+        for j in range(_j):
+            # Only the upper triangle is filled and accumulated - s_tj_uu is symmetric
+            s_sum = REAL_DTYPE(0)
+            for u in range(_u):
+                for v in range(u, _u):
+                    # Matches get_s_tj_uu: the real part of the overlap is taken before squaring
+                    x = REAL_DTYPE((np.conj(proj_tju[t, j, u]) * proj_tju[t, j, v]).real)
+                    s_tj_uu[u, v] = x * x
+                    s_sum += s_tj_uu[u, v] if u == v else REAL_DTYPE(2) * s_tj_uu[u, v]
+            p_coef = REAL_DTYPE(occ_tj[t, j]) * REAL_DTYPE(wk_t[t])
+            if p_sc:
+                p_coef /= s_sum
+            h_coef = p_coef * REAL_DTYPE(e_tj[t, j])
+            for u in range(_u):
+                for v in range(u, _u):
+                    s_acc_uu[u, v] += s_tj_uu[u, v]
+                    p_acc_uu[u, v] += p_coef * s_tj_uu[u, v]
+                    h_acc_uu[u, v] += h_coef * s_tj_uu[u, v]
+        for u in range(_u):
+            for v in range(u, _u):
+                h_t_uu[t, u, v] = h_acc_uu[u, v]
+                h_t_uu[t, v, u] = h_acc_uu[u, v]
+                p_t_uu[t, u, v] = p_acc_uu[u, v]
+                p_t_uu[t, v, u] = p_acc_uu[u, v]
+                s_t_uu[t, u, v] = s_acc_uu[u, v]
+                s_t_uu[t, v, u] = s_acc_uu[u, v]
+                h_uu[u, v] += h_acc_uu[u, v]
+                p_uu[u, v] += p_acc_uu[u, v]
+                s_uu[u, v] += s_acc_uu[u, v]
+    for u in range(_u):
+        for v in range(u + 1, _u):
+            h_uu[v, u] = h_uu[u, v]
+            p_uu[v, u] = p_uu[u, v]
+            s_uu[v, u] = s_uu[u, v]
+```
+
+The old `state_sep=True` path used the per-state `h_t_uu[t]` (`h_acc_uu`), so its weight did vary with k. But it
+is real and built from squares: it has no Bloch phases, and its variation over k doesn't encode hoppings to
+particular copies.
+
+##### The equation now used (F1 + F2 + F3; default settings)
+
+The coefficients are phase-corrected, $T_{\mu,j}\to i^{l_\mu}T_{\mu,j}$ (F1), and Löwdin-orthonormalized by
+default, so $C=T$. For each state t, the Hamiltonian of the orbitals sums over **all** bands j′ (occupied and
+empty, with no occupations). This is the spectral form $\hat H=\sum_{j'}\hat O|\psi_{j'}\rangle\epsilon_{j'}\langle\psi_{j'}|\hat O$ of
+the ultrasoft eigenproblem (F2):
+
+$$
+H_{\mu\nu}(t)=\sum_{j'}\langle\phi_\mu|\hat O|\psi_{j'}(t)\rangle\;\epsilon_{j'}(t)\;\langle\psi_{j'}(t)|\hat O|\phi_\nu\rangle\;\approx\;\langle\phi_{\mu,k_t}|\hat H|\phi_{\nu,k_t}\rangle
+$$
+
+Here $\phi_{\nu,k}=\sum_R e^{ik\cdot R}\phi_\nu(r-\tau_\nu-R)$ (JDFTx's Bloch sum), so
+$H_{\mu\nu}(t)=\sum_R e^{2\pi i k_t\cdot R}H_{\mu\nu}(R)$. The hopping to the copy of ν at $\tau_\nu+R$ is the
+Fourier component (F3):
+
+$$
+H_{\mu\nu}(R)=\frac{\sum_{t\in s} w_t\,e^{-2\pi i k_t\cdot R}\,H_{\mu\nu}(t)}{\sum_{t\in s} w_t}
+$$
+
+The pCOHP of A with **one** copy of B (R = nearest image per atom pair by default, or any lattice vector) is
+
+$$
+pCOHP_{AB}(E;R)=\sum_{\mu\in A,\,\nu\in B}\;\sum_{j,t} w_t\,\mathrm{Re}\left[C^*_{\mu,j}(t)\;H_{\mu\nu}(R)\,e^{2\pi i k_t\cdot R}\;C_{\nu,j}(t)\right]\delta\big(E-\epsilon_j(t)\big)
+$$
+
+The pCOHP of A with **every** copy of B (`image="all"`, or the old `state_sep=True`) is
+
+$$
+pCOHP_{AB}(E;\mathrm{all})=\sum_{\mu\in A,\,\nu\in B}\;\sum_{j,t} w_t\,\mathrm{Re}\left[C^*_{\mu,j}(t)\;H_{\mu\nu}(t)\;C_{\nu,j}(t)\right]\delta\big(E-\epsilon_j(t)\big)=\sum_R pCOHP_{AB}(E;R)
+$$
+
+The last equality holds exactly for one R per residue class of the k-mesh. The tests check it on N2's 3×3×3 mesh
+and graphene's 23×23×1 mesh.
+
+Code: `core/operations/matrix.py::get_h_s_d_t_uv` builds $H(t)$, `::get_mat_r_suv` gives $H(R)$, and
+`funcs/pcohp.py::_compute_signed_tj` assembles $H_{\mu\nu}(R)e^{2\pi i k_t\cdot R}$ per atom pair (or $H(t)$ for
+"all"). `::_get_gen_tj_block` evaluates $w_t\sum\mathrm{Re}[C^* M C]$. With `legacy_lattice_image=True`, R = 0
+is used for every pair, which is still correctly signed: that is the F2-era behaviour.
+
+Graphene, for scale (IpCOHP, Ha): each of the three nearest C1–C2 bonds is −0.146 (two of them inter-cell), each
+2.91 Å copy is −0.026, and "all" is −0.578. Legacy (R = 0 only) gives −0.145. That is one bond, and right only
+because the input happened to place a bonded copy in the same cell. With C2 written one cell over, legacy gives
+−0.026.
+
+##### Misconceptions worked through, and the corrections
+
+1. **"JDFTx's projections didn't include each k-point's phase."** They do. `Vnl_calc` builds every orbital with
+   `cis(-2π pos·(k+G))`, i.e. the Bloch sum above. $T_\nu(k)$ is the amplitude on the copy of ν at $\tau_\nu$,
+   and the copy in cell R has amplitude $e^{ik\cdot R}T_\nu(k)$. Nothing was missing from the files; crawfish
+   threw the information away by pairing $T^*_\mu T_\nu$ with a weight that doesn't vary with k. No JDFTx change
+   is needed.
+2. **"Integrating over k reduces the bond to the same cell."** The integral isn't the cause. At every single k,
+   $T^*_\mu T_\nu$ is already the amplitude product for the same-cell pair; the pair with the copy at R is
+   $T^*_\mu T_\nu e^{ik\cdot R}$. A sum over k of the bare phase $e^{ik\cdot R}$ vanishes for R ≠ 0, but a sum of
+   $e^{ik\cdot R}$ times a k-dependent weight keeps that weight's −R component (convolution, or Parseval). Each
+   pair therefore keeps its own nonzero bond order. The old code supplied a weight that doesn't depend on k, whose
+   only Fourier component is R = 0.
+3. **"The k-dependence of $H_{\mu\nu}(k)$ is a curiosity."** It is essential: $H_{\mu\nu}(k)=\sum_R e^{ik\cdot R}H_{\mu\nu}(R)$
+   encodes the hopping to every copy. Averaging it over k (with correct signs) gives $H_{\mu\nu}(R{=}0)$, which is
+   valid, but only for the same-cell pair.
+4. **"To isolate one copy, rotate $H(k)$ by $e^{-ik\cdot R}$ at each k."** Not at fixed k:
+   $H(k)e^{-ik\cdot R}=\sum_{R'}H(R')e^{ik\cdot(R'-R)}$ still contains every copy, and paired with
+   $C^*C$ it mixes pairs. Do two steps instead. First Fourier-filter, $H(R)=\overline{e^{-ik\cdot R}H(k)}$, which
+   no longer depends on k. Then attach $e^{+ik\cdot R}$ to the coefficient product at each k.
+5. **"Then use a band-resolved $h[\mu,\nu,t,j]$."** No. The band index plays two roles. j (in $C_{\mu,j}$,
+   $\delta(E-\epsilon_j)$ and $f_j$) labels the state being analysed. j′ (inside $H_{\mu\nu}(t)$) is the spectral
+   representation of the operator: all bands, no occupations. Keeping only j′ = j gives, in the Löwdin basis,
+   $\mathrm{Re}[C^*_{\mu j}(T_{\mu j}\epsilon_j T^*_{\nu j})C_{\nu j}]=\epsilon_j|T_{\mu j}|^2|T_{\nu j}|^2$.
+   That has the sign of $\epsilon_j$ for every pair, so all bonding information is lost. The j′ ≠ j cross terms
+   carry it; they cancel only in $\sum_{\mu\nu}$, which is the band-energy sum rule.
+
+| you want | weight on $\mathrm{Re}[C^*_{\mu,j}(t)\ \cdot\ C_{\nu,j}(t)]$ |
+|---|---|
+| μ with every copy of ν (`image="all"`) | $H_{\mu\nu}(t)$ (`h_t_uv[t]`) |
+| μ with the copy at R (`"nearest"` or a lattice vector) | $H_{\mu\nu}(R)\,e^{2\pi i k_t\cdot R}$ |
+| μ with the same-cell copy only (`image=(0,0,0)`, or `legacy_lattice_image=True`) | $H_{\mu\nu}(R{=}0)$, constant over t |
+| (old, wrong) | $H^{old}_{\mu\nu}$: constant over t, squared, occupation-weighted |
+
+**Implementation record for F3 (2026-10-27, branch `theory_check`, not yet committed):**
+- API: every pair function (`get_[i]pcohp`, `get_[i]pcoop`, `get_[i]pcobi`, `get_[i]pcomo`) takes
+  `image="nearest" | "all" | (n1, n2, n3)`.
+  - `state_sep=True` stays as an alias for `"all"` and takes precedence. `get_ipcohp` also gained `state_sep`.
+  - pCOMO rejects `"all"`: Σ_R of a unit matrix isn't a bond quantity.
+  - A new public `get_pair_images(edata, idcs1, idcs2, ..., image)` returns one dict per atom pair:
+    atom labels, R, and distance in Å.
+  - The normalized image (`"nearest"`, `"all"` or a list of ints) is stored in each spectrum's `func_args_dict`.
+- `utils/lattice.py` (new):
+  - `get_orb_atom_idx_u` (orbital → structure site through `kmap`/`orbs_idx_dict`).
+  - `get_nearest_image`: searches ±2 around the minimum-image guess and returns the strictly nearest image (exact
+    ties go to the smallest |R|). Images within `IMAGE_TIE_TOL` = 0.01 Å of it count as ties for the warning. The
+    tolerance started at 1e-4 Å. In the graphene fixture, though, relaxation leaves the three equivalent C–C bonds
+    0.003 Å apart, and with 1e-4 Å "nearest" silently picked one of them.
+  - `get_pair_image_map`: one R per atom pair, plus a warning when the nearest image isn't unique (e.g. 4
+    equivalent images in small cells).
+  - `normalize_image`.
+- `core/operations/matrix.py`:
+  - `get_mat_r_suv(mat_t_uv, wk_t, ks_t, nspin, R)`: per-spin Fourier sum M_s(R) = Σ w_t e^{−2πik·R} M_t / Σ w_t.
+    Its docstring covers aliasing by the k-mesh.
+  - `_get_gen_tj_block`: weight kernel over an effective (t, |A|, |B|) matrix. That matrix is the state-resolved
+    block for `"all"`, or M_ab(R_ab) e^{2πik·R_ab} assembled per atom pair in `funcs/pcohp._compute_signed_tj`.
+  - The old `_get_gen_tj_coef_tuv` is no longer used by the pipeline.
+- `core/elecdata.py`: setting `legacy_lattice_image` (cache key `lgri`). Its setter only re-points the caches,
+  because the matrices don't change. `get_mat_r_suv(name, R)` added.
+- Legacy combinations:
+  - With `legacy_lattice_image=True`, "nearest" means R=(0,0,0) for every pair, i.e. exactly the F2-era
+    behaviour (R=0 uses `get_mat_r0_suv`).
+  - With `legacy_matrices=True`, image selection isn't possible: `"all"` maps to the legacy `state_sep=True`,
+    `(0,0,0)` and `"nearest"` give the legacy same-cell result, and any other vector raises.
+- Weight caches are used for `"nearest"` and `"all"`, and bypassed for explicit vectors (CachedFunction keys only
+  on orbitals).
+- Mesh check: an R ≠ 0 on a symmetry-reduced mesh (JDFTx `lti_allowed` False) raises with a pointer to
+  `symmetries none`. R = 0 still works on reduced meshes, as before (F5 is still open).
+- Validation, with no periodic JDFTx fixture available (JDFTx isn't built here):
+  - **Wrapping test on real data:** atom 2 of N2 moved by a lattice vector L, with the Bloch-sum gauge change
+    T → e^{2πik·L}T derived from `Vnl_calc`. "nearest" gives identical pCOHP/pCOBI/pCOMO, and
+    `get_pair_images` reports R = −L. A negative control (R = +L or 0 on the shifted data) gives ≈0, so the sign
+    convention is really being tested.
+  - **Discrete-Fourier identity:** summing R-resolved weights over R ∈ {−1,0,1}³ reproduces the "all images"
+    weights exactly on the 3×3×3 mesh.
+  - Far image (R=(1,0,0), 13 Å) ≈ 0.
+  - SSH chain: crawfish's kernels match an independent reference in both cell choices.
+  - **Periodic fixture (added 2026-10-27):** `tests/files/io/example_calc_dirs/graphene_1x1`, about 2 MB, copied
+    from the user's `PZC_gen/PBE_GBRV_20Ha/bulks/Gr_1x1/lat_opt/jdftx_run`: bandProjections, eigenvals,
+    fillings, kPts, out and in, without the macOS `._*` files. It is a 2-C primitive cell, GBRV USPP, PBE, CANDLE
+    solvation, lattice-relaxed, z-spin, 23×23×1 mesh, `symmetries none`, 8 bands and 8 ortho s/p projections.
+    - Of C1's three nearest C2 images (1.4557, 1.4564 and 1.4584 Å), two are inter-cell:
+      R = (−1,−1,0), (0,−1,0) and (0,0,0). Each bond is IpCOHP ≈ −0.146 Ha.
+    - The 2.91 Å shell adds −0.026 Ha per image. The sum over all images is −0.578 Ha, of which the same-cell
+      copy (legacy) is only −0.145.
+    - Orbital-resolved values differ per bond: px–px is −0.040 for R=0 and −0.0015 for the other two, while pz–pz
+      (π) is −0.031 for all three.
+    - With C2 wrapped by (1,0,0), legacy gives −0.026 (a 2.91 Å copy) while fixed stays at −0.146.
+    - Tests added: three equivalent bonds plus the tie warning, m-resolved differences, the 529-class Fourier
+      identity, and wrapping by (1,0,0) and (2,−1,0).
+    - Alternatives considered: Pb (`bulks/Pb/...`, 4-atom fcc, 8×8×8, s/p/d) has a 28 MB bandProjections, too
+      large. Al (4-atom fcc, 5.6 MB) would also work.
+    - Still missing: an end-to-end check against an actual JDFTx re-run with wrapped coordinates. The wrapping
+      tests use the Bloch-sum gauge change instead.
+- N2 numbers are unchanged by F3: its nearest image is the same-cell copy. Legacy vs. fixed only differ once atoms
+  are wrapped; with atom 2 one cell over, legacy all-all IpCOHP is −0.00004 vs. fixed −0.86678.
+- Tests: `tests/core/test_lattice_images.py` (19 tests, N2 and graphene). Full suite: 136 passed.
+- Docs: the README section on which periodic image (with the M(R) formula and aliasing note), CLAUDE.md pipeline
+  step 3 and settings list, the F3 notebook (chain + N2 wrapping, legacy vs. fixed vs. reference), and a
+  `get_pair_images` cell in `examples/N2.ipynb`.
+- `result_changes.py`: the F2 entry was added (`3d9ab1b`). **The F3 entry still has to be added after this work is
+  committed** (stage "matrices", since cached weight arrays change).
+
 ### F4: fillings-file factor 2 for no-spin (P1)
 
 - JDFTx `Dump.cpp` writes `fillings` as F×2 for `SpinNone`. k-weights already include the factor 2. Crawfish
@@ -489,9 +770,9 @@ integral is 1.104 ≈ 30/27, exactly the extra 1/N_k of F6. In the current code 
 - Q1. COHP basis choice: should the default be the Löwdin band-projected basis (energy-zero invariant, matches
   current `los_orbs=True`) or the non-orthogonal basis (closer to LOBSTER)? On N2 they agree in sign and roughly
   in size (A–B total −0.867 vs −0.833 Ha). This is the user's call.
-- Q2. Does `pymatgen ... JDFTXOutfile.structure` preserve JDFTx's unwrapped ion coordinates? R bookkeeping (F3)
-  needs the exact τ used in `Vnl_calc`. Alternatively, parse the `ion` lines from the outfile directly
-  (`coords-type` matters).
+- Q2. **Answered (2026-10-27):** yes. `JDFTXOutfile.structure` (pymatgen fork) never calls `to_unit_cell`, and
+  pymatgen `Structure` keeps unwrapped fractional coordinates. For N2 the Cartesian coordinates equal the outfile's
+  final `ion` lines (13.895656 bohr = 7.3533 Å). F3 uses `edata.structure.frac_coords` as τ.
 - Q3. COBI details (spin factor, sign convention, whether LOBSTER evaluates it in an orthonormalized basis): check
   Müller et al. 2021 before implementing M=D.
 - Q4. LOBSTER's exact requirements on VASP symmetry (ISYM) and its H(k) reconstruction formula for

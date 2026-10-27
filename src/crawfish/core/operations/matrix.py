@@ -516,6 +516,76 @@ def get_r0_suv(mat_t_uv: np.ndarray[COMPLEX_DTYPE], wk_t: np.ndarray[REAL_DTYPE]
     return mat_suv
 
 
+def get_mat_r_suv(
+    mat_t_uv: np.ndarray[COMPLEX_DTYPE],
+    wk_t: np.ndarray[REAL_DTYPE],
+    ks_t: np.ndarray[REAL_DTYPE],
+    nspin: int,
+    R,
+) -> np.ndarray[COMPLEX_DTYPE]:
+    r"""Get the real-space element M_uv(R) = <chi_u,0|M|chi_v,R> of a state-resolved matrix, per spin channel.
+
+    M_s(R) = sum_{t in s} w_t M_t exp(-2 pi i k_t.R) / sum_{t in s} w_t, the inverse of the Bloch sum
+    M(k) = sum_R e^{2 pi i k.R} M(R) (JDFTx convention, see crawfish.utils.lattice). k_t is in reciprocal-lattice
+    coordinates and R in lattice vectors. The k-points must cover the full mesh. An N1 x N2 x N3 mesh cannot
+    separate R from R + (N1 n1, N2 n2, N3 n3), so M(R) includes those far images too (aliasing).
+
+    Returns
+    -------
+    np.ndarray
+        Shape (nspin, nproj, nproj)
+    r"""
+    t, u, _ = np.shape(mat_t_uv)
+    nk = t // nspin
+    phase_t = np.exp(-2j * np.pi * (np.asarray(ks_t, dtype=np.float64) @ np.asarray(R, dtype=np.float64)))
+    mat_suv = np.zeros([nspin, u, u], dtype=COMPLEX_DTYPE)
+    for s in range(nspin):
+        sl = slice(s * nk, (s + 1) * nk)
+        w_k = np.asarray(wk_t[sl], dtype=np.float64)
+        mat_suv[s] = np.tensordot(w_k * phase_t[sl], mat_t_uv[sl], axes=1) / np.sum(w_k)
+    return mat_suv
+
+
+def _get_gen_tj_block(
+    coef_tju: np.ndarray[COMPLEX_DTYPE],
+    mat_t_ab: np.ndarray[COMPLEX_DTYPE],
+    wk_t: np.ndarray[REAL_DTYPE],
+    orbs_u: list[int],
+    orbs_v: list[int],
+) -> np.ndarray[REAL_DTYPE]:
+    r"""Get gen_{t,j} = w_t Sum_{a,b; orbs_u[a]!=orbs_v[b]} Re[conj(C[t,j,orbs_u[a]]) M[t,a,b] C[t,j,orbs_v[b]]].
+
+    `mat_t_ab` is the effective matrix restricted to the requested orbitals, shape (nstates, len(orbs_u),
+    len(orbs_v)). It is either the state-resolved block (all lattice images) or M_ab(R_ab) e^{2 pi i k_t.R_ab}
+    for one chosen image per atom pair.
+    r"""
+    t, j, _ = np.shape(coef_tju)
+    gen_tj = np.zeros([t, j], dtype=REAL_DTYPE)
+    _get_gen_tj_block_jit(
+        gen_tj,
+        coef_tju,
+        np.asarray(mat_t_ab, dtype=COMPLEX_DTYPE),
+        wk_t,
+        np.asarray(orbs_u, dtype=np.int64),
+        np.asarray(orbs_v, dtype=np.int64),
+    )
+    return gen_tj
+
+
+@jit(nopython=True)
+def _get_gen_tj_block_jit(gen_tj, coef_tju, mat_t_ab, wk_t, orbs_u, orbs_v):
+    _t, _j, _ = np.shape(coef_tju)
+    for t in range(_t):
+        for j in range(_j):
+            val = 0.0
+            for a in range(len(orbs_u)):
+                cu = np.conj(coef_tju[t, j, orbs_u[a]])
+                for b in range(len(orbs_v)):
+                    if not orbs_u[a] == orbs_v[b]:
+                        val += (cu * mat_t_ab[t, a, b] * coef_tju[t, j, orbs_v[b]]).real
+            gen_tj[t, j] = REAL_DTYPE(val * wk_t[t])
+
+
 def get_spin_idx_t(nstates: int, nspin: int) -> np.ndarray[int]:
     """Spin channel of each state (states are ordered spin-major)."""
     return np.arange(nstates, dtype=np.int64) // (nstates // nspin)

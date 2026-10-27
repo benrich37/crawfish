@@ -69,4 +69,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="Apply the i^l orbital phase to JDFTx band projections (notes/theory_audit.md F1; "
         "legacy_orbital_phase restores the old behaviour)",
     ),
+    ResultChange(
+        commit="3d9ab1b39456dbd322f104ee796bcc6490706f56",
+        version="1.0.0",
+        stage="matrices",
+        description="Signed projected H/S/D matrices for pair spectra (notes/theory_audit.md F2; "
+        "legacy_matrices restores the old behaviour)",
+    ),
 ]

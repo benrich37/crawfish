@@ -1,0 +1,42 @@
+latt-move-scale 1.0 1.0 0.0 
+coords-type Cartesian 
+lattice \
+    4.662504754246 -2.331252377123 0.000000000000 \
+    0.000000000000 4.037847563018 0.000000000000 \
+    0.000000000000 0.000000000000 56.691783777233 
+ion C 1.165626198010 0.672974596986 28.345891888617 1 
+ion C 1.165626198010 3.364872966033 28.345891888617 1 
+core-overlap-check none 
+ion-species /global/homes/b/beri9208/pseudopotentials/GBRV/C.uspp 
+
+symmetries none 
+
+kpoint-folding 23 23 1 
+
+elec-ex-corr gga-PBE 
+elec-cutoff 20.0 100.0 
+elec-smearing Fermi 0.001 
+spintype z-spin 
+elec-initial-magnetization 0.0 no 
+converge-empty-states yes 
+
+coulomb-truncation-embed 0.5 0.5 0.5 
+
+initial-state $VAR 
+
+lattice-minimize \
+    nIterations  1000 
+
+fluid LinearPCM 
+fluid-solvent H2O 
+fluid-anion F- 0.1 
+fluid-cation K+ 0.1 
+pcm-variant CANDLE 
+
+dump-name $VAR 
+band-projection-params yes no 
+dump End  State 
+dump End  BandEigs  BandProjections  Fillings  Kpoints 
+dump End  EigStats 
+dump End  ElecDensity 
+
