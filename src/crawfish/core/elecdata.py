@@ -6,13 +6,20 @@ electronic data from JDFTx calculations.
 
 from __future__ import annotations
 import numpy as np
-from crawfish.core.operations.matrix import get_h_p_s_t_uu_and_uu, normalize_square_proj_tju, los_projs_for_orbs, get_weighted_overlap_tjuv
+from crawfish.core.operations.matrix import (
+    get_h_p_s_t_uu_and_uu,
+    normalize_square_proj_tju,
+    los_projs_for_orbs,
+    get_weighted_overlap_tjuv,
+    apply_jdftx_orbital_phase,
+)
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
     get_nstates_from_bandfile_filepath,
     get_nbands_from_bandfile_filepath,
     get_nproj_from_bandfile_filepath,
     get_norbsperatom_from_bandfile_filepath,
+    get_orb_l_u_from_bandfile_filepath,
     get_e_tj_helper,
     get_proj_tju_from_file,
     is_complex_bandfile_filepath,
@@ -50,6 +57,7 @@ cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_t
 source_filetypes = ["band", "eig", "out", "kpts", "fillings"]
 
 edata_setting_key_shorthand_dict = {
+    "legacy_orbital_phase": "lgph",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -63,6 +71,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
     parts of the ElecData settings that would effect the character of the spectra.
     """
     parts_dict = {
+        "legacy_orbital_phase": edata.legacy_orbital_phase,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -127,6 +136,7 @@ class ElecData:
     _occ_tj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
+    _orb_l_u: np.ndarray[int] | None = None
     _orbs_idx_dict: dict | None = None
     _kmap: list[str] | None = None
     _complex_bandprojs: bool | None = None
@@ -172,6 +182,31 @@ class ElecData:
         """
         atoms = AseAtomsAdaptor.get_atoms(self.structure)
         view(atoms, **kwargs)
+
+    """
+    legacy_orbital_phase: If False (default), JDFTx band projections are multiplied by i^l for each orbital of
+    angular momentum l on load, converting them from JDFTx's convention (real-space orbitals are i^l times a
+    real orbital, as JDFTx omits the i^l of the plane-wave expansion) to real orbitals. If True, the raw dumped
+    projections are used, which reproduces crawfish results from before this fix: Re[T*_u T_v] is then ~0 for
+    orbital pairs with odd l_u - l_v (s-p, p-d), so those interactions are missing from every pair spectrum.
+    Kept so the effect of the fix can be measured without checking out old code.
+    Only applies to complex JDFTx projections (never to user_proj_tju). pDOS is unaffected either way.
+    See notes/theory_audit.md, finding F1.
+    """
+
+    @property
+    def legacy_orbital_phase(self) -> bool:
+        return self._legacy_orbital_phase
+
+    @legacy_orbital_phase.setter
+    def legacy_orbital_phase(self, value: bool):
+        if value != self._legacy_orbital_phase:
+            self._legacy_orbital_phase = value
+            # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_orbital_phase: bool = False
 
     @property
     def trim_excess_bands(self) -> bool:
@@ -359,6 +394,16 @@ class ElecData:
         return self._norbsperatom
 
     @property
+    def orb_l_u(self) -> np.ndarray[int]:
+        """Return the angular momentum l of each orbital projection, in shape (nproj,)."""
+        if self._orb_l_u is None:
+            if self.jdftx:
+                self._orb_l_u = get_orb_l_u_from_bandfile_filepath(self.bandfile_header_filepath)
+            else:
+                raise RuntimeError("orb_l_u is only available for JDFTx calculations")
+        return self._orb_l_u
+
+    @property
     def nspecies(self) -> list[int]:
         """Return number of unique elements in calculation.
 
@@ -455,7 +500,8 @@ class ElecData:
 
         Set the _proj_tju variable. Loads from a precompiled binary file if available.
         Else, loads from the dumped text file and backs it up as a binary file, along
-        with a stripped text file only containing the header.
+        with a stripped text file only containing the header. The backup always holds the raw
+        dumped projections; the orbital phase convention (see legacy_orbital_phase) is applied after.
         """
         loaded_from_bandfile = False
         proj_tju = safe_load(self.proj_tju_filepath, allow_pickle=False)
@@ -465,6 +511,8 @@ class ElecData:
         self._proj_tju = proj_tju
         if loaded_from_bandfile:
             self._cache_proj_tju()
+        if self.jdftx and not self.legacy_orbital_phase and self.bandprojfile_is_complex:
+            self._proj_tju = apply_jdftx_orbital_phase(self._proj_tju, self.orb_l_u)
 
     def _cache_proj_tju(self) -> None:
         """ Back up bandprojections file in easier to load pieces.

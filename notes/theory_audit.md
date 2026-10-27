@@ -29,7 +29,7 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 
 | #  | Pri | Finding | Evidence | Fix needs JDFTx? | Status |
 |----|-----|---------|----------|------------------|--------|
-| F1 | P0 | JDFTx projections for orbitals with odd l carry a factor of i^l (relative to real orbitals). Crawfish takes `Re[T*_u T_v]`, which is identically ~0 for s–p, p–d (odd Δl) pairs. All s–p hybridization is dropped from pCOMO/pCOOP/pCOHP/pCOBI. | JDFTx source + Check 1 | No | open |
+| F1 | P0 | JDFTx projections for orbitals with odd l carry a factor of i^l (relative to real orbitals). Crawfish takes `Re[T*_u T_v]`, which is identically ~0 for s–p, p–d (odd Δl) pairs. All s–p hybridization is dropped from pCOMO/pCOOP/pCOHP/pCOBI. | JDFTx source + Check 1 | No | **fixed** on branch `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_orbital_phase=True`; `result_changes.py` entry still to add after commit |
 | F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | open |
 | F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | open |
 | F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | open |
@@ -181,6 +181,44 @@ Sum rules, to use as tests:
 - **Upstream option:** apply `lPhase` in `dumpProjections` behind a new flag. Old outputs would then differ, so
   crawfish would need a header marker. Not recommended as the primary fix.
 
+**Implementation record (2026-10-27, branch `theory_check`, not yet committed):**
+- `io/data_parsing.py::get_orb_l_u_from_bandfile_filepath` reads l per orbital from the bandProjections header
+  (species lines: nAtoms, nOrbitalsPerAtom, lMax, nShells(l)), in JDFTx order (l, then n, then m). It allows the
+  ×2 spinor multiplicity (spin copies or j-resolved orbitals are still grouped by l), and raises if the counts don't
+  fit. Exposed as `ElecData.orb_l_u`.
+- `core/operations/matrix.py::apply_jdftx_orbital_phase` multiplies orbital u by exact powers of i (lookup
+  `[1, i, -1, -i][l % 4]`) and keeps complex64.
+- `core/elecdata.py::ElecData._set_proj_tju` applies it after loading `proj_tju.npy` or the bandProjections file,
+  and before band trimming or Löwdin (both are phase-covariant). It is skipped for `legacy_orbital_phase=True`,
+  for `|projection|^2` (real) files, and for non-JDFTx data (`user_proj_tju` is never touched). The
+  `proj_tju.npy` backup still holds the raw dump, so the "parse" cache stage is unaffected.
+- **Legacy access (section 4.0):** `ElecData.legacy_orbital_phase` (default `False`) is a property whose setter
+  calls `_init_caches()` then `alloc_elec_data()`. It is in `edata_setting_key_shorthand_dict` (`lgph`) and
+  `get_edata_settings_str`, so legacy and corrected matrices, weight caches and spectra live in separate cache
+  directories. A side effect: existing cache directories, which have no `lgph_` key, are orphaned rather than
+  reused. That's harmless, just disk space.
+- `result_changes.py`: **not added yet**. The entry needs the commit hash. Add it in a follow-up commit, with stage
+  "matrices" and a description like "Apply i^l orbital phase to JDFTx band projections (F1)". With the new cache
+  key, stale results can't be reused even without the entry, but CLAUDE.md requires one for every
+  result-changing change.
+- Docs: README "Projection modifications" item 0, a note on user projections in "Creating your own ElecData", the
+  CLAUDE.md settings list, docstrings on the new functions and setting.
+- Tests: `tests/core/test_orbital_phase.py` covers header parsing, the phase helper, Γ s–p products (real when
+  corrected, imaginary in legacy), unchanged pDOS, the raw `proj_tju.npy` backup, legacy reproduction of the
+  section-6 values, and a non-zero s–px IpCOMO when corrected. `legacy_orbital_phase` was added to
+  `test_settings_change_updates_cache_sub_dir`. Full suite: 104 passed.
+- Effect on N2 (default settings, everything else still legacy). Same-l pairs are unchanged in pCOMO. pCOHP moves
+  because the per-band `p_uu_consistent` normalization sums over all pairs, including s–p:
+
+  | pair | IpCOHP legacy → fixed | IpCOMO legacy → fixed |
+  |------|-----------------------|-----------------------|
+  | s-s  | −0.22098 → −0.12203   | +0.40719 → +0.40719   |
+  | s-px | +0.00000 → −0.08856   | −0.00000 → +0.49230   |
+  | px-px| +0.15313 → +0.08452   | −0.58770 → −0.58770   |
+  | py-py| −0.11463 → −0.11462   | +0.99778 → +0.99778   |
+
+  px–px is still antibonding: that is F2, which F1 alone can't fix.
+
 ### F2: sign-blind H/S/P construction (P0)
 
 - **What:** `matrix.py::_get_h_p_s_t_uu_and_uu_jit` computes x = Re[T*_u T_v] and s = x², with
@@ -306,6 +344,12 @@ Sum rules, to use as tests:
   stochastic. Recommend deprecating `trim_excess_bands`, or selecting bands per k by energy window.
 - `p_uu_consistent`: per-band renormalization Σ_uv P_tj,uv = f w. It becomes unnecessary under section 2.3. If
   charge-conserving rescaling is wanted, divide by Π_jj, and report the spilling either way.
+- Setter ordering (found while fixing F1, not yet fixed): `ElecData.los_orbs` and `.trim_excess_bands` call
+  `alloc_elec_data()` before `_init_caches()`. If matrices were already evaluated, `reval_mat_uu` → `set_mat_uu`
+  then loads or saves them in the *old* settings directory. `p_uu_consistent`, `norm_eigs_for_h` and
+  `legacy_orbital_phase` use the safe order. Also, `alloc_elec_data` reloads `proj_tju` but reuses the already
+  trimmed `_e_tj`/`_occ_tj`, so toggling any setting while `trim_excess_bands=True` indexes trimmed arrays with
+  untrimmed band indices.
 - README "pCOHP" block: S is written |⟨μ|ψ⟩⟨ψ|ν⟩|², but the code uses (Re⟨μ|ψ⟩⟨ψ|ν⟩)².
 - pymatgen fork (`jdftxoutfileslice.py`): `jstrucs.mu` is in eV (`jelstep.py::_set_mu` × Ha_to_eV), but
   `_mu_backup` is a raw Hartree float. `ElecData.mu` divides by Ha_to_eV unconditionally. This would be wrong by a
@@ -346,6 +390,12 @@ These apply to every item in this plan and to any later fix that changes results
     corrected spectra side by side. The scripts in `notes/theory_audit_checks/` are a starting point.
 - Bug fixes with no scientific content (e.g. the `math.erf` crash in F8) don't need a legacy path, but still get
   documented.
+- **Comparison notebook per fix** (user instruction, 2026-10-27). `examples/fix_comparisons/` holds one notebook per
+  finding. Each plots legacy vs. corrected crawfish (and the reference from `fixcompare.Reference`), saves its
+  figures to `figures/`, and ends with assert-based checks. Notebooks for fixes that aren't implemented yet already
+  run: they compare current crawfish with the reference and carry "known-bug" checks. When a fix lands they switch
+  over automatically through `fixcompare.LEGACY_FLAGS` / `fix_available()`. Use the flag names listed there, or
+  update them, and add a notebook for any new result-changing fix. See `examples/fix_comparisons/README.md`.
 
 1. **Tests first** (no behaviour change), in `tests/funcs/`:
    (a) after the phase fix, Im(T*_s T_p) ≈ 0 at Γ for N2;
@@ -376,6 +426,10 @@ Upstream JDFTx (only if wanted later, U1): flag-gated i^l phase in `dumpProjecti
 `psi ^ Opsi` (AO overlap per k) and `Opsi ^ (H psi)`; binary or `%.15le` projections.
 
 ---------------------------------------------------------------------------------------------------------------
+
+Additional evidence from the comparison notebooks (2026-10-27): with `rattle_eigenvals=True` the N2 LTI DOS
+integral is 1.104 ≈ 30/27, exactly the extra 1/N_k of F6. In the current code (after F1), pCOBI px–px is
+−0.214 vs. a reference of +0.173: F2 also flips COBI signs.
 
 ## 5. Open questions / not verified this session
 
@@ -411,7 +465,9 @@ Test system: N2 along x (atoms at x = 13.896 and 11.832 bohr, in a 24.6 bohr cub
 z-spin, 3×3×3 k (`symmetries none`, 27 k per spin), 15 bands, 8 ortho-orbital projections (s, py, pz, px per atom),
 Fermi smearing 0.001 Ha.
 
-Recorded outputs (2026-10-27, crawfish 3efe98f, defaults los_orbs=True, p_uu_consistent=True, norm_eigs_for_h=True):
+Recorded outputs (2026-10-27, crawfish 3efe98f, defaults los_orbs=True, p_uu_consistent=True, norm_eigs_for_h=True).
+The crawfish columns predate the F1 fix. Reproduce them with `compare_cohp.py <dir> --legacy`
+(sets `legacy_orbital_phase=True`); `tests/core/test_orbital_phase.py` pins them.
 
 ```
 Check 1   Gamma, band 4 (3σg, e=-0.3695): Re s_A*px_B = 0.00000, Im = 0.22736;  all k: Σ|Re| 0.1781 vs Σ|Im| 114.2465

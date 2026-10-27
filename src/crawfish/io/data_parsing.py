@@ -225,6 +225,49 @@ def get_norbsperatom_from_bandfile_filepath(bandfile_filepath: Path | str) -> li
     return norbsperatom
 
 
+def get_orb_l_u_from_bandfile_filepath(bandfile_filepath: Path | str) -> np.ndarray[int]:
+    r"""Get the angular momentum l of each orbital projection from the bandprojections file header.
+
+    JDFTx orders orbitals by species, then atom, then (within an atom) by l, then shell n, then m = -l..l
+    (then spin copy for spinor calculations) - see SpeciesInfo::setAtomicOrbitals and
+    SpeciesInfo::atomicOrbitalOffset in jdftx/electronic/SpeciesInfo_atomic.cpp. Each species header line
+    reads "Symbol nAtoms nOrbitalsPerAtom lMax nShells(l=0) ... nShells(l=lMax)".
+
+    Parameters
+    ----------
+    bandfile_filepath : Path | str
+        Path to bandprojections file (or the bandprojections header file).
+
+    Returns
+    -------
+    np.ndarray[int]
+        Angular momentum of each orbital projection, in shape (nproj,).
+    r"""
+    nspecies = get_nspecies_from_bandfile_filepath(bandfile_filepath)
+    bandfile = read_file(bandfile_filepath)
+    l_u: list[int] = []
+    for text in bandfile[2 : nspecies + 2]:
+        tokens = text.split()
+        natoms = int(tokens[1])
+        norbs_per_atom = int(tokens[2])
+        lmax = int(tokens[3])
+        nshells = [int(tokens[4 + l]) for l in range(lmax + 1)]
+        nspatial = sum((2 * l + 1) * nshells[l] for l in range(lmax + 1))
+        # Spinor calculations hold 2 orbitals per spatial orbital (spin copies, or the two j's of relativistic
+        # pseudopotentials), still grouped by l
+        ncopies = norbs_per_atom // nspatial
+        if ncopies * nspatial != norbs_per_atom or ncopies not in (1, 2):
+            raise ValueError(
+                f"Cannot infer orbital angular momenta for species {tokens[0]} "
+                f"({norbs_per_atom} orbitals per atom, {nspatial} spatial orbitals from the shell counts)"
+            )
+        l_atom: list[int] = []
+        for l in range(lmax + 1):
+            l_atom += [l] * ((2 * l + 1) * nshells[l] * ncopies)
+        l_u += l_atom * natoms
+    return np.array(l_u, dtype=int)
+
+
 def is_complex_bandfile_filepath(bandfile_filepath: str | Path) -> bool:
     r"""Determine if bandprojections file is complex.
 

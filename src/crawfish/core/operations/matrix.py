@@ -522,6 +522,30 @@ def _add_kweights(weights_sabcj: np.ndarray[REAL_DTYPE], wk_sabc: np.ndarray[REA
     return weights_sabcj * wk_sabcj
 
 
+def apply_jdftx_orbital_phase(proj_tju: np.ndarray[COMPLEX_DTYPE], l_u: np.ndarray[int]) -> np.ndarray[COMPLEX_DTYPE]:
+    r"""Convert JDFTx band projections to the real-orbital convention by multiplying orbital u by i^{l_u}.
+
+    JDFTx builds atomic orbitals in reciprocal space as Ylm(k+G) f_l(|k+G|) (SpeciesInfo_internal.h::Vnl_calc)
+    with no i^l factor. By the plane-wave expansion e^{iG.r} = 4pi sum_l i^l j_l(Gr) sum_m Ylm(G)Ylm(r), the
+    real-space orbital is then i^l times the real orbital, so the dumped projections are
+    T_raw = <i^l phi_real|O|psi> = (-i)^l T_real, and T_real = i^l T_raw. JDFTx's own Wannier code applies
+    the same phase (`lPhase = cis(0.5*M_PI*l)` in wannier/WannierMinimizer.cpp), but dumpProjections does not.
+
+    Without this, Re[T*_u T_v] is ~0 for orbital pairs with odd l_u - l_v (s-p, p-d), so those interactions
+    vanish from pCOMO/pCOOP/pCOHP/pCOBI. |T|^2 (pDOS) is unaffected. See notes/theory_audit.md, finding F1.
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray[COMPLEX_DTYPE]
+        Projections in shape (nstates, nbands, nproj), as dumped by JDFTx.
+    l_u : np.ndarray[int]
+        Angular momentum of each orbital, in shape (nproj,).
+    """
+    # Exact powers of i (avoids floating-point noise from 1j**l)
+    phase_u = np.array([1, 1j, -1, -1j], dtype=COMPLEX_DTYPE)[np.asarray(l_u) % 4]
+    return np.asarray(proj_tju * phase_u[np.newaxis, np.newaxis, :], dtype=COMPLEX_DTYPE)
+
+
 def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
     """Perform LOS on projections for projection orthogonality.
 

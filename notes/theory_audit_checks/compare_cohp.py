@@ -18,6 +18,8 @@ from crawfish.funcs.pcohp import get_ipcohp, get_ipcomo
 
 calc = sys.argv[1]
 edata = ElecData.from_calc_dir(calc)
+if "--legacy" in sys.argv[2:]:
+    edata.legacy_orbital_phase = True  # pre-F1 behaviour, as recorded in notes/theory_audit.md section 6
 print("crawfish settings: los_orbs", edata.los_orbs, "p_uu_consistent", edata.p_uu_consistent,
       "norm_eigs_for_h", edata.norm_eigs_for_h, "trim", edata.trim_excess_bands)
 
