@@ -268,6 +268,120 @@ def get_orb_l_u_from_bandfile_filepath(bandfile_filepath: Path | str) -> np.ndar
     return np.array(l_u, dtype=int)
 
 
+def get_kpoint_offset_from_outfile_filepath(outfile_filepath: str | Path) -> np.ndarray[REAL_DTYPE] | None:
+    r"""Return the single `kpoint` offset that JDFTx folded into the Monkhorst-Pack mesh, or None.
+
+    Reads the input echo of the last JDFTx run in the out file. Returns None unless exactly one `kpoint` line is
+    present (an explicit k-point list is not a folded mesh).
+    r"""
+    offsets = []
+    text = read_file(outfile_filepath)
+    start, end = get_outfile_slice_bounds(text, slice_idx=-1)
+    for line in text[start:end]:
+        tokens = line.split()
+        if len(tokens) >= 4 and tokens[0] == "kpoint":
+            offsets.append([float(x) for x in tokens[1:4]])
+    if len(offsets) != 1:
+        return None
+    return np.array(offsets[0], dtype=np.float64)
+
+
+def get_time_reversal_unfolding(
+    ks_raw: np.ndarray, w_raw: np.ndarray, nspin: int, kfolding, k0, tol: float = 1e-5
+) -> dict | None:
+    r"""Map a k-mesh JDFTx reduced only by time reversal (k <-> -k) back onto the full Monkhorst-Pack mesh.
+
+    JDFTx folds the offset k0 into the mesh k = (k0 + i) / kfolding with i0 slowest and i2 fastest, each
+    coordinate reduced to (-0.5, 0.5] (ElecInfo.cpp), and states are spin-major. With `kpoint-reduce-inversion
+    yes` (the default) and no other symmetry, it keeps one of each k / -k pair with twice the weight. This
+    returns, for each full-mesh state in that order, the computed state it comes from and whether it is the
+    partner -k (to be complex-conjugated).
+
+    Returns None if the computed k-points are already the full mesh, or if they aren't exactly a k <-> -k
+    reduction of it with JDFTx's weights (e.g. a point-group reduction, or an explicit k-point list).
+
+    Returns
+    -------
+    dict | None
+        "src_t": int array (nstates_full,), the computed state for each full-mesh state;
+        "conj_t": bool array, True where the state is the -k partner of its source;
+        "ks_t": float array (nstates_full, 3), the full-mesh k-points;
+        "wfactor_t": float array, the factor that splits the source's weight over its 1 or 2 images.
+    r"""
+    ks_raw = np.asarray(ks_raw, dtype=np.float64)
+    w_raw = np.asarray(w_raw, dtype=np.float64)
+    if k0 is None or len(ks_raw) % nspin:
+        return None
+    nk_raw = len(ks_raw) // nspin
+    kfolding = [int(x) for x in kfolding]
+    i = np.stack(np.meshgrid(*[np.arange(n) for n in kfolding], indexing="ij"), -1).reshape(-1, 3)
+    grid = (np.mod(np.asarray(k0, dtype=np.float64), 1.0)[None, :] + i) / np.array(kfolding)[None, :]
+    grid[grid > 0.5] -= 1.0
+    nk_full = len(grid)
+    if nk_raw >= nk_full:
+        return None
+    k_spin = ks_raw[:nk_raw]
+    for s in range(1, nspin):  # JDFTx gives every spin channel the same k-points
+        if not np.allclose(ks_raw[s * nk_raw : (s + 1) * nk_raw], k_spin, atol=tol):
+            return None
+
+    def _match(diff):
+        return np.all(np.abs(diff - np.round(diff)) < tol, axis=-1)
+
+    same = _match(grid[:, None, :] - k_spin[None, :, :])  # (nk_full, nk_raw)
+    partner = _match(grid[:, None, :] + k_spin[None, :, :])
+    src_k = np.full(nk_full, -1, dtype=np.int64)
+    conj_k = np.zeros(nk_full, dtype=bool)
+    for g in range(nk_full):
+        if same[g].any():
+            src_k[g] = int(np.argmax(same[g]))
+        elif partner[g].any():
+            src_k[g] = int(np.argmax(partner[g]))
+            conj_k[g] = True
+        else:
+            return None
+    mult = np.bincount(src_k, minlength=nk_raw)
+    if np.any(mult == 0) or np.any(mult > 2):
+        return None
+    # JDFTx weights must be (images represented) x (weight of one full-mesh k-point), in every spin channel
+    for s in range(nspin):
+        w_unit = w_raw[s * nk_raw : (s + 1) * nk_raw] / mult
+        if not np.allclose(w_unit, w_unit[0], rtol=1e-4):
+            return None
+    src_t = np.concatenate([s * nk_raw + src_k for s in range(nspin)])
+    return {
+        "src_t": src_t,
+        "conj_t": np.tile(conj_k, nspin),
+        "ks_t": np.tile(grid, (nspin, 1)),
+        "wfactor_t": 1.0 / mult[np.tile(src_k, nspin)],
+    }
+
+
+def get_orb_shell_u_from_bandfile_filepath(bandfile_filepath: Path | str) -> np.ndarray[int]:
+    r"""Get a shell index for each orbital projection: orbitals share an index iff same atom, l and shell n.
+
+    Uses the same header and orbital order as `get_orb_l_u_from_bandfile_filepath`. A shell holds all (2l+1) m
+    (times the spinor copies), which the point group only mixes among themselves.
+    r"""
+    l_u = get_orb_l_u_from_bandfile_filepath(bandfile_filepath)
+    nspecies = get_nspecies_from_bandfile_filepath(bandfile_filepath)
+    bandfile = read_file(bandfile_filepath)
+    shell_u: list[int] = []
+    shell = 0
+    for text in bandfile[2 : nspecies + 2]:
+        tokens = text.split()
+        natoms, norbs_per_atom, lmax = int(tokens[1]), int(tokens[2]), int(tokens[3])
+        nshells = [int(tokens[4 + l]) for l in range(lmax + 1)]
+        ncopies = norbs_per_atom // sum((2 * l + 1) * nshells[l] for l in range(lmax + 1))
+        for _ in range(natoms):
+            for l in range(lmax + 1):
+                for _ in range(nshells[l]):
+                    shell_u += [shell] * ((2 * l + 1) * ncopies)
+                    shell += 1
+    assert len(shell_u) == len(l_u)
+    return np.array(shell_u, dtype=int)
+
+
 def is_complex_bandfile_filepath(bandfile_filepath: str | Path) -> bool:
     r"""Determine if bandprojections file is complex.
 
@@ -646,7 +760,7 @@ def _get_arbitrary_wk(nk: int, nspin: int) -> np.ndarray[REAL_DTYPE]:
 
 
 def get_wk_t(
-    kptsfile_filepath: Path | str | None, nspin: int, kfolding: list[int], lti: bool
+    kptsfile_filepath: Path | str | None, nspin: int, kfolding: list[int], lti: bool, legacy: bool = False
 ) -> np.ndarray[REAL_DTYPE]:
     r"""Return weights for k-points.
 
@@ -662,6 +776,10 @@ def get_wk_t(
         Number of spins.
     lti : bool
         Whether or not the nSpin * nk-pts == nStates.
+    legacy : bool
+        Reproduce the pre-F5 check (notes/theory_audit.md), which compared the number of weights (one per state,
+        nspin * nk) with nk. For spin-polarized symmetry-reduced meshes that always failed, so the file's
+        non-uniform weights were replaced by uniform ones.
     r"""
     nk = np.prod(kfolding)
     if kptsfile_filepath is None:
@@ -670,7 +788,9 @@ def get_wk_t(
         wk, ks, nstates = parse_kptsfile(kptsfile_filepath)
         wk = np.array(wk, dtype=REAL_DTYPE)
         if not lti:
-            if not len(wk) == nk:
+            # The kPts file holds one weight per state (spin and k-point)
+            n_expected = nk if legacy else nspin * nk
+            if not len(wk) == n_expected:
                 warnings.warn(
                     "Kpts file does not match expected number of k-points. k-point weights will be meaningless.",
                     stacklevel=2,

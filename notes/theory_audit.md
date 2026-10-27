@@ -12,6 +12,13 @@ References at the end. Every numbered "Check" can be rerun with the scripts in `
 
 ---------------------------------------------------------------------------------------------------------------
 
+## 0a. Status (2026-10-27)
+
+F1–F4 are committed. F5, including default time-reversal unfolding, is implemented, tested and documented on
+`theory_check` (uncommitted); its `result_changes.py` entry is due after commit. The next findings are F6 (normalization), F7 (docs), F8 (filling
+helpers), F9 (spinors), F10 (misc), F11 (too few bands; add the section 2.4 diagnostics), and F12 (point-group
+unfolding, future).
+
 ## 0. How to resume
 
 1. Read section 1 (summary table) and section 2 (the target formalism, in crawfish's array conventions).
@@ -32,13 +39,15 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | F1 | P0 | JDFTx projections for orbitals with odd l carry a factor of i^l (relative to real orbitals). Crawfish takes `Re[T*_u T_v]`, which is identically ~0 for s–p, p–d (odd Δl) pairs. All s–p hybridization is dropped from pCOMO/pCOOP/pCOHP/pCOBI. | JDFTx source + Check 1 | No | **fixed** in `a22c558` (2026-10-27); legacy via `legacy_orbital_phase=True`; `result_changes.py` entry added |
 | F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | **fixed** in `3d9ab1b` (2026-10-27); legacy via `legacy_matrices=True`; `result_changes.py` entry added |
 | F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | **fixed** in `ceffa10` (2026-10-27); legacy via `legacy_lattice_image=True`; `result_changes.py` entry added |
-| F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_fillings=True`; `result_changes.py` entry to add after commit |
-| F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | open |
+| F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | **fixed** in `756f9e0` (2026-10-27); legacy via `legacy_fillings=True`; `result_changes.py` entry added |
+| F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_reduced_kmesh=True`; `result_changes.py` entry to add after commit |
 | F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | open |
 | F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | open |
 | F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. | Check 3 | No | open |
 | F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | open |
 | F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | open |
+| F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27 | No | open (README now warns) |
+| F12 | P2 | Meshes reduced by a point group (JDFTx `symmetries automatic`) can't give single-bond or m-resolved results; crawfish guards them (F5). Full unfolding with the symmetry operations would lift this. Time-reversal-only reductions are already unfolded (F5). | F5 work | No (`dump End Symmetries` exists) | open, future work |
 | U1 | — | Optional upstream improvements: apply the i^l phase in `dumpProjections` (as the Wannier code does), dump the AO overlap S(k) = <phi\|O\|phi> (and optionally <phi\|H\|phi>), and use higher precision or binary projections. None of these is required for the crawfish-only fixes. | — | Yes | not started |
 
 ---------------------------------------------------------------------------------------------------------------
@@ -648,6 +657,75 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   full-star sums are requested. Fix the `len(wk)` comparison (compare with nstates). Time-reversal-only reduction
   would be acceptable for Re[] quantities (C(−k) = C(k)* for real orbitals without SOC), but JDFTx can't produce it
   alone: `symmetries none` disables inversion reduction too. So "full mesh" is the practical requirement.
+
+**Implementation record for F5 (2026-10-27, branch `theory_check`, not yet committed):**
+- Weights:
+  - `io/data_parsing.py::get_wk_t(..., legacy=False)` compares the number of weights with nspin·nk (one per
+    state). Legacy compared it with nk, which always failed for spin-polarized reduced meshes and replaced the
+    weights with uniform ones.
+  - `ElecData.wk_t` falls back to the per-state weights in the bandProjections header
+    (`parse_kptsfrom_bandfile_header`) when kPts is missing. Legacy used uniform weights summing to nspin.
+- Guard:
+  - `utils/lattice.py::check_reduced_kmesh(edata, orbs, what, image)` is called from every
+    `funcs/pcohp._get_*_tj` and from `funcs/dos.get_pdos`/`get_ipdos`.
+  - On a reduced mesh (`ElecData.kmesh_is_reduced`, i.e. JDFTx `lti_allowed` False), single-image pair spectra
+    raise, including the default `image="nearest"` and (0,0,0).
+  - `image="all"` pair spectra, and pDOS of anything but every orbital, warn. The warning names incomplete
+    orbital shells (`ElecData.orb_shell_u` from `io/data_parsing.get_orb_shell_u_from_bandfile_filepath`; one
+    index per atom, l and shell n).
+- Setting `legacy_reduced_kmesh` (default False, cache key `lgkm`) restores the old weights and turns the guard
+  off. In fixed mode the generic "Internal inconsistency" warning from `_get_lti_allowed` is silenced, since the
+  guard replaces it. `fixcompare.LEGACY_FLAGS["F5"]` was renamed from the proposed `legacy_kpoint_weights`.
+- Why single images raise rather than warn: the reduced-mesh error for a single bond isn't small. A k-point
+  stands in for its star, whose k-points belong to other, equivalent bonds, so a single bond's sum is biased.
+  Only the average over the equivalent bonds is exact. For a single atom's l-complete pDOS the bias averages out
+  over the atom's orbit (exact in graphene, where both C are equivalent and orbit-averaged), so pDOS only warns.
+- Test data: `graphene_zspin_full` (`symmetries none`, 144 k per spin, 53 s) and `graphene_zspin_symm`
+  (`symmetries automatic`, 19 k per spin with 5 distinct weights, 8 s). Both are ideal graphene, z-spin,
+  12×12×1, 20 bands, GBRV v1.2 C, run locally; READMEs inside. A first attempt with 8 bands revealed F11.
+- Results (IpCOHP in Ha; full / reduced-legacy / reduced-fixed):
+  - C1–C2 all images: −1.50268 / −1.47588 / −1.50264
+  - s–s all images: −0.13667 / −0.16354 / −0.13667
+  - pz–pz all images: −0.16319 / −0.16941 / −0.16319
+  - px–px all images: −0.14881 / −0.30163 / −0.31527 (warns)
+  - one bond, R=0: −0.50127 / −1.12406 / raises
+  - C1 occupied pDOS: 3.9669 / 3.9643 / 3.9668
+  - On the full mesh the three bonds are identical (−0.50127 each) and sum with further shells to −1.5027.
+- **Time-reversal unfolding (added 2026-10-27, on by default):**
+  - `io/data_parsing.py::get_time_reversal_unfolding(ks_raw, w_raw, nspin, kfolding, k0)` rebuilds JDFTx's MP
+    grid: k = (k0 mod 1 + i)/fold, i2 fastest, reduced to (−0.5, 0.5] (`ElecInfo.cpp`). It maps every grid point
+    to a computed k (directly, or as its −k partner) and checks that the JDFTx weights equal multiplicity ×
+    one-point weight in each spin channel. It returns the source state, conjugation flag, full-mesh k-points and
+    weight factor, or None (already full; point-group reduced; explicit k-point list).
+    `get_kpoint_offset_from_outfile_filepath` reads the single `kpoint` line of the last run's input echo.
+  - `ElecData`: setting `unfold_time_reversal` (default True, cache key `utr`). It isn't applied for spinor runs
+    or with `legacy_reduced_kmesh`.
+    - `tr_unfolding` / `time_reversal_unfolded` report the map. `nstates_file` is the computed count, `nstates`
+      the unfolded one.
+    - `_unfold_states` re-indexes `e_tj` and the fillings-file occupations.
+    - `_set_proj_tju` conjugates the partner projections after the F1 phase fix, using T(−k) = T(k)*. Under
+      `legacy_orbital_phase` it uses T(−k) = (−1)^l T(k)*.
+    - `wk_t` splits pair weights; `ks_t` and `kfolding` give the full mesh; `lti_allowed` is True.
+    - `_reset_kpoint_arrays` clears every state-indexed array when the setting (or `legacy_reduced_kmesh`)
+      changes.
+  - Theory: without SOC each collinear spin channel has a real Hamiltonian, so ψ(−k) = ψ(k)* up to a band phase
+    and ε(−k) = ε(k). JDFTx's Bloch sums satisfy φ(−k) = φ(k)* for real orbitals. The band phase cancels in every
+    C*·M·C product.
+  - Test data: `graphene_zspin_tr` (about 0.6 MB). It is the same input as `graphene_zspin_full`, but with
+    `symmetries manual` and only the identity `symmetry-matrix`. JDFTx reduced it to 74 k per spin (4
+    self-conjugate + 70 pairs at doubled weight) in 29 s.
+  - Results vs. the full mesh: k-points identical, weights within 5e-10, eigenvalues within 3e-6 (separate SCF
+    runs). Single bond R=0: −0.50126 vs −0.50127; px–px all images: −0.14880 vs −0.14881; px pDOS: 1.03889 vs
+    1.03893; LTI allowed. With `unfold_time_reversal=False` the mesh is reduced and single images raise.
+  - Full point-group unfolding stays future work. It needs `dump End Symmetries` (the `sym` file), rotation
+    matrices for JDFTx's real Ylm (with the i^l convention), atom permutations and translation phases (tied to F3
+    bookkeeping). JDFTx's `ColumnBundleTransform` is the reference for conventions. Logged as F12.
+- Tests: `tests/core/test_reduced_kmesh.py` (15, including 6 for unfolding). Full suite: 159 passed.
+- Docs: a README "JDFTx settings" table and reduced-mesh rules; CLAUDE.md settings list; the F5 section of
+  `F4_F8_inputs_and_normalization.ipynb` (`figures/F5_reduced_mesh_weights.png`,
+  `figures/F5_reduced_mesh_quantities.png`).
+- `result_changes.py`: the F4 entry was added (`756f9e0`). **The F5 entry still has to be added after this work is
+  committed** (stage "matrices": the weights feed every matrix and cached weight array).
 
 ### F6: spectrum normalization (P1)
 

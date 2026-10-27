@@ -45,7 +45,7 @@ LEGACY_FLAGS = {
     "F2": "legacy_matrices",
     "F3": "legacy_lattice_image",
     "F4": "legacy_fillings",
-    "F5": "legacy_kpoint_weights",
+    "F5": "legacy_reduced_kmesh",
     "F6": "legacy_normalization",
 }
 # F8 (crashing/inverted occupation helpers) is a bug fix without a legacy switch (notes section 4.0), so its

@@ -83,4 +83,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="Pair spectra use the nearest lattice image per atom pair (notes/theory_audit.md F3; "
         "legacy_lattice_image restores same-cell pairing)",
     ),
+    ResultChange(
+        commit="756f9e04d601eee978726455b1ebefbc82a65457",
+        version="1.0.0",
+        stage="matrices",
+        description="Divide no-spin JDFTx fillings files by the spin weight (notes/theory_audit.md F4; "
+        "legacy_fillings restores the raw values)",
+    ),
 ]

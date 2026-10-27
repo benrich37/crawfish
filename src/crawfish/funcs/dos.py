@@ -6,6 +6,7 @@ Module for user methods to get DOS and PDOS spectra.
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
+from crawfish.utils.lattice import check_reduced_kmesh
 from crawfish.utils.arg_correction import edata_input_to_edata
 from crawfish.funcs.general import get_generic_spectrum, SIGMA_DEFAULT, RES_DEFAULT, get_generic_integrate, evaluate_or_retrieve_generic_spectrum
 from pathlib import Path
@@ -127,6 +128,7 @@ def get_pdos(
     """
     edata = edata_input_to_edata(edata_input)
     orb_idcs = get_orb_idcs(edata, idcs, elements, orbs)
+    check_reduced_kmesh(edata, orb_idcs, "pDOS")
     pdos_tj = get_pdos_tj(edata.proj_tju, orb_idcs, edata.wk_t)
     kwargs = {
         "erange": erange,
@@ -157,6 +159,7 @@ def get_ipdos(
 ):
     edata = edata_input_to_edata(edata_input)
     orb_idcs = get_orb_idcs(edata, idcs, elements, orbs)
+    check_reduced_kmesh(edata, orb_idcs, "pDOS")
     pdos_tj = get_pdos_tj(edata.proj_tju, orb_idcs, edata.wk_t)
     kwargs = {
         "spin_pol": spin_pol,

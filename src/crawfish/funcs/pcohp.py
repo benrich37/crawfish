@@ -10,7 +10,7 @@ from crawfish.core.operations.matrix import (
     _get_gen_tj_block,
     get_spin_idx_t,
 )
-from crawfish.utils.lattice import get_orb_atom_idx_u, get_pair_image_map, normalize_image
+from crawfish.utils.lattice import get_orb_atom_idx_u, get_pair_image_map, normalize_image, check_reduced_kmesh
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
@@ -307,6 +307,7 @@ def _get_pcohp_tj(
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
     image = _resolve_image(state_sep, image)
+    check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOHP", image)
     compute_func = lambda u, v: _compute_pcohp_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcohp", orbs_u, orbs_v, compute_func, use_cache, image)
 
@@ -466,6 +467,7 @@ def _get_pcomo_tj(
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
     image = normalize_image(image)
+    check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOMO", image)
     compute_func = lambda u, v: _compute_pcomo_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcomo", orbs_u, orbs_v, compute_func, use_cache, image)
 
@@ -616,6 +618,7 @@ def _get_pcoop_tj(
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
     image = _resolve_image(state_sep, image)
+    check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOOP", image)
     compute_func = lambda u, v: _compute_pcoop_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcoop", orbs_u, orbs_v, compute_func, use_cache, image)
 
@@ -770,6 +773,7 @@ def _get_pcobi_tj(
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
     image = _resolve_image(state_sep, image)
+    check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOBI", image)
     compute_func = lambda u, v: _compute_pcobi_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcobi", orbs_u, orbs_v, compute_func, use_cache, image)
 

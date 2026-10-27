@@ -106,3 +106,52 @@ def get_pair_image_map(
             dist = get_image_distance(edata, a, b, R)
         out[(a, b)] = (R, dist)
     return out
+
+
+REDUCED_KMESH_HINT = (
+    "Rerun JDFTx with 'symmetries none' for atom-, bond- or orbital-resolved results (notes/theory_audit.md, F5)."
+)
+
+
+def check_reduced_kmesh(edata: ElecData, orbs: list[int], what: str, image=None) -> None:
+    """Guard atom/bond/orbital-resolved quantities on a symmetry-reduced k-mesh (notes/theory_audit.md, F5).
+
+    On a mesh reduced by the point group, a quantity for one atom, bond or m-orbital is averaged over its
+    symmetry-equivalent copies. It is exact only for selections the group maps onto themselves: the sum over all
+    lattice images (pair spectra), complete orbital shells, and complete sets of equivalent atoms.
+
+    Parameters
+    ----------
+    orbs : list[int]
+        All orbitals the quantity involves (both sets for pair spectra)
+    what : str
+        Name of the quantity, for the messages
+    image : str | list[int] | None
+        The lattice-image selection of a pair spectrum (None for pDOS)
+    """
+    if edata.legacy_reduced_kmesh or not edata.kmesh_is_reduced:
+        return
+    if image is not None and image != "all":
+        raise ValueError(
+            f"{what} for a single lattice image (image={image!r}) can't be recovered from a k-mesh reduced by "
+            "symmetry: every k-point stands in for its symmetry-equivalent ones, which belong to other, equivalent "
+            "bonds. Use image='all' (exact when summed over symmetry-equivalent atoms and complete orbital shells). "
+            + REDUCED_KMESH_HINT
+        )
+    shell_u = edata.orb_shell_u
+    selected = np.zeros(len(shell_u), dtype=bool)
+    selected[np.asarray(orbs, dtype=int)] = True
+    partial = sorted({int(shell_u[u]) for u in np.flatnonzero(selected)
+                      if not selected[shell_u == shell_u[u]].all()})
+    if image is None and selected.all():
+        return  # total DOS-like quantity: exact
+    msg = (
+        f"This calculation's k-points were reduced by symmetry. {what} for a subset of atoms is averaged over "
+        "symmetry-equivalent atoms, and is exact only when summed over complete sets of equivalent atoms."
+    )
+    if partial:
+        msg += (
+            " The selection also contains incomplete orbital shells (e.g. px without py), which the point group "
+            "mixes, so those m-resolved values are averaged as well."
+        )
+    warnings.warn(msg + " " + REDUCED_KMESH_HINT, stacklevel=4)

@@ -24,6 +24,11 @@ from crawfish.io.data_parsing import (
     get_nproj_from_bandfile_filepath,
     get_norbsperatom_from_bandfile_filepath,
     get_orb_l_u_from_bandfile_filepath,
+    get_orb_shell_u_from_bandfile_filepath,
+    parse_kptsfrom_bandfile_header,
+    get_kpoint_offset_from_outfile_filepath,
+    get_time_reversal_unfolding,
+    get_kfolding_from_outfile_filepath,
     get_e_tj_helper,
     get_proj_tju_from_file,
     is_complex_bandfile_filepath,
@@ -67,6 +72,8 @@ edata_setting_key_shorthand_dict = {
     "legacy_matrices": "lgmt",
     "legacy_lattice_image": "lgri",
     "legacy_fillings": "lgfl",
+    "legacy_reduced_kmesh": "lgkm",
+    "unfold_time_reversal": "utr",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -84,6 +91,8 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "legacy_matrices": edata.legacy_matrices,
         "legacy_lattice_image": edata.legacy_lattice_image,
         "legacy_fillings": edata.legacy_fillings,
+        "legacy_reduced_kmesh": edata.legacy_reduced_kmesh,
+        "unfold_time_reversal": edata.unfold_time_reversal,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -299,6 +308,109 @@ class ElecData:
 
     _legacy_fillings: bool = False
 
+    """
+    legacy_reduced_kmesh: If False (default), k-point weights are JDFTx's own (from kPts, or from the
+    bandProjections header when kPts is missing), and calculations whose k-points were reduced by symmetry
+    (JDFTx 'symmetries automatic', the default) are guarded. On such a mesh, a single atom, bond or m-orbital is
+    averaged over its symmetry-equivalent copies: pair spectra for one lattice image (image="nearest" or a lattice
+    vector, including (0,0,0)) raise, and image="all" pair spectra and atom/orbital-subset pDOS warn. Those are
+    exact only for selections the point group maps onto themselves (complete orbital shells, complete sets of
+    equivalent atoms). If True, the pre-fix behaviour is restored: for spin-polarized reduced meshes the kPts
+    weights were discarded for uniform ones (a length check compared nspin*nk weights with nk), and nothing was
+    guarded. Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F5.
+    """
+
+    @property
+    def legacy_reduced_kmesh(self) -> bool:
+        return self._legacy_reduced_kmesh
+
+    @legacy_reduced_kmesh.setter
+    def legacy_reduced_kmesh(self, value: bool):
+        if value != self._legacy_reduced_kmesh:
+            self._legacy_reduced_kmesh = value
+            self._reset_kpoint_arrays()
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_reduced_kmesh: bool = False
+
+    """
+    unfold_time_reversal: If True (default), a k-mesh that JDFTx reduced only by time reversal (k <-> -k: JDFTx's
+    default `kpoint-reduce-inversion yes` with no other symmetry, e.g. `symmetries manual` with only the identity
+    matrix) is unfolded onto the full Monkhorst-Pack mesh. Each -k partner gets the conjugated projections,
+    T(-k) = T(k)*, and the eigenvalues and occupations of k. Each pair's JDFTx weight is split between k and -k.
+    This is exact for collinear calculations (no-spin, z-spin), whose Hamiltonian is real in each spin channel.
+    Single bonds, chosen lattice images, m-resolved results and LTI then all work as on a full mesh. Meshes
+    reduced by a point group can't be unfolded this way and stay guarded (see legacy_reduced_kmesh). Not applied
+    when legacy_reduced_kmesh is True. See notes/theory_audit.md, finding F5.
+    """
+
+    @property
+    def unfold_time_reversal(self) -> bool:
+        return self._unfold_time_reversal
+
+    @unfold_time_reversal.setter
+    def unfold_time_reversal(self, value: bool):
+        if value != self._unfold_time_reversal:
+            self._unfold_time_reversal = value
+            self._reset_kpoint_arrays()
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _unfold_time_reversal: bool = True
+    _tr_unfolding: dict | bool | None = None
+
+    def _reset_kpoint_arrays(self) -> None:
+        """Drop every array indexed by state, so they are rebuilt for the current k-point settings."""
+        for name in ["_proj_tju", "_e_tj", "_occ_tj", "_wk_t", "_ks_t", "_kfolding", "_lti_allowed", "_nstates",
+                     "_nbands", "_tr_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv"]:
+            setattr(self, name, None)
+
+    @property
+    def tr_unfolding(self) -> dict | None:
+        """Return the time-reversal unfolding map (see get_time_reversal_unfolding), or None if not applied."""
+        if self._tr_unfolding is None:
+            self._tr_unfolding = False
+            if (self.jdftx and self.unfold_time_reversal and not self.legacy_reduced_kmesh
+                    and self.outfile.spintype in ("no-spin", "z-spin")):
+                wk, ks, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
+                unfolding = get_time_reversal_unfolding(
+                    ks, wk, self.nspin, get_kfolding_from_outfile_filepath(self.outfile_filepath),
+                    get_kpoint_offset_from_outfile_filepath(self.outfile_filepath),
+                )
+                if unfolding is not None:
+                    unfolding["w_raw"] = np.asarray(wk, dtype=np.float64)
+                    self._tr_unfolding = unfolding
+        return self._tr_unfolding or None
+
+    @property
+    def time_reversal_unfolded(self) -> bool:
+        """Return True if the k-mesh was reduced by time reversal only and has been unfolded to the full mesh."""
+        return self.tr_unfolding is not None
+
+    @property
+    def nstates_file(self) -> int:
+        """Return the number of states JDFTx computed (before any time-reversal unfolding)."""
+        return get_nstates_from_bandfile_filepath(self.bandfile_header_filepath)
+
+    def _unfold_states(self, arr: np.ndarray) -> np.ndarray:
+        """Index a per-state array (states first) onto the unfolded full mesh. Identity if not unfolded."""
+        unfolding = self.tr_unfolding
+        return arr if unfolding is None else arr[unfolding["src_t"]]
+
+    @property
+    def kmesh_is_reduced(self) -> bool:
+        """Return True if JDFTx reduced the k-point mesh by symmetry (fewer states than nspin * prod(kpoint-folding))."""
+        return bool(self.jdftx and not self.lti_allowed)
+
+    @property
+    def orb_shell_u(self) -> np.ndarray[int]:
+        """Return a shell index per orbital (same atom, l and shell n share an index), in shape (nproj,)."""
+        if self.jdftx:
+            return get_orb_shell_u_from_bandfile_filepath(self.bandfile_header_filepath)
+        raise RuntimeError("orb_shell_u is only available for JDFTx calculations")
+
     @property
     def spin_weight(self) -> int:
         """Return JDFTx's spinWeight: 2 for spintype no-spin (states hold both spins), 1 otherwise."""
@@ -455,7 +567,8 @@ class ElecData:
         """
         if self._nstates is None:
             if self.jdftx:
-                self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_header_filepath)
+                unfolding = self.tr_unfolding
+                self._nstates = self.nstates_file if unfolding is None else len(unfolding["src_t"])
         return self._nstates
 
     @property
@@ -556,7 +669,8 @@ class ElecData:
         """
         if self._e_tj is None:
             if self.jdftx:
-                self._e_tj = get_e_tj_helper(self.eigfile_filepath, self.nstates, self.nbands)
+                e_tj = get_e_tj_helper(self.eigfile_filepath, self.nstates_file, self.nbands)
+                self._e_tj = self._unfold_states(e_tj)
         return self._e_tj
 
     @e_tj.setter
@@ -613,6 +727,17 @@ class ElecData:
             self._cache_proj_tju()
         if self.jdftx and not self.legacy_orbital_phase and self.bandprojfile_is_complex:
             self._proj_tju = apply_jdftx_orbital_phase(self._proj_tju, self.orb_l_u)
+        unfolding = self.tr_unfolding if self.jdftx else None
+        if unfolding is not None:
+            # T(-k) = T(k)* for real orbitals. In JDFTx's raw convention (legacy_orbital_phase) the orbitals are
+            # i^l times real ones, which gives T(-k) = (-1)^l T(k)*.
+            proj = np.array(self._proj_tju[unfolding["src_t"]])
+            conj = unfolding["conj_t"]
+            partner = np.conj(proj[conj])
+            if self.legacy_orbital_phase:
+                partner = partner * ((-1.0) ** self.orb_l_u)[None, None, :]
+            proj[conj] = partner
+            self._proj_tju = proj
 
     def _cache_proj_tju(self) -> None:
         """ Back up bandprojections file in easier to load pieces.
@@ -722,7 +847,7 @@ class ElecData:
             else:
                 fillings = np.fromfile(self.fillingsfile_filepath)
                 fillings = np.array(fillings, dtype=REAL_DTYPE)
-                fillings = fillings.reshape(self.nstates, self.nbands)
+                fillings = self._unfold_states(fillings.reshape(self.nstates_file, self.nbands))
                 if not self.legacy_fillings:
                     # JDFTx writes no-spin fillings in [0, 2] (Dump.cpp), but wk_t already carries the factor 2
                     fillings = np.array(fillings / self.spin_weight, dtype=REAL_DTYPE)
@@ -1000,7 +1125,19 @@ class ElecData:
         """
         if self._wk_t is None:
             if self.jdftx:
-                self._wk_t = get_wk_t(self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed)
+                unfolding = self.tr_unfolding
+                if unfolding is not None:
+                    # Each pair's weight is split evenly between k and -k
+                    self._wk_t = np.array(unfolding["w_raw"][unfolding["src_t"]] * unfolding["wfactor_t"], dtype=REAL_DTYPE)
+                elif self.kptsfile_filepath is None and not self.legacy_reduced_kmesh:
+                    # The bandProjections header lists every state's k-point and weight, like kPts
+                    wk, _, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
+                    self._wk_t = np.array(wk, dtype=REAL_DTYPE)
+                else:
+                    self._wk_t = get_wk_t(
+                        self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed,
+                        legacy=self.legacy_reduced_kmesh,
+                    )
         return self._wk_t
 
     @wk_t.setter
@@ -1022,7 +1159,11 @@ class ElecData:
         """
         if self._ks_t is None:
             if self.jdftx:
-                self._ks_t = get_ks_t(self.kptsfile_filepath, self.bandfile_header_filepath)
+                unfolding = self.tr_unfolding
+                if unfolding is not None:
+                    self._ks_t = np.array(unfolding["ks_t"], dtype=REAL_DTYPE)
+                else:
+                    self._ks_t = get_ks_t(self.kptsfile_filepath, self.bandfile_header_filepath)
         return self._ks_t
     
     @ks_t.setter
@@ -1040,7 +1181,10 @@ class ElecData:
         Return kpoint folding as a list of 3 integers.
         """
         if self._kfolding is None:
-            self._kfolding = get_kfolding(self.lti_allowed, self.outfile_filepath, self.nspin, self.nstates)
+            if self.jdftx and self.time_reversal_unfolded:
+                self._kfolding = get_kfolding_from_outfile_filepath(self.outfile_filepath)
+            else:
+                self._kfolding = get_kfolding(self.lti_allowed, self.outfile_filepath, self.nspin, self.nstates)
         return self._kfolding
 
     @kfolding.setter
@@ -1076,8 +1220,15 @@ class ElecData:
         automatically reduced the k-point mesh to a non-MK pack grid, and the existence of a kpts file
         to refer to).
         """
+        if self._lti_allowed is None and self.jdftx and self.time_reversal_unfolded:
+            self._lti_allowed = True  # the unfolded states are the full mesh
         if self._lti_allowed is None:
-            self._lti_allowed = _get_lti_allowed(self.bandfile_header_filepath, self.outfile_filepath)
+            with warnings.catch_warnings():
+                if not self.legacy_reduced_kmesh:
+                    # Reduced meshes are handled (and guarded where it matters) since F5, so the generic
+                    # "internal inconsistency" warning is only kept for the legacy behaviour
+                    warnings.filterwarnings("ignore", message=".*Internal inconsistency.*")
+                self._lti_allowed = _get_lti_allowed(self.bandfile_header_filepath, self.outfile_filepath)
         return self._lti_allowed
 
     @classmethod

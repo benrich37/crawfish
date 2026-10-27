@@ -116,10 +116,28 @@ $$
 
 ## How to use `crawfish`
 
-1. **Create an `ElecData` object** `ElecData` is the class used to house all electronic data and derived tensors for a given calculation. Provided the JDFTx calculation has been run with the required settings (`band-projection-params yes no`, `dump End BandProjections` and `dump End BandEigs`), this can be done in one line as `edata = ElecData.from_calc_dir(calc_dir)`, where `ElecData` has been imported from `crawfish.core.elecdata`, and `calc_dir` is either `str` or `Path` giving the full path to your directory containing the calculation output data.
+1. **Create an `ElecData` object** `ElecData` is the class used to house all electronic data and derived tensors for a given calculation. Provided the JDFTx calculation has been run with the required settings (see "JDFTx settings" below), this can be done in one line as `edata = ElecData.from_calc_dir(calc_dir)`, where `ElecData` has been imported from `crawfish.core.elecdata`, and `calc_dir` is either `str` or `Path` giving the full path to your directory containing the calculation output data.
 2. **Change desired settings** If there are any parameters you wish to change that effect the computed tensors required for pCOHP analysis (ie `edata.los_orbs`), you can change these values in the typical fashion (`edata.los_orbs = False`) triggering a re-evaluation of the affected tensors with this change in mind. If you have multiple settings you want to change, you can avoid repeated re-evaluations by changing the setting's private value (`edata._los_orbs = False`) and either remembering to change the final setting through the public value or by running `edata.alloc_elec_data()`.
 3. **Import function(s) for desired analysis** All spectrum-generating functions for a given analysis technique "<mode>" can be imported from `crawfish.funcs.<mode>`, which will contain a dos-like spectrum-generating function `get_<mode>` and a spectrum integrating function `get_i<mode>`.
 4. **Generate spectra and plot** Dos-like generating functions and spectrum integrating function will both return a length-2 tuple `erange, spectrum`, corresponding to the spectrum values and their corresponding energy-axis values. If you are unfamiliar with plotting in python, this can be easily done with `matplotlib` (the installation of this library ensures your python environment has this package) by importing `import matplotlib.pyplot as plt` and running `plt.plot(erange, spectrum)`. The arguments for these functions can all be checked in the docustrings for the function definitions.
+
+### JDFTx settings
+
+| setting | why |
+|---|---|
+| `dump End BandProjections BandEigs Fillings Kpoints` | Projections, eigenvalues, occupations and k-point weights. `Fillings` and `Kpoints` are optional but recommended. Without them, occupations are computed from the smearing, and weights are read from the `bandProjections` header. |
+| `band-projection-params yes no` | Complex projections onto orthonormalized orbitals, for pCOHP/pCOBI/pCOMO. Use `no no` for pCOOP, which is identically zero in an orthonormal basis. |
+| `symmetries none`, or `symmetries manual` with only the identity `symmetry-matrix 1 0 0  0 1 0  0 0 1  0 0 0` | Needed for results resolved by atom, bond or m-orbital (see below). The identity-only option is about 2× cheaper: JDFTx then reduces only k ↔ −k, and crawfish unfolds that exactly. |
+| `elec-n-bands` well above the number of orbitals | The bands must span the atomic orbitals at every k-point, including antibonding (σ*) states. With too few bands (e.g. as many bands as orbitals), the orbital basis is ill-conditioned at some k-points and pair spectra become unreliable without any error. |
+
+**Time-reversal-reduced k-meshes are unfolded.** With `kpoint-reduce-inversion yes` (the JDFTx default) and no other symmetry, JDFTx keeps one of each k/−k pair. For collinear calculations (`no-spin`, `z-spin`) the Hamiltonian of each spin channel is real, so T(−k) = T(k)* and ε(−k) = ε(k). crawfish detects such a mesh and unfolds it onto the full Monkhorst–Pack mesh, splitting each pair's weight. All results, including single bonds and m-resolved ones, are then the same as for `symmetries none`: within about 1e-4 in the graphene test. This is on by default and controlled by `edata.unfold_time_reversal`, which is part of the cache key. `edata.time_reversal_unfolded` reports whether it was applied.
+
+**Symmetry-reduced k-meshes.** With JDFTx's default `symmetries automatic`, only irreducible k-points are computed. Each one stands in for its symmetry-equivalent k-points, so a quantity for one atom, bond or m-orbital is averaged over its symmetry-equivalent copies. On such a mesh crawfish:
+- uses JDFTx's symmetry weights;
+- raises an error for pair spectra of a single lattice image, including the default `image="nearest"`;
+- warns for `image="all"` pair spectra and for pDOS of a subset of orbitals.
+
+Results remain exact only for selections the point group maps onto themselves: the sum over all images, complete orbital shells, and complete sets of equivalent atoms. In a graphene test, the all-image C1–C2 pCOHP and atom-total pDOS match the full-mesh values, while a single bond came out 2.2× too strong, and px–px 2× too strong. `edata.legacy_reduced_kmesh = True` restores the old behaviour, which used uniform weights for spin-polarized reduced meshes and had no guard (`notes/theory_audit.md`, finding F5).
 
 ## Creating your own `ElecData`
 
