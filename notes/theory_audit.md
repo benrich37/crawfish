@@ -31,8 +31,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 |----|-----|---------|----------|------------------|--------|
 | F1 | P0 | JDFTx projections for orbitals with odd l carry a factor of i^l (relative to real orbitals). Crawfish takes `Re[T*_u T_v]`, which is identically ~0 for s–p, p–d (odd Δl) pairs. All s–p hybridization is dropped from pCOMO/pCOOP/pCOHP/pCOBI. | JDFTx source + Check 1 | No | **fixed** in `a22c558` (2026-10-27); legacy via `legacy_orbital_phase=True`; `result_changes.py` entry added |
 | F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | **fixed** in `3d9ab1b` (2026-10-27); legacy via `legacy_matrices=True`; `result_changes.py` entry added |
-| F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_lattice_image=True`; `result_changes.py` entry to add after commit |
-| F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | open |
+| F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | **fixed** in `ceffa10` (2026-10-27); legacy via `legacy_lattice_image=True`; `result_changes.py` entry added |
+| F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_fillings=True`; `result_changes.py` entry to add after commit |
 | F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | open |
 | F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | open |
 | F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | open |
@@ -603,6 +603,35 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 - **Fix:** divide by 2 when `nspin == 1` and the run is not spinor (equivalently, divide by the JDFTx
   `spinWeight`). Sanity-check that Σ w f equals nElectrons from the outfile. Remove the `/ max(occ)` hack in
   `funcs/general.py::get_generic_integrate`.
+
+**Implementation record for F4 (2026-10-27, branch `theory_check`, not yet committed):**
+- `ElecData.occ_tj`: when read from a `fillings` file (not legacy), divides by `ElecData.spin_weight`, which is
+  JDFTx's `spinWeight`: 2 for `outfile.spintype == "no-spin"`, 1 otherwise; for non-JDFTx data, 2 if nspin == 1.
+  It then calls `_check_electron_count`, which warns if Σ w f differs from `outfile.total_electrons` by more than
+  1%. Occupations computed from mu and the smearing were already in [0, 1] and are untouched.
+- `funcs/general.py::get_generic_integrate(use_fillings=True)` no longer divides occupations by `max(occ_tj)`;
+  the legacy path keeps the division.
+- Setting `legacy_fillings` (default False, cache key `lgfl`). Its setter resets `_occ_tj`, `_e_tj` and `_nbands`
+  so that band trimming re-runs on fresh arrays, then calls `_init_caches()` and `alloc_elec_data()`.
+- **Fixture:** `tests/files/io/example_calc_dirs/N2_nospin`, about 60 KB, with a README. The drive search found
+  no no-spin runs: 1,126 bandProjections were checked on `/Volumes/Ext4TB/scratch_backup` before stopping. So the
+  calculation was run locally with `~/Desktop/jdftx_hold/build_master/jdftx -c 8` in 38 s. It is gas-phase N2
+  with the same geometry and box as `N2_bare_min`, GBRV v1.2 `n_pbe_v1.2.uspp` from that build, no fluid, a
+  2×2×2 mesh and `symmetries none`.
+- **Results:** the raw file peaks at 2.0 and the weights sum to 2. Legacy N_e is 20 (outfile: 10); fixed is 10.
+  IpCOBI N1–N2 is 2.978 legacy vs 1.489 fixed. IpCOHP is −0.8668 in both, because H has no occupations and the
+  old max(occ) rescaling hid the factor in integrated spectra. Fixed no-spin agrees with the z-spin `N2_bare_min`
+  (IpCOBI 1.493, IpCOHP −0.8668), and z-spin results are identical in legacy and fixed.
+- README: a new "Occupations and k-point weights" section. The non-JDFTx instructions now say weights sum to 2
+  (they said nspin, which undercounts unpolarized data by half). CLAUDE.md conventions are updated too.
+  `_get_arbitrary_wk` still gives Σw = nspin (F10, open).
+- Tests: `tests/core/test_fillings.py` (8 tests: z-spin invariance, the electron-count warning, integration
+  without max rescaling, no-spin halving, file vs. computed occupations, legacy pCOBI ×2, and no-spin vs.
+  z-spin agreement). Full suite: 144 passed.
+- Notebook: the F4 section of `F4_F8_inputs_and_normalization.ipynb` compares legacy and fixed for no-spin and
+  z-spin (`figures/F4_nospin_fillings.png`).
+- `result_changes.py`: the F3 entry was added (`ceffa10`). **The F4 entry still has to be added after this work is
+  committed** (stage "matrices": occupations feed D and the cached weights).
 
 ### F5: symmetry-reduced k-meshes (P1)
 

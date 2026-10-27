@@ -76,4 +76,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="Signed projected H/S/D matrices for pair spectra (notes/theory_audit.md F2; "
         "legacy_matrices restores the old behaviour)",
     ),
+    ResultChange(
+        commit="ceffa108c91fd4acbe971d8818a7216b2a76a2c0",
+        version="1.0.0",
+        stage="matrices",
+        description="Pair spectra use the nearest lattice image per atom pair (notes/theory_audit.md F3; "
+        "legacy_lattice_image restores same-cell pairing)",
+    ),
 ]

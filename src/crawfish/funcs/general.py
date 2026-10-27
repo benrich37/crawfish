@@ -42,7 +42,11 @@ def get_generic_integrate(
     _weights_tj = weights_tj.copy()
     weights_sabcj = _weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if use_fillings:
-        weights_sabcj *= edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands]) / np.max(edata.occ_tj)
+        occ_sabcj = edata.occ_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
+        if edata.legacy_fillings:
+            # Pre-F4 behaviour: rescale by the largest occupation (hid the x2 of no-spin fillings files)
+            occ_sabcj = occ_sabcj / np.max(edata.occ_tj)
+        weights_sabcj *= occ_sabcj
     es = None
     if spin_pol:
         cs = []

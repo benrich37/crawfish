@@ -66,6 +66,7 @@ edata_setting_key_shorthand_dict = {
     "legacy_orbital_phase": "lgph",
     "legacy_matrices": "lgmt",
     "legacy_lattice_image": "lgri",
+    "legacy_fillings": "lgfl",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -82,6 +83,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "legacy_orbital_phase": edata.legacy_orbital_phase,
         "legacy_matrices": edata.legacy_matrices,
         "legacy_lattice_image": edata.legacy_lattice_image,
+        "legacy_fillings": edata.legacy_fillings,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -267,6 +269,42 @@ class ElecData:
             self._init_caches()
 
     _legacy_lattice_image: bool = False
+
+    """
+    legacy_fillings: If False (default), occupations read from a JDFTx `fillings` file are divided by JDFTx's spin
+    weight (2 for spintype no-spin, 1 otherwise). JDFTx writes fillings in [0, 2] for no-spin calculations
+    (Dump.cpp multiplies its internal [0, 1] fillings by 2 before writing), while the k-point weights already carry
+    the factor 2, so the raw file double-counts electrons. Occupations computed from mu and the smearing are
+    already in [0, 1]. Integrated spectra (get_i*) then weight states by these occupations directly. If True, the
+    raw file values are used, and integrated spectra divide occupations by their maximum (the pre-fix behaviour,
+    which hid the factor 2 for integrated spectra but not for the density matrix).
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F4.
+    """
+
+    @property
+    def legacy_fillings(self) -> bool:
+        return self._legacy_fillings
+
+    @legacy_fillings.setter
+    def legacy_fillings(self, value: bool):
+        if value != self._legacy_fillings:
+            self._legacy_fillings = value
+            # Reload occupations (and the band-dependent arrays trimming may have cut) before re-processing
+            self._occ_tj = None
+            self._e_tj = None
+            self._nbands = None
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_fillings: bool = False
+
+    @property
+    def spin_weight(self) -> int:
+        """Return JDFTx's spinWeight: 2 for spintype no-spin (states hold both spins), 1 otherwise."""
+        if self.jdftx:
+            return 2 if self.outfile.spintype == "no-spin" else 1
+        return 2 if self.nspin == 1 else 1
 
     @property
     def trim_excess_bands(self) -> bool:
@@ -685,8 +723,27 @@ class ElecData:
                 fillings = np.fromfile(self.fillingsfile_filepath)
                 fillings = np.array(fillings, dtype=REAL_DTYPE)
                 fillings = fillings.reshape(self.nstates, self.nbands)
+                if not self.legacy_fillings:
+                    # JDFTx writes no-spin fillings in [0, 2] (Dump.cpp), but wk_t already carries the factor 2
+                    fillings = np.array(fillings / self.spin_weight, dtype=REAL_DTYPE)
+                    self._check_electron_count(fillings)
                 self._occ_tj = fillings
         return self._occ_tj
+
+    def _check_electron_count(self, occ_tj: np.ndarray[REAL_DTYPE]) -> None:
+        """Warn if sum_t w_t sum_j f_tj differs from the electron count JDFTx reports (notes/theory_audit.md, F4)."""
+        if not self.jdftx:
+            return
+        n_expected = getattr(self.outfile, "total_electrons", None)
+        if n_expected is None:
+            return
+        n_found = float(np.sum(np.asarray(self.wk_t, dtype=np.float64)[:, None] * occ_tj))
+        if abs(n_found - n_expected) > 1e-2 * max(1.0, abs(n_expected)):
+            warnings.warn(
+                f"Occupations and k-point weights give {n_found:.4f} electrons, but the outfile reports "
+                f"{n_expected:.4f}. Check the spin type and k-point weights of this calculation.",
+                stacklevel=3,
+            )
 
     @occ_tj.setter
     def occ_tj(self, value: np.ndarray[REAL_DTYPE]):

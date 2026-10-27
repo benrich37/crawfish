@@ -31,6 +31,15 @@ Spin and k-points are collapsed to a single index `t`, called a "state" (and `ns
 ### Units
 Unless otherwise indicated, all energies are in **Hartrees** and are not normalized to the Fermi level!!
 
+### Occupations and k-point weights
+crawfish follows JDFTx's convention.
+- **Occupations** $f_j(t)$ (`occ_tj`) are per state, in $[0, 1]$.
+- **k-point weights** $w_t$ (`wk_t`) carry the spin factor and sum to 2: each weight is $2/N_k$ for `spintype no-spin`, and $1/N_k$ per spin channel for `z-spin`.
+
+With these conventions the electron count is $\sum_{t,j} w_t f_j(t)$.
+
+JDFTx writes its `fillings` file in $[0, 2]$ for `no-spin` calculations, so crawfish divides it by 2 when reading it. It then warns if the electron count disagrees with the outfile. Before this was fixed, the raw file values were used, which doubled the electron count, the density matrix and pCOBI for unpolarized calculations. Integrated spectra hid this by dividing occupations by their maximum. Both old behaviours are still available through `edata.legacy_fillings = True`, which is part of the cache key (`notes/theory_audit.md`, finding F4).
+
 ### Projection modifications
 0. **Orbital phase convention (always on for JDFTx data).** JDFTx builds its atomic orbitals without the $i^l$ factor of the plane-wave expansion, so each dumped projection onto an orbital of angular momentum $l$ is $(-i)^l$ times the projection onto the corresponding real orbital. `crawfish` multiplies JDFTx projections by $i^l$ when loading them, which puts every orbital in the real convention. Before this correction, $Re[T_{\mu,j}^*T_{\nu,j}]$ was essentially zero for orbital pairs whose $l$ differs by an odd number (s-p, p-d), so those interactions were missing from every pair spectrum (pDOS was unaffected). The previous behaviour is still available through `edata.legacy_orbital_phase = True`, which is part of the cache key, for comparing results. Projections set through `user_proj_tju` are never modified, so they should already use real orbitals. See `notes/theory_audit.md` (finding F1) for the derivation and evidence.
 1. `trim_excess_bands` is a bool class variable of `ElecData` in which only `nproj` bands are included in analysis. By trimming excess bands, the projection vector `proj_tju` becomes square at each state. This has been primarily useful so far as means of allowing the projections at each state to be normalized for each band and each orbital. Theoretically, this also allows for projections to undergo a band-lowdin-orthogonalization, but the usefulness has not been investigated. Theoretically this also allows for using the dual space of the projections (allowing for less ad-hoc approaches to charge conservation), but this has yet to be implemented.
@@ -119,17 +128,17 @@ $$
 - A pymatgen `Structure` of your system. It is critical that the species in this structure are ordered by their atomic number.
 - The band eigenvalues in shape `tj` as a numpy array.
 - The k-point folding and the corresponding k-points. (if you are unsure but know the total number of k-points, the kfolding can be set arbitrarily and the k-points can be left as None)
-- The k-point weights (if you are unsure but know there was no symmetry reduction (ie every k-point on your MK grid was evaluated) then all your k-point weights are equal to nspin/nkpts. If there was symmetry reduction of your k-mesh but know how many k-points were reduced into each of the output k-pts, multiply the weights by the number of k-points each output k-point "represents")
+- The k-point weights, including the spin factor, so that they sum to 2 (see "Occupations and k-point weights"). If you are unsure but know there was no symmetry reduction (ie every k-point on your MK grid was evaluated), every weight is 2/nkpts for spin-unpolarized data and 1/nkpts per spin channel for spin-polarized data. If there was symmetry reduction of your k-mesh but know how many k-points were reduced into each of the output k-pts, multiply the weights by the number of k-points each output k-point "represents")
 - The number of projections (orbitals) gathered for each atom type and their corresponding quantum numbers (exact principal quantum number n matters less, as long as you known the ordering of them for multiple shells of a given angular momentum)
 - The projection coefficients for each band+state on each orbital in shape `tju`. They should be projections onto real orbitals (`crawfish` applies no phase correction to user projections). It is critical that you have the actual projections and not their absolute values (the latter typically dumped as it is all that is needed for pDOS analysis) as taking the absolute value removes all information about the phase of the orbital at that band+state (bonding vs antibonding interaction is determined solely by the matching of phases between two orbitals). The ordering of the projections must match the ordering of the atoms as given in the Structure (ie for an all-electron calculation of an Li2 structure, projections 0-3 should correspond to Li #1's 1s, Li #1's 2s, Li #2's 1s, and Li #2's 2s)
 2. Initialize an empty `ElecData` object with the class method `edata = ElecData.as_empty()` to circumvent initialization procedures for JDFTx calculations.
 3. Set `user_proj_tju` (ie `edata.user_proj_tju = np.random([10,5,4])`). This will not be touched, and all projection manipulations will be performed on a copy of this array. This will automatically define `nstates`, `nbands`, and `nproj`
 4. Set the `atom_orb_labels_dict` property for the class as a dictionary mapping each element in your calculation to a string representing of all the quantum numbers for the projections gathered for that element (ie for a calculation of C2H4O, set `edata.atom_orb_labels_dict = {"H": ["s"], "C": ["s", "px", "py", "pz], "O": ["s", "px", "py", "pz"]}`. If you do not wish to perform orbital resolution on your analysis, it does not matter what you put here, as long as all the elements of each list are unique and the list length matches the number of projections for that element. The ordering of the projections must match the ordering as they are listed in your `user_proj_tju`. If you have multiple projections for a given angular momentum, include the principal quantum number as well (ie `["1s", "2s"]` - they do not need to be the true principal quantum number.
 5. Set `kfolding` (ie `edata.kfolding = [3,3,3]`). If you are unsure but know `nspin`, set as `[int(edata.nstates/nspin), 1, 1]`
-6. Set `wk_t` (ie `edata.wk_t = np.ones(edata.nstates)*edata.nspin/np.prod(edata.kfolding)`). If you are unsure, just make sure they sum to `nspin`.
+6. Set `wk_t` (ie `edata.wk_t = np.ones(edata.nstates)*(2/edata.nspin)/np.prod(edata.kfolding)`). If you are unsure, just make sure they sum to 2.
 8. Set the fermi level as `edata.mu` (if you are going to set `occ_tj` explicitly, this step becomes optional but is still useful for plotting)
 ### Optional
-9. If you have the state/band occupation, set it as `edata.occ_tj`. Otherwise, it will be calculated for your using `edata.broadening` and `edata.broadening_type`.
+9. If you have the state/band occupation, set it as `edata.occ_tj`, per state in [0, 1]. Otherwise, it will be calculated for your using `edata.broadening` and `edata.broadening_type`.
 
 ## Installation
 

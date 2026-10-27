@@ -35,6 +35,8 @@ N2_CALC_DIR = Path(EXAMPLE_CALC_DIRS_DIR) / "N2_bare_min"
 # Graphene primitive cell: 2 C, 23x23x1 k-mesh, symmetries none. Two of each C's three nearest neighbours are in
 # neighbouring cells, so inter-cell pairs matter (F3).
 GRAPHENE_CALC_DIR = Path(EXAMPLE_CALC_DIRS_DIR) / "graphene_1x1"
+# Gas-phase N2 with spintype no-spin (2x2x2 k-mesh, generated locally): JDFTx writes its fillings in [0, 2] (F4)
+N2_NOSPIN_CALC_DIR = Path(EXAMPLE_CALC_DIRS_DIR) / "N2_nospin"
 
 # Finding id -> ElecData setting that restores the pre-fix behaviour. Names for unimplemented fixes are the ones
 # proposed in notes/theory_audit.md section 4.0; update them here if the implementation picks different names.

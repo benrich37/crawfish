@@ -24,13 +24,14 @@ Ruff settings live in `pyproject.toml` (line length 120, py310), but the ruff ho
 - `tj` arrays are converted to `sabcj` with `reshape([nspin] + list(kfolding) + [nbands])`. This depends on states being ordered spin-major and then by k-grid.
 - Use `REAL_DTYPE` (float32) / `COMPLEX_DTYPE` (complex64) from `crawfish.utils.typing`, not bare numpy dtypes.
 - Energies are in **Hartree** and are **not** shifted to the Fermi level.
+- Occupations `occ_tj` are per state in [0, 1], and `wk_t` carries the spin factor (sums to 2), as in JDFTx. JDFTx's `fillings` file is in [0, 2] for no-spin, so `ElecData.occ_tj` divides it by `spin_weight` (unless `legacy_fillings`).
 - Hot loops are numba `@jit(nopython=True)` helpers (suffix `_jit`) that sit next to a plain-Python wrapper (`core/operations/`, `io/data_parsing.py`).
 
 ## Architecture
 
 **`core/elecdata.py` — `ElecData`** holds all electronic data for one calculation and lazily derives everything else. `ElecData.from_calc_dir(path)` (or `ElecData(path)`) finds JDFTx output files by suffix (`bandProjections`, `eigenvals`, `out`, plus optional `kPts`, `fillings`, ...). `ElecData.as_empty()` plus setters (`user_proj_tju`, `atom_orb_labels_dict`, `kfolding`, `wk_t`, `mu`, ...) is the non-JDFTx path. Most attributes are properties backed by `_private` fields that parse files on first access.
 
-Settings that change derived tensors (`legacy_orbital_phase`, `legacy_matrices`, `legacy_lattice_image`, `trim_excess_bands`, `los_orbs`, `p_uu_consistent`, `norm_eigs_for_h`) are properties. `legacy_*` settings restore behaviour from before a documented fix (see `notes/theory_audit.md`, section 4.0), so its effect on results can be measured; they default to `False`. Their setters call `alloc_elec_data()` (except `legacy_lattice_image`, which only re-points the caches), which re-processes projections (band trimming/normalization, Löwdin orthogonalization) and rebuilds the `h/p/s` orbital matrices through `reval_mat_uu()`. Setting the `_private` field skips that work, so you have to call `alloc_elec_data()` yourself afterwards.
+Settings that change derived tensors (`legacy_orbital_phase`, `legacy_matrices`, `legacy_lattice_image`, `legacy_fillings`, `trim_excess_bands`, `los_orbs`, `p_uu_consistent`, `norm_eigs_for_h`) are properties. `legacy_*` settings restore behaviour from before a documented fix (see `notes/theory_audit.md`, section 4.0), so its effect on results can be measured; they default to `False`. Their setters call `alloc_elec_data()` (except `legacy_lattice_image`, which only re-points the caches), which re-processes projections (band trimming/normalization, Löwdin orthogonalization) and rebuilds the `h/p/s` orbital matrices through `reval_mat_uu()`. Setting the `_private` field skips that work, so you have to call `alloc_elec_data()` yourself afterwards.
 
 **Spectrum pipeline** (`funcs/`): each public `get_<mode>` / `get_i<mode>` in `funcs/pcohp.py` and `funcs/dos.py` does the following:
 1. Resolves `ElecData | path` through `utils/arg_correction.edata_input_to_edata`.

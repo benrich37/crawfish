@@ -8,7 +8,7 @@ of that fix, saves its figures to `figures/`, and ends with a cell of `assert` c
 | `F1_orbital_phase.ipynb` | F1: i^l phase of JDFTx projections | implemented | `legacy_orbital_phase=True` vs. default, plus the reference |
 | `F2_signed_matrices.ipynb` | F2: signed H/S/P matrices | implemented | legacy matrices vs. fixed vs. reference |
 | `F3_lattice_images.ipynb` | F3: lattice-image (R) resolution | implemented | legacy (R=0) vs. fixed (nearest image) vs. reference on a 1D chain; N2 with atom 2 wrapped into the next cell; graphene, where two of the three nearest C–C bonds are inter-cell (image shells, orbital-resolved bonds, wrapping) |
-| `F4_F8_inputs_and_normalization.ipynb` | F4, F5, F6, F8 | upcoming | current helpers vs. JDFTx conventions and normalized references |
+| `F4_F8_inputs_and_normalization.ipynb` | F4, F5, F6, F8 | F4 implemented; F5, F6, F8 upcoming | F4: legacy vs. fixed on `N2_nospin` and z-spin N2; others: current helpers vs. JDFTx conventions and normalized references |
 
 ## How the notebooks adapt as fixes land
 
