@@ -29,8 +29,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 
 | #  | Pri | Finding | Evidence | Fix needs JDFTx? | Status |
 |----|-----|---------|----------|------------------|--------|
-| F1 | P0 | JDFTx projections for orbitals with odd l carry a factor of i^l (relative to real orbitals). Crawfish takes `Re[T*_u T_v]`, which is identically ~0 for s–p, p–d (odd Δl) pairs. All s–p hybridization is dropped from pCOMO/pCOOP/pCOHP/pCOBI. | JDFTx source + Check 1 | No | **fixed** on branch `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_orbital_phase=True`; `result_changes.py` entry still to add after commit |
-| F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | open |
+| F1 | P0 | JDFTx projections for orbitals with odd l carry a factor of i^l (relative to real orbitals). Crawfish takes `Re[T*_u T_v]`, which is identically ~0 for s–p, p–d (odd Δl) pairs. All s–p hybridization is dropped from pCOMO/pCOOP/pCOHP/pCOBI. | JDFTx source + Check 1 | No | **fixed** in `a22c558` (2026-10-27); legacy via `legacy_orbital_phase=True`; `result_changes.py` entry added |
+| F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_matrices=True`; `result_changes.py` entry to add after commit |
 | F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | open |
 | F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | open |
 | F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | open |
@@ -238,10 +238,63 @@ Sum rules, to use as tests:
   `Re[conj(C[t,j,u]) * M[t,u,v] * C[t,j,v]]` (complex M). Memory: complex64 (t,u,u) is twice the current float32
   arrays, which is compatible with the `limited_memory` goals (no (t,j,u,u) tensors). `p_uu_consistent` and the
   squaring disappear. Keep `norm_eigs_for_h` only for the non-orthogonal basis, and document it with Glassey &
-  Hoffmann 2000. The README sections "Matrix modifications" and the pCOHP/pCOOP/pCOBI equations need rewriting.
+  Hoffmann 2000. The README sections "Matrix modifications" and the pCOHP/pCOOP/pCOBI equations need rewriting
+  (done; see the implementation record below).
 - **Theory references:** Dronskowski & Blöchl 1993 (COHP definition); Hughbanks & Hoffmann 1983 (COOP); Deringer
   2011 and Maintz 2013/2016 (projected COHP from plane waves: coefficients from the transfer matrix and overlap,
   H reconstructed from projections and eigenvalues); Müller 2021 (COBI uses the density matrix).
+
+**Implementation record (2026-10-27, branch `theory_check`, not yet committed):**
+- `core/operations/matrix.py`:
+  - `get_coef_tju(proj_tju, orthonormal)`: C = P for Löwdin-orthonormalized projections; otherwise
+    C_t = P_t pinv(P_t^† P_t) with `rtol=1e-6` (pinv, so orbitals the bands don't represent are dropped rather than
+    amplified).
+  - `get_h_s_d_t_uv(proj, coef, e, occ)`: one-pass numba kernel (`_get_h_s_d_t_uv_jit`) building complex Hermitian
+    H_t, S_t, D_t (t,u,u) with complex128 accumulation. No (t,j,u,u) tensors, so it stays compatible with the
+    `limited_memory` goals.
+  - `get_r0_suv(mat_t_uv, wk_t, nspin)`: per-spin R=0 element Σ_{t∈s} w_t M_t / Σ w_t.
+  - `get_spin_idx_t`.
+  - `_get_gen_tj_coef_tuv(coef, mat_muv, m_t, wk, orbs_u, orbs_v)`: one weight kernel for both forms (m_t picks
+    the matrix per state).
+  - The legacy builder and kernels (`get_h_p_s_t_uu_and_uu`, `_get_gen_tj_coef_uu/_tuu`) are unchanged. Their
+    docstrings now say "Legacy (pre-F2)".
+- `core/elecdata.py`:
+  - Setting `legacy_matrices` (default False, cache key `lgmt`).
+  - Properties `coef_tju`, `h_t_uv`, `s_t_uv`, `d_t_uv`, method `get_mat_r0_suv(name)`, `set_mat_uv()`. The
+    signed matrices are cached as `h_t_uv.npy`, `s_t_uv.npy` and `d_t_uv.npy` in the settings sub-directory.
+  - `reval_mat_uu()` also resets the coefficients and re-evaluates the signed matrices, and `unnorm_projs` resets
+    the coefficients.
+  - `bandprojfile_is_ortho` reads the bandProjections header.
+  - `norm_eigs_for_h` shifts e by −μ in H_t, which only matters in the non-orthogonal basis.
+  - `p_uu_consistent` only affects the legacy path.
+- `funcs/pcohp.py`: each `_compute_*_tj` dispatches on `legacy_matrices`, with the legacy branch unchanged.
+  `_compute_signed_tj` maps pCOHP→H, pCOOP→S, pCOBI→D and pCOMO→1. pCOMO now uses C, which equals the
+  projections when `los_orbs=True` and differs in the non-orthogonal basis.
+- **Meaning of `state_sep`, new path:** `False` (default) uses the per-spin R=0 matrix, which keeps today's
+  "same cell" pairing until F3 adds general R. `True` uses the state-resolved M_t, which sums the interaction over
+  all lattice images. For N2 the two differ by less than 1e-4 Ha.
+- **Basis (Q1):** not forced. `los_orbs=True` (default) gives the Löwdin basis and `los_orbs=False` gives the
+  non-orthogonal basis (C = S⁻¹T, band-space S). Both are tested against an independent float64 implementation.
+- **F7, partly addressed:** `_warn_if_coop_is_artifact` warns that pCOOP is identically zero when
+  `los_orbs=True`, and that it only reflects band truncation for ortho-orbital projections with `los_orbs=False`.
+  `tests/funcs/test_pcoop.py` now uses `los_orbs=False` and expects the warning (before, it passed only on float
+  noise).
+- **F10 setter ordering, fixed alongside:** the `los_orbs` and `trim_excess_bands` setters now call
+  `_init_caches()` before `alloc_elec_data()`, as the other settings already did. Otherwise the signed matrices
+  would be loaded from the previous settings' cache directory when toggling the basis.
+- **Results (N2, defaults, IpCOHP, legacy matrices → fixed):** s-s −0.12203 → −0.11131, s-px −0.08856 → −0.13936,
+  px-px **+0.08452 → −0.11815**, py-py −0.11462 → −0.17931, all-all −0.26678 → −0.86678. pCOBI px-px:
+  −0.21373 → +0.17270. These match the reference to 1e-5, and the sum rule holds to 0.3%.
+- Tests: `tests/core/test_signed_matrices.py` checks Hermiticity, S=I in the Löwdin basis, the band-energy sum
+  rule, agreement with an independent reference for both bases and both energy zeros, that all N2 pairs are
+  bonding, R=0 ≈ all images, the pCOOP warnings, and that the legacy matrices reproduce the recorded values. The
+  F1 legacy-reproduction test now sets `legacy_matrices=True` too. Full suite: 117 passed.
+- Docs: README "Matrix modifications" and "Provided analysis techniques" rewritten for the signed formalism, with
+  the old equations kept under "Legacy formalism". The CLAUDE.md pipeline step 3 and settings list are updated.
+  The F2 comparison notebook now runs legacy vs. fixed vs. reference, `examples/N2.ipynb` uses `los_orbs=False`
+  for pCOOP (with a caveat), and `fixcompare.load_edata_at` keeps each notebook isolated to its own fix.
+- `result_changes.py`: the F1 entry is added (`a22c558`, stage "matrices"). **The F2 entry still has to be added
+  after this work is committed** (stage "matrices", e.g. "Signed projected H/S/D matrices for pair spectra (F2)").
 
 ### F3: lattice image (R) not resolved (P0 for periodic solids, irrelevant for isolated molecules)
 
@@ -344,7 +397,7 @@ Sum rules, to use as tests:
   stochastic. Recommend deprecating `trim_excess_bands`, or selecting bands per k by energy window.
 - `p_uu_consistent`: per-band renormalization Σ_uv P_tj,uv = f w. It becomes unnecessary under section 2.3. If
   charge-conserving rescaling is wanted, divide by Π_jj, and report the spilling either way.
-- Setter ordering (found while fixing F1, not yet fixed): `ElecData.los_orbs` and `.trim_excess_bands` call
+- Setter ordering (found while fixing F1; **fixed with F2**): `ElecData.los_orbs` and `.trim_excess_bands` called
   `alloc_elec_data()` before `_init_caches()`. If matrices were already evaluated, `reval_mat_uu` → `set_mat_uu`
   then loads or saves them in the *old* settings directory. `p_uu_consistent`, `norm_eigs_for_h` and
   `legacy_orbital_phase` use the safe order. Also, `alloc_elec_data` reloads `proj_tju` but reuses the already

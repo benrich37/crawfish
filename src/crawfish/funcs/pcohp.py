@@ -4,7 +4,12 @@ Module for user methods to get PCOHP spectrum.
 """
 
 from crawfish.utils.arg_correction import check_repeat
-from crawfish.core.operations.matrix import _get_gen_tj_coef_uu, _get_gen_tj_coef_tuu
+from crawfish.core.operations.matrix import (
+    _get_gen_tj_coef_uu,
+    _get_gen_tj_coef_tuu,
+    _get_gen_tj_coef_tuv,
+    get_spin_idx_t,
+)
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
@@ -12,7 +17,54 @@ from crawfish.utils.arg_correction import edata_input_to_edata, get_use_cache, a
 from crawfish.funcs.general import evaluate_or_retrieve_generic_spectrum, get_generic_integrate
 from pathlib import Path
 import numpy as np
+import warnings
 from crawfish.funcs.general import SIGMA_DEFAULT, RES_DEFAULT
+from crawfish.utils.typing import COMPLEX_DTYPE
+
+
+def _compute_signed_tj(
+        edata: ElecData,
+        orbs_u: list[int],
+        orbs_v: list[int],
+        mat_name: str | None,
+        state_sep: bool,
+        ):
+    """Return pair weights w_t Re[conj(C_u) M_uv C_v] for a signed matrix (notes/theory_audit.md, finding F2).
+
+    mat_name is "h" (pCOHP), "s" (pCOOP), "d" (pCOBI), or None for M = 1 (pCOMO). With state_sep=True the
+    state-resolved M_t is used, which sums the interaction over all lattice images of the second orbital set.
+    With state_sep=False the per-spin R=0 matrix is used: only the copy of the second set in the same cell as
+    the first, as placed by the atom positions JDFTx used (see finding F3).
+    """
+    if mat_name is None:
+        mat_muv = np.ones([1, edata.nproj, edata.nproj], dtype=COMPLEX_DTYPE)
+        m_t = np.zeros(edata.nstates, dtype=np.int64)
+    elif state_sep:
+        mat_muv = getattr(edata, f"{mat_name}_t_uv")
+        m_t = np.arange(edata.nstates, dtype=np.int64)
+    else:
+        mat_muv = edata.get_mat_r0_suv(mat_name)
+        m_t = get_spin_idx_t(edata.nstates, edata.nspin)
+    return _get_gen_tj_coef_tuv(edata.coef_tju, mat_muv, m_t, edata.wk_t, orbs_u, orbs_v)
+
+
+def _warn_if_coop_is_artifact(edata: ElecData):
+    """Warn when pCOOP between different orbitals is zero or a band-truncation artifact (finding F7)."""
+    if edata.legacy_matrices:
+        return
+    if edata.los_orbs:
+        warnings.warn(
+            "pCOOP between different orbitals is identically zero in an orthonormal (Löwdin) basis "
+            "(los_orbs=True). Use los_orbs=False with projections from 'band-projection-params no no'.",
+            stacklevel=3,
+        )
+    elif edata.jdftx and edata.bandprojfile_is_ortho:
+        warnings.warn(
+            "These projections are onto orthonormalized orbitals ('band-projection-params yes ...'), so the true "
+            "orbital overlap is the identity and any pCOOP between different orbitals only reflects band "
+            "truncation. Use projections from 'band-projection-params no no' for pCOOP.",
+            stacklevel=3,
+        )
 
 #@assert_complex_bandprojections
 def get_pcohp(
@@ -169,6 +221,9 @@ def _compute_pcohp_tj(
         orbs_v: list[int],
         state_sep: bool,
         ):
+    if not edata.legacy_matrices:
+        return _compute_signed_tj(edata, orbs_u, orbs_v, "h", state_sep)
+    # Legacy (pre-F2) path
     if state_sep:
         # h_t_uu already carries the k-point weight, so it is not applied again
         pcohp_tj = _get_gen_tj_coef_tuu(edata.proj_tju, edata.h_t_uu, orbs_u, orbs_v)
@@ -322,7 +377,11 @@ def _compute_pcomo_tj(
         orbs_u: list[int],
         orbs_v: list[int],
         ):
-    h_uu = np.ones_like(edata.h_uu)
+    if not edata.legacy_matrices:
+        # Uses the expansion coefficients, which equal the projections when los_orbs is True
+        return _compute_signed_tj(edata, orbs_u, orbs_v, None, False)
+    # Legacy (pre-F2) path
+    h_uu = np.ones([edata.nproj, edata.nproj], dtype=REAL_DTYPE)
     pcohp_tj = _get_gen_tj_coef_uu(edata.proj_tju, edata.wk_t, h_uu, orbs_u, orbs_v)
     return pcohp_tj
 
@@ -444,6 +503,7 @@ def _get_pcoop_tj(
         state_sep: bool = False,
         use_cache: bool = False,
         ):
+    _warn_if_coop_is_artifact(edata)
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     check_repeat(orbs_u, orbs_v)
@@ -469,6 +529,9 @@ def _compute_pcoop_tj(
         state_sep: bool,
         ):
     check_repeat(orbs_u, orbs_v)
+    if not edata.legacy_matrices:
+        return _compute_signed_tj(edata, orbs_u, orbs_v, "s", state_sep)
+    # Legacy (pre-F2) path
     if state_sep:
         # s_t_uu already carries the k-point weight, so it is not applied again
         pcoop_tj = _get_gen_tj_coef_tuu(edata.proj_tju, edata.s_t_uu, orbs_u, orbs_v)
@@ -620,6 +683,9 @@ def _compute_pcobi_tj(
         state_sep: bool,
         ):
     check_repeat(orbs_u, orbs_v)
+    if not edata.legacy_matrices:
+        return _compute_signed_tj(edata, orbs_u, orbs_v, "d", state_sep)
+    # Legacy (pre-F2) path
     if state_sep:
         # p_t_uu already carries the k-point weight, so it is not applied again
         pcobi_tj = _get_gen_tj_coef_tuu(edata.proj_tju, edata.p_t_uu, orbs_u, orbs_v)

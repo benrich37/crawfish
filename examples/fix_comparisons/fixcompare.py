@@ -62,6 +62,21 @@ def load_edata(calc_dir: Path = N2_CALC_DIR, **settings) -> ElecData:
     return edata
 
 
+def load_edata_at(finding: str, fixed: bool, calc_dir: Path = N2_CALC_DIR, **settings) -> ElecData:
+    """Return an ElecData that isolates one fix: `finding` fixed or legacy, every later implemented fix legacy.
+
+    Fixes are ordered as in LEGACY_FLAGS. Earlier fixes stay at their (fixed) defaults, so comparing
+    fixed=False with fixed=True shows exactly the step that `finding` introduced, even after later fixes land.
+    """
+    flags = {}
+    order = list(LEGACY_FLAGS)
+    for later in order[order.index(finding) + 1 :]:
+        if fix_available(later):
+            flags[LEGACY_FLAGS[later]] = True
+    flags[LEGACY_FLAGS[finding]] = not fixed
+    return load_edata(calc_dir, **flags, **settings)
+
+
 def savefig(fig, name: str) -> Path:
     """Save a figure as figures/<name>.png and return the path."""
     FIGURE_DIR.mkdir(exist_ok=True)
@@ -134,11 +149,28 @@ class Reference:
         self.H = np.einsum("tju,tj,tjv->tuv", P, e_h, P.conj())
         self.D = np.einsum("tj,tju,tjv->tuv", self.f_tj, self.C, self.C.conj())
         self.nproj = P.shape[2]
+        self.nspin = edata.nspin
 
-    def weights_tj(self, orbs_u: list[int], orbs_v: list[int], mode: str = "cohp") -> np.ndarray:
-        """w_t * sum_{u in A, v in B, u != v} Re[conj(C_u) M_uv C_v] for M = H (cohp), S (coop), D (cobi), 1 (como)."""
+    def _r0(self, mat_tuv: np.ndarray) -> np.ndarray:
+        """Per-spin R=0 average sum_{t in s} w_t M_t / sum_{t in s} w_t, broadcast back to every state."""
+        nt = mat_tuv.shape[0]
+        nk = nt // self.nspin
+        out = np.empty_like(mat_tuv)
+        for s in range(self.nspin):
+            sl = slice(s * nk, (s + 1) * nk)
+            out[sl] = np.tensordot(self.w_t[sl], mat_tuv[sl], axes=1) / self.w_t[sl].sum()
+        return out
+
+    def weights_tj(self, orbs_u: list[int], orbs_v: list[int], mode: str = "cohp", images: str = "all") -> np.ndarray:
+        """w_t * sum_{u in A, v in B, u != v} Re[conj(C_u) M_uv C_v] for M = H (cohp), S (coop), D (cobi), 1 (como).
+
+        images="all": state-resolved M_t (interaction summed over all lattice images; crawfish state_sep=True).
+        images="R0": same-cell element M(R=0), averaged per spin (crawfish state_sep=False).
+        """
         mats = {"cohp": self.H, "coop": self.S, "cobi": self.D, "como": np.ones((1, self.nproj, self.nproj))}
         M = mats[mode]
+        if images == "R0" and mode != "como":
+            M = self._r0(M)
         mask = np.zeros((self.nproj, self.nproj))
         for u in orbs_u:
             for v in orbs_v:
@@ -148,9 +180,9 @@ class Reference:
         val = np.einsum("tju,tuv,tjv->tj", self.C.conj(), np.broadcast_to(M, (self.C.shape[0],) + M.shape[1:]), self.C)
         return np.asarray(self.w_t[:, None] * val.real, dtype=REAL_DTYPE)
 
-    def integrated(self, orbs_u: list[int], orbs_v: list[int], mode: str = "cohp") -> float:
+    def integrated(self, orbs_u: list[int], orbs_v: list[int], mode: str = "cohp", images: str = "all") -> float:
         """Integral up to the Fermi level (occupation-weighted sum over all states and bands)."""
-        return float(np.sum(self.f_tj * self.weights_tj(orbs_u, orbs_v, mode)))
+        return float(np.sum(self.f_tj * self.weights_tj(orbs_u, orbs_v, mode, images)))
 
     def band_energy(self) -> float:
         return float(np.sum(self.w_t[:, None] * self.f_tj * self.e_tj))

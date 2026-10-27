@@ -62,4 +62,11 @@ RESULT_CHANGES: list[ResultChange] = [
         stage="parse",
         description="Initial commit (example entry)",
     ),
+    ResultChange(
+        commit="a22c558c9fb0616f5610d15522358b3c5faa4b59",
+        version="1.0.0",
+        stage="matrices",
+        description="Apply the i^l orbital phase to JDFTx band projections (notes/theory_audit.md F1; "
+        "legacy_orbital_phase restores the old behaviour)",
+    ),
 ]

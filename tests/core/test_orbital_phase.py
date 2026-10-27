@@ -15,11 +15,12 @@ def _gamma_state(edata):
     return [t for t in range(edata.nstates) if np.allclose(edata.ks_t[t], 0)][0]
 
 
-def _get_edata(legacy: bool):
+def _get_edata(legacy: bool, legacy_matrices: bool = False):
     from crawfish.core.elecdata import ElecData
 
     edata = ElecData(n2_dir)
     edata.legacy_orbital_phase = legacy
+    edata.legacy_matrices = legacy_matrices
     return edata
 
 
@@ -69,7 +70,7 @@ def test_proj_tju_cache_holds_raw_projections():
 
 
 # Values recorded before the fix (notes/theory_audit.md section 6, crawfish 3efe98f, default settings).
-# The legacy path must keep reproducing them.
+# The legacy path must keep reproducing them. They predate F2 too, so the legacy matrices are used as well.
 LEGACY_N2_VALUES = {
     ("s", "s"): (-0.22098, 0.40719),
     ("s", "px"): (0.0, 0.0),
@@ -82,7 +83,7 @@ LEGACY_N2_VALUES = {
 def test_legacy_reproduces_recorded_values(orbs):
     from crawfish.funcs.pcohp import get_ipcohp, get_ipcomo
 
-    edata = _get_edata(True)
+    edata = _get_edata(True, legacy_matrices=True)
     o1, o2 = orbs
     kwargs = {"idcs1": 0, "idcs2": 1, "orbs1": o1, "orbs2": o2, "use_cache": False}
     ipcohp = float(np.ravel(get_ipcohp(edata, **kwargs)[1])[-1])

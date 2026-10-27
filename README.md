@@ -37,9 +37,9 @@ Unless otherwise indicated, all energies are in **Hartrees** and are not normali
 2. `los_orbs` is a bool class variable of `ElecData` in which orbitals are made orthogonal to one another via the Lowdin-Orthogonalization technique. This may seem counterintuitive in a framework centered around how orbitals interact with each other, but remember that this orthogonality ($\langle\phi_\mu|\phi_\nu\rangle=\delta_{\mu,\nu}$) does not eliminate overlap between orbitals at individual bands and states ($\bra{\phi_\mu}\psi_j(t)\rangle\langle\psi_j(t)\ket{\phi_\nu}$), only over the sum of all bands and states ($\sum_{j,t}w_t\langle\phi_\mu|\psi_j(t)\rangle\langle\psi_j(t)|\phi_\nu\rangle)=\delta_{\mu,\nu}$). This is an incredibly useful technique when trying to reformulate our calculation in a LCAO picture, as it ensures that for all bonding interactions (bands `j` at state `t` where $c_{\mu,j}(t)^* c_{\nu,j}(t)>0$), there are enough antibonding interactions ($c_{\mu,j}(t)^* c_{\nu,j}(t)<0$) such that the sum over all bands at that state for any orbital pair $\mu,\nu$ sums to $\delta_{\mu,\nu}$. The Lowdin-Orthogonalization technique is the obvious choice for this orthogonalization, as it is a simple to employ (takes 5 lines of vectorized numpy processes here) and minimizes the deviation of each projection from the true value (JDFTx will orthogonalize the orbitals if given the argument `band-projection-params yes no` prior to evaluating and dumping the band projections. However, due to the incompleteness of the space spanned by the bands at each state, this orthogonality will be lost when evaluating total overlap with the dumped projections. The same can also be realized for the bands due to the incompleteness of the space spanned by the orbitals).
 
 ### Matrix modifications
-1. `p_uu_consistent` is a bool class variable of `ElecData` ensuring charge conservation when building the orbital-overlap population matrix. When `True`, it will temporarily re-scale `proj` such that summing over `u` and `v` for `p_tj_uu[t,j,u,v]` equals `occ_tj[t,j]` ($$\sum_{\mu, \nu}P_{u, v}(t, j)=f_j(t)$$).
-2. `s_tj_uu_real` is a bool class variable of `ElecData` ensuring that orbital overlap is a real value. Since planewaves have a complex component, orbital/band projections `proj_tju` ($\bra{\phi_\mu}\psi_j(t)\rangle$) are typical complex.
-3. `s_tj_uu_pos` is a bool class variable of `ElecData` ensuring that orbital overlap is a positive value. This is done by subtracting out the smallest value from the entire tensor, and then rescaling the entire tensor such the sum over all indices `tjuv` matches the original sum.
+1. `legacy_matrices` (default `False`) selects how the pair spectra (pCOHP, pCOOP, pCOBI, and pCOMO in the non-orthogonal basis) are built. The default is the signed formalism described below. `True` restores the matrices crawfish used before this was fixed. Those were built from squares of $Re[T_{\mu,j}^*T_{\nu,j}]$, so they carry no sign, and the bonding/antibonding call was wrong whenever the true matrix element is positive (e.g. p–p σ bonds). The legacy formalism is documented at the end of this section, and kept for comparing results (`notes/theory_audit.md`, finding F2; `examples/fix_comparisons/F2_signed_matrices.ipynb`).
+2. `norm_eigs_for_h` (default `True`) measures eigenvalues from the Fermi level when building $H$. In the orthonormal basis (`los_orbs=True`) this changes only diagonal elements, so it has no effect on pair spectra. In the non-orthogonal basis, shifting the energy zero by $c$ shifts pCOHP by $-c\cdot$pCOOP (Glassey & Hoffmann, J. Chem. Phys. 113, 1698 (2000)).
+3. `p_uu_consistent` only affects the legacy matrices (`legacy_matrices=True`). It rescales each band's contribution so that $\sum_{\mu,\nu}P_{\mu,\nu}(t,j)=f_j(t)w_t$.
 
 ### Provided analysis techniques
 
@@ -52,49 +52,39 @@ $$
 pDOS(E,\mu)=\sum_{j,t}\left|T_{\mu,j}\right|^2w_t\delta(E-\epsilon_j(t))
 $$
 
-2. **pCOMO**
-The project Crystal Orbital Mobile Order (pCOMO) is a novel equation for an ancient concept - Coulson's "Mobile Order." This equation is most similar to pCOOP, sharing the same signage convention (bonding = positive, antibonding = negative, nonbonding = zero) but with a noticable lack of orbital overlap, $S_{\mu,\nu}$. This equation is an unquestionable step down from the familiar equations in the crystal orbital formalism family (pCOOP, pCOHP, and pCOBI). However, this equation provides an added convenience as the orbital overlap term $S_{\mu,\nu}$ may be harder to obtain than the KS projection coefficients used to evaluate $T_{\nu,j}$. While the disadvantages to this equation are obvious, the lack of orbital overlap does not influence the identification of a peak as bonding, antibonding, or non-bonding.
-As orbital overlap is only currently approximated as $\left|T_{\mu,j}^*T_{\nu,j}\right|$ for JDFTx, this is the only faithfully represented bonding equation in this package.
+Pair spectra use the band-projected orbitals $\chi_\mu = \sum_j \psi_j \langle\psi_j|\hat O|\phi_\mu\rangle$, where $\hat O$ is the ultrasoft overlap operator. JDFTx applies $\hat O$ when it writes the projections, and $\hat O = 1$ for norm-conserving pseudopotentials. Because $\hat H = \sum_j \hat O|\psi_j\rangle\epsilon_j\langle\psi_j|\hat O$ in the generalized (ultrasoft) eigenproblem, at each state $t$:
 
 $$
-pCOMO(E,\mu,\nu)=\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+S_{\mu\nu}(t) = \sum_j T_{\mu,j}T_{\nu,j}^*, \qquad H_{\mu\nu}(t) = \sum_j T_{\mu,j}\,\epsilon_j\,T_{\nu,j}^*, \qquad D_{\mu\nu}(t) = \sum_j f_j\, C_{\mu,j}C_{\nu,j}^*
 $$
 
-3. **pCOOP**
+(`edata.s_t_uv`, `edata.h_t_uv`, `edata.d_t_uv`, which are complex and Hermitian). $C_{\mu,j}(t)$ are the coefficients of $\psi_j$ in the $\chi_\mu$ (`edata.coef_tju`). With `los_orbs=True` (default) the orbitals are Löwdin-orthonormalized within the band space first, so $S=1$ and $C=T$. With `los_orbs=False`, $C = S^{-1}T$ (least squares). For a spectral mode with matrix $M$:
 
 $$
-pCOOP(E,\mu,\nu)=S_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+pX(E,\mu,\nu)=\sum_{j,t} w_t\, Re\left[C_{\mu,j}^*\, M_{\mu\nu}\, C_{\nu,j}\right]\delta(E-\epsilon_j(t))
 $$
 
-4. **pCOBI**
+where $M = H$ for **pCOHP** (negative = bonding), $M = S$ for **pCOOP**, $M = D$ for **pCOBI**, and $M = 1$ for **pCOMO** (Coulson's mobile order). With `state_sep=True`, $M = M(t)$ is resolved by state, which sums the interaction over all periodic images of $\nu$. With `state_sep=False` (default), $M$ is the same-cell ($R=0$) element $M(R{=}0) = \sum_{t\in s} w_t M(t) / \sum_{t\in s} w_t$ for each spin channel $s$. Selecting other lattice images is still to come (`notes/theory_audit.md`, finding F3).
+
+Notes:
+- Summing the integrated pCOHP over all orbital pairs, including on-site ones, reproduces the band energy $\sum w f\epsilon$, up to the charge spilling of the projection.
+- **pCOOP vanishes between different orbitals in an orthonormal basis.** It needs `los_orbs=False` and projections from `band-projection-params no no`. With ortho-orbital projections it only reflects band truncation, and crawfish warns in both cases.
+- **pCOMO** has no matrix factor, so its sign depends on how the two orbitals are oriented. For example, a p–p σ bonding combination of parallel p orbitals has $C_{\mu}^*C_{\nu} < 0$. Read it as a bond-order density, not as a bonding indicator.
+- The spin factor and sign convention of pCOBI still need to be checked against Müller et al., J. Phys. Chem. C 125, 7959 (2021).
+
+#### Legacy formalism (`legacy_matrices=True`)
+
+Kept for reference. These definitions give wrong signs (see above).
 
 $$
-pCOBI(E,\mu,\nu)=P_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+pX_{legacy}(E,\mu,\nu)=M_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t)),\qquad M \in \{H, S, P, 1\}
 $$
 
-5. **pCOHP**
-
 $$
-pCOHP(E,\mu,\nu)=H_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+H_{\mu,\nu} = \sum_{j,t} P_{j,t,\mu,\nu} \epsilon_{j,t}, \qquad P_{j,t,\mu,\nu} = S_{j,t,\mu,\nu} f_j(t) w_t, \qquad S_{j,t,\mu,\nu} = \left(Re\left[\langle \mu | \psi_j(t) \rangle \langle \psi_j(t) | \nu \rangle\right]\right)^2
 $$
 
-where
-
-$$
-H_{\mu,\nu} = \sum_{j,t} P_{j,t,\mu,\nu} \epsilon_{j,t}
-$$
-
-and
-
-$$
-P_{j,t,\mu,\nu} = S_{j,t,\mu,\nu} f_j(t) w_t
-$$
-
-and
-
-$$
-S_{j,t,\mu,\nu} = \left|\langle \mu | \psi_j(t) \rangle \langle \psi_j(t) | \nu \rangle\right|^2
-$$
+(with $P$ renormalized per band when `p_uu_consistent=True`, and $\epsilon$ shifted by $\mu$ when `norm_eigs_for_h=True`).
 
 
 ## Why and when should I use `crawfish`?

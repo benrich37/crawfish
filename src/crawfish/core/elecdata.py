@@ -12,6 +12,9 @@ from crawfish.core.operations.matrix import (
     los_projs_for_orbs,
     get_weighted_overlap_tjuv,
     apply_jdftx_orbital_phase,
+    get_coef_tju,
+    get_h_s_d_t_uv,
+    get_r0_suv,
 )
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
@@ -45,19 +48,22 @@ from pathlib import Path
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
 from math import erf
-from crawfish.io.general import safe_load
+from crawfish.io.general import safe_load, read_file
 import shutil
 
 warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
 warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
 
+# Signed (F2) state-resolved matrices, cached as <name>.npy in the settings sub-directory
+signed_mat_names = ["h_t_uv", "s_t_uv", "d_t_uv"]
 cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
 # Output files read during analysis - changes to any of these invalidate the cache (Gvectors/wfns are located but never read)
 source_filetypes = ["band", "eig", "out", "kpts", "fillings"]
 
 edata_setting_key_shorthand_dict = {
     "legacy_orbital_phase": "lgph",
+    "legacy_matrices": "lgmt",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -72,6 +78,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
     """
     parts_dict = {
         "legacy_orbital_phase": edata.legacy_orbital_phase,
+        "legacy_matrices": edata.legacy_matrices,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -133,6 +140,10 @@ class ElecData:
     _p_t_uu: np.ndarray[REAL_DTYPE] | None = None
     _s_t_uu: np.ndarray[REAL_DTYPE] | None = None
     _h_t_uu: np.ndarray[REAL_DTYPE] | None = None
+    _coef_tju: np.ndarray[COMPLEX_DTYPE] | None = None
+    _h_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _s_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _d_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _occ_tj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
@@ -208,6 +219,29 @@ class ElecData:
 
     _legacy_orbital_phase: bool = False
 
+    """
+    legacy_matrices: If False (default), pair spectra use signed matrices of the band-projected orbitals
+    (H_t = P^T e conj(P), S_t = P^T conj(P), density matrix D_t; see h_t_uv/s_t_uv/d_t_uv) and weights
+    w_t Re[conj(C_u) M_uv C_v], with C the expansion coefficients (coef_tju). If True, the pre-fix matrices are used
+    (h_uu/p_uu/s_uu and their _t_ versions). Those are built from squares of Re[T*_u T_v], so they carry no sign,
+    and the bonding/antibonding call is wrong whenever the true matrix element is positive (e.g. p-p sigma).
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F2.
+    """
+
+    @property
+    def legacy_matrices(self) -> bool:
+        return self._legacy_matrices
+
+    @legacy_matrices.setter
+    def legacy_matrices(self, value: bool):
+        if value != self._legacy_matrices:
+            self._legacy_matrices = value
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_matrices: bool = False
+
     @property
     def trim_excess_bands(self) -> bool:
         return self._trim_excess_bands
@@ -216,8 +250,9 @@ class ElecData:
     def trim_excess_bands(self, value: bool):
         if value != self._trim_excess_bands:
             self._trim_excess_bands = value
-            self.alloc_elec_data()
+            # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
+            self.alloc_elec_data()
 
     _trim_excess_bands: bool = False
 
@@ -238,8 +273,9 @@ class ElecData:
     def los_orbs(self, value: bool):
         if value != self._los_orbs:
             self._los_orbs = value
-            self.alloc_elec_data()
+            # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
+            self.alloc_elec_data()
 
     _los_orbs: bool = True
 
@@ -652,6 +688,62 @@ class ElecData:
             if val is not None:
                 self.set_mat_uu()
                 break
+        # Signed matrices (F2): coefficients depend on the projections, so they are always reset
+        self._coef_tju = None
+        if any(getattr(self, f"_{name}") is not None for name in signed_mat_names):
+            self.set_mat_uv()
+
+    def set_mat_uv(self) -> None:
+        """Load the signed matrices h_t_uv, s_t_uv, d_t_uv from the cache, or compute and cache them."""
+        arrs = {name: safe_load(self.cache_sub_dir / f"{name}.npy", allow_pickle=False) for name in signed_mat_names}
+        if any(arr is None for arr in arrs.values()):
+            e_tj = self.e_tj - self.mu if self.norm_eigs_for_h else self.e_tj
+            h_t_uv, s_t_uv, d_t_uv = get_h_s_d_t_uv(self.proj_tju, self.coef_tju, e_tj, self.occ_tj)
+            arrs = {"h_t_uv": h_t_uv, "s_t_uv": s_t_uv, "d_t_uv": d_t_uv}
+            for name, arr in arrs.items():
+                np.save(self.cache_sub_dir / f"{name}.npy", arr)
+        for name, arr in arrs.items():
+            setattr(self, f"_{name}", arr)
+
+    @property
+    def coef_tju(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the expansion coefficients of each band in the band-projected orbitals, in shape (nstates, nbands, nproj).
+
+        Equal to proj_tju when los_orbs is True (orthonormal orbitals). Otherwise C_t = P_t pinv(P_t^dag P_t).
+        See `crawfish.core.operations.matrix.get_coef_tju`.
+        """
+        if self._coef_tju is None:
+            self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs)
+        return self._coef_tju
+
+    @property
+    def h_t_uv(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the signed state-resolved Hamiltonian <chi_u|H|chi_v> of the band-projected orbitals, (nstates, nproj, nproj).
+
+        Eigenvalues are shifted by -mu when norm_eigs_for_h is True. That only changes the diagonal when los_orbs is
+        True, but in the non-orthogonal basis it shifts the COHP by -mu * COOP.
+        """
+        if self._h_t_uv is None:
+            self.set_mat_uv()
+        return self._h_t_uv
+
+    @property
+    def s_t_uv(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the signed state-resolved overlap <chi_u|O|chi_v> of the band-projected orbitals (identity if los_orbs)."""
+        if self._s_t_uv is None:
+            self.set_mat_uv()
+        return self._s_t_uv
+
+    @property
+    def d_t_uv(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the state-resolved density matrix sum_j f_tj C_tju conj(C_tjv), (nstates, nproj, nproj)."""
+        if self._d_t_uv is None:
+            self.set_mat_uv()
+        return self._d_t_uv
+
+    def get_mat_r0_suv(self, name: str) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the R=0 (same-cell) element of signed matrix `name` ("h", "s" or "d") per spin, (nspin, nproj, nproj)."""
+        return get_r0_suv(getattr(self, f"{name}_t_uv"), self.wk_t, self.nspin)
 
     def set_mat_uu(self) -> None:
         missing = False
@@ -695,7 +787,7 @@ class ElecData:
 
     @property
     def h_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return state-resolved hamiltonian matrix of calculation.
+        """Return legacy (pre-F2, unsigned) state-resolved hamiltonian matrix of calculation (used when legacy_matrices is True).
 
         Return state-resolved hamiltonian matrix of calculation in shape (nstate, nproj, nproj).
         """
@@ -705,7 +797,7 @@ class ElecData:
 
     @property
     def p_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return state-resolved projection matrix of calculation.
+        """Return legacy (pre-F2, unsigned) state-resolved projection matrix of calculation (used when legacy_matrices is True).
 
         Return state-resolved projection matrix of calculation in shape (nstate, nproj, nproj).
         """
@@ -715,7 +807,7 @@ class ElecData:
 
     @property
     def s_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return state-resolved overlap matrix of calculation.
+        """Return legacy (pre-F2, unsigned) state-resolved overlap matrix of calculation (used when legacy_matrices is True).
 
         Return state-resolved overlap matrix of calculation in shape (nstate, nproj, nproj).
         """
@@ -725,7 +817,7 @@ class ElecData:
 
     @property
     def h_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return hamiltonian matrix of calculation.
+        """Return legacy (pre-F2, unsigned) hamiltonian matrix of calculation (used when legacy_matrices is True).
 
         Return hamiltonian matrix of calculation in shape (nproj, nproj).
         """
@@ -735,7 +827,7 @@ class ElecData:
 
     @property
     def p_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return projection matrix of calculation.
+        """Return legacy (pre-F2, unsigned) projection matrix of calculation (used when legacy_matrices is True).
 
         Return projection matrix of calculation in shape (nproj, nproj).
         """
@@ -745,7 +837,7 @@ class ElecData:
 
     @property
     def s_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return overlap matrix of calculation.
+        """Return legacy (pre-F2, unsigned) overlap matrix of calculation (used when legacy_matrices is True).
 
         Return overlap matrix of calculation in shape (nproj, nproj).
         """
@@ -880,6 +972,11 @@ class ElecData:
         if self._complex_bandprojs is None:
             self._complex_bandprojs = is_complex_bandfile_filepath(self.bandfile_header_filepath)
         return self._complex_bandprojs
+
+    @property
+    def bandprojfile_is_ortho(self) -> bool:
+        """Return True if JDFTx orthonormalized the orbitals before projecting (band-projection-params yes ...)."""
+        return "ortho-orbital-projections" in read_file(self.bandfile_header_filepath)[0]
 
     @property
     def lti_allowed(self) -> bool:
@@ -1156,6 +1253,7 @@ class ElecData:
         Remove normalization from projections.
         """
         self._proj_tju = None
+        self._coef_tju = None
         _ = self.proj_tju
         self.norm_idx = None
         return None
