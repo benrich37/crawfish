@@ -14,8 +14,9 @@ References at the end. Every numbered "Check" can be rerun with the scripts in `
 
 ## 0a. Status (2026-10-27)
 
-F1–F4 are committed. F5, including default time-reversal unfolding, is implemented, tested and documented on
-`theory_check` (uncommitted); its `result_changes.py` entry is due after commit. The next findings are F6 (normalization), F7 (docs), F8 (filling
+F1–F5 are committed (F5 includes default time-reversal unfolding). F6 is implemented, tested and documented on
+`theory_check` (uncommitted); its `result_changes.py` entry (stage "spectra") is due after commit. The next
+findings are F7 (docs), F8 (filling
 helpers), F9 (spinors), F10 (misc), F11 (too few bands; add the section 2.4 diagnostics), and F12 (point-group
 unfolding, future).
 
@@ -40,8 +41,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | F2 | P0 | H/S/P "matrices" are built from `(Re[T*_u T_v])^2`, so they are elementwise non-negative (S, P) or non-positive (H, occupied). The sign of the true matrix element is lost. The bonding/antibonding call is wrong whenever the true H_uv or S_uv is positive (e.g. ppσ). In N2, px–px σ comes out antibonding. | Code + Check 2 | No | **fixed** in `3d9ab1b` (2026-10-27); legacy via `legacy_matrices=True`; `result_changes.py` entry added |
 | F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | **fixed** in `ceffa10` (2026-10-27); legacy via `legacy_lattice_image=True`; `result_changes.py` entry added |
 | F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | **fixed** in `756f9e0` (2026-10-27); legacy via `legacy_fillings=True`; `result_changes.py` entry added |
-| F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_reduced_kmesh=True`; `result_changes.py` entry to add after commit |
-| F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | open |
+| F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | **fixed** in `cc5f71e` (2026-10-27), with time-reversal unfolding; legacy via `legacy_reduced_kmesh=True`; `result_changes.py` entry added |
+| F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_normalization=True`; `result_changes.py` entry to add after commit |
 | F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | open |
 | F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. | Check 3 | No | open |
 | F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | open |
@@ -739,6 +740,41 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 - **Fix:** normalize the Gaussian by 1/sqrt(π·sig), keeping the exponent so peak shapes and the meaning of `sig`
   don't change. For LTI, divide the weights by w_k and multiply by the spin weight (or equivalently pass
   un-k-weighted weights). Add a test that ∫DOS = Σ_t w_t · nbands for both methods. Cache stage: "spectra".
+
+**Implementation record for F6 (2026-10-27, branch `theory_check`, not yet committed):**
+- Gaussian:
+  - `core/operations/vector.py::get_gauss_smear_spectrum(..., normalize=False)` divides each spin channel's
+    smeared spectrum by √(π·sig) when `normalize` is set. The kernel `scalar.gauss` (exp(−x²/sig)) is unchanged,
+    and so is its unit test.
+  - `funcs/general.py::get_generic_gsmear_spectrum` passes `normalize=not edata.legacy_normalization`.
+  - Docstrings now say `sig` = 2·(standard deviation)²; they used to call it the standard deviation.
+- LTI: `funcs/general.py::get_generic_lti_spectrum` multiplies the weights by N_k = prod(kfolding) (not legacy).
+  libtetrabz `dos()` weights integrate to 1 per band over the zone (checked numerically in the audit), and
+  crawfish weights carry w_t = spin weight / N_k on the full mesh LTI requires.
+- Setting `legacy_normalization` (default False, cache key `lgnm`). Its setter only re-points the caches, because
+  only the smeared spectra change. Integrated spectra (`get_i*`), `norm_max` and `norm_intg` are unaffected.
+- Results:
+
+  | system | Gaussian ∫DOS (legacy → fixed) | LTI ∫DOS (legacy → fixed) | expected |
+  |---|---|---|---|
+  | N2 | 0.168 → 30.000 | 1.1 → 29.5–30.2 (flat bands, rattled) | 30 |
+  | graphene, full | 0.224 → 40.000 | 0.278 (= 40/144) → 40.005 | 40 |
+
+  The unfolded time-reversal graphene also gives 40.000 / 39.9996; LTI works there because unfolding restores
+  the full mesh.
+- Tests: `tests/funcs/test_spectrum_normalization.py` (7):
+  - DOS integrals for both methods, and for any `sig`;
+  - Gaussian vs. LTI pDOS agreement;
+  - the smeared pCOHP integrates to its weights;
+  - the legacy scales √(π·sig) and 1/N_k;
+  - `norm_max` is unchanged.
+
+  `tests/funcs/test_general_funcs.py::test_get_generic_gsmear_spectrum` checks properties of the unnormalized
+  kernel, so it is now pinned to `legacy_normalization=True`. Full suite: 166 passed.
+- Docs: the README smearing paragraph (normalized kernel, `sig` meaning, legacy switch); CLAUDE.md; the F6
+  section of `F4_F8_inputs_and_normalization.ipynb` (`figures/F6_dos_normalization.png`).
+- `result_changes.py`: the F5 entry was added (`cc5f71e`). **The F6 entry still has to be added after this work is
+  committed** (stage "spectra").
 
 ### F7: COOP in an orthonormal basis; pCOMO's sign (P1, mostly documentation)
 

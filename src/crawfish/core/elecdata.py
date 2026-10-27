@@ -74,6 +74,7 @@ edata_setting_key_shorthand_dict = {
     "legacy_fillings": "lgfl",
     "legacy_reduced_kmesh": "lgkm",
     "unfold_time_reversal": "utr",
+    "legacy_normalization": "lgnm",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -93,6 +94,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "legacy_fillings": edata.legacy_fillings,
         "legacy_reduced_kmesh": edata.legacy_reduced_kmesh,
         "unfold_time_reversal": edata.unfold_time_reversal,
+        "legacy_normalization": edata.legacy_normalization,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -359,6 +361,30 @@ class ElecData:
             self.alloc_elec_data()
 
     _unfold_time_reversal: bool = True
+
+    """
+    legacy_normalization: If False (default), smeared spectra are densities that integrate to the state count:
+    the Gaussian kernel exp(-(E - e)^2 / sig) is divided by sqrt(pi * sig), and LTI weights are multiplied by
+    N_k, because libtetrabz weights already include the 1/N_k of the Brillouin-zone average. Gaussian and LTI
+    spectra are then on the same scale, in states (or weight units) per Hartree. If True, the pre-fix scales
+    are restored: the Gaussian integrated to sqrt(pi * sig) per state, and LTI to 1/N_k per state, so the two
+    methods disagreed. Peak shapes, `sig` and norm_max/norm_intg results are unchanged.
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F6.
+    """
+
+    @property
+    def legacy_normalization(self) -> bool:
+        return self._legacy_normalization
+
+    @legacy_normalization.setter
+    def legacy_normalization(self, value: bool):
+        if value != self._legacy_normalization:
+            self._legacy_normalization = value
+            # Only smeared spectra change; their caches live in the settings sub-directory
+            self._init_caches()
+
+    _legacy_normalization: bool = False
     _tr_unfolding: dict | bool | None = None
 
     def _reset_kpoint_arrays(self) -> None:

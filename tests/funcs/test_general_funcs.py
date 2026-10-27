@@ -8,6 +8,9 @@ import pytest
 
 def test_get_generic_gsmear_spectrum():
     edata = ElecData(EXAMPLE_CALC_DIRS_DIR / "N2_bare_min")
+    # These checks (unit peak height, wider kernel taller off-centre) describe the unnormalized kernel, i.e. the
+    # legacy scale; tests/funcs/test_spectrum_normalization.py covers the normalized one (F6)
+    edata.legacy_normalization = True
     edata._wk_t = np.ones(np.shape(edata.wk_t), dtype=REAL_DTYPE)
     #edata._wk_sabc = np.ones(np.shape(edata.wk_sabc), dtype=REAL_DTYPE)
     sabcj = [edata.nspin] + list(edata.kfolding) + [edata.nbands]

@@ -232,6 +232,10 @@ def get_generic_lti_spectrum(
         )
     else:
         e_sabcj = edata.e_sabcj
+    if not edata.legacy_normalization:
+        # libtetrabz weights already carry the 1/N_k of the BZ average, and weights_sabcj carry w_t (= spin
+        # weight / N_k on the full mesh LTI needs), so N_k is counted twice without this (F6)
+        weights_sabcj = weights_sabcj * weights_sabcj.dtype.type(np.prod(edata.kfolding))
     cs = get_lti_spectrum(e_sabcj, erange, weights_sabcj, bvec)
     spectrum = cs_formatter(cs, spin_pol)
     return erange, spectrum
@@ -260,12 +264,12 @@ def get_generic_gsmear_spectrum(
     spin_pol : bool
         Return separate spectra for up/down intensities if True.
     sig : REAL_DTYPE
-        The standard deviation of the Gaussian smearing.
+        Width parameter of the Gaussian kernel exp(-(E - e)^2 / sig), i.e. 2 * (standard deviation)^2.
     res : REAL_DTYPE
         The resolution of the energy range if erange is None.
     """
     erange = get_erange(edata, erange, res=res)
-    cs = get_gauss_smear_spectrum(erange, edata.e_sabcj, weights_sabcj, sig)
+    cs = get_gauss_smear_spectrum(erange, edata.e_sabcj, weights_sabcj, sig, normalize=not edata.legacy_normalization)
     spectrum = cs_formatter(cs, spin_pol)
     return erange, spectrum
 

@@ -90,4 +90,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="Divide no-spin JDFTx fillings files by the spin weight (notes/theory_audit.md F4; "
         "legacy_fillings restores the raw values)",
     ),
+    ResultChange(
+        commit="cc5f71ec26a5d65f990351654000606eb3f2e570",
+        version="1.0.0",
+        stage="matrices",
+        description="JDFTx k-point weights on reduced meshes, reduced-mesh guards, time-reversal unfolding "
+        "(notes/theory_audit.md F5; legacy_reduced_kmesh / unfold_time_reversal)",
+    ),
 ]

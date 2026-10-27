@@ -75,11 +75,14 @@ def get_gauss_smear_spectrum(
     e_sabcj: np.ndarray[REAL_DTYPE],
     weights_sabcj: np.ndarray[REAL_DTYPE] | np.ndarray[[COMPLEX_DTYPE]],
     sig: REAL_DTYPE,
+    normalize: bool = False,
 ) -> list[np.ndarray]:
     """Return the Gaussian smeared spectrum for a given set of energies, weights, and sigma smearing parameter.
 
     Return the Gaussian smeared spectrum for a given set of energies, weights, and sigma smearing parameter.
-    (larger sigma means more smearing)
+    (larger sigma means more smearing). The kernel is exp(-(E - e)^2 / sig), so `sig` is 2 * (standard
+    deviation)^2, not the standard deviation. With normalize=True the kernel is divided by sqrt(pi * sig), so it
+    integrates to 1 and the spectrum is a density per Hartree (notes/theory_audit.md, finding F6).
 
     Parameters
     ----------
@@ -90,7 +93,9 @@ def get_gauss_smear_spectrum(
     weights_sabcj : np.ndarray
         The set of weights for the energies of interest
     sig : float
-        The sigma smearing parameter
+        The width parameter of the kernel exp(-(E - e)^2 / sig)
+    normalize : bool
+        Divide the kernel by sqrt(pi * sig) so that it integrates to 1
     """
     check_arr_typing([erange, e_sabcj, weights_sabcj])
     num_dtype = weights_sabcj.dtype
@@ -103,6 +108,8 @@ def get_gauss_smear_spectrum(
         es.append(e_sabcj[s].flatten())
         cs.append(np.zeros(np.shape(erange), dtype=num_dtype))
         cs[s] = _get_gauss_smear_spectrum_jit(erange, es[s], ws[s], cs[s], sig)
+        if normalize:
+            cs[s] = cs[s] / num_dtype.type(np.sqrt(np.pi * sig))
     return cs
 
 
