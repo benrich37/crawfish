@@ -319,8 +319,33 @@ Sum rules, to use as tests:
 
 ## 4. Proposed implementation plan (crawfish-only)
 
-Each step is independently testable. Keep the old code path available behind a setting for one release so users
-can compare. Add a `result_changes.py` entry per step that changes numbers.
+Each step is independently testable. Add a `result_changes.py` entry per step that changes numbers.
+
+### 4.0 Requirements for every fix (user instruction, 2026-10-27)
+
+These apply to every item in this plan and to any later fix that changes results.
+
+- **Document each fix well.** Record what changed, why (point to the finding number here and its evidence), and
+  how results move. Put that in the code (docstrings or comments at the changed function), in the
+  `result_changes.py` entry description, in the README wherever the formalism or the required JDFTx flags change,
+  and in this file's status column.
+- **Keep the legacy behaviour reachable from the current code.** It should be possible to measure how a fix changes
+  results later without checking out old commits. Removing a legacy path is not a deprecation step. Suggested
+  shape, to be settled in the first implementation:
+  - Move the old implementations into one place (e.g. `crawfish/legacy/` or `_legacy`-suffixed functions next to
+    their replacements). Don't edit them in place.
+  - Add one switch that selects legacy or corrected behaviour. It could be a single `ElecData` setting such as
+    `formalism="legacy" | "projected"`, or per-fix flags such as `legacy_phase`, `legacy_matrices`,
+    `legacy_fillings` and `legacy_normalization`. Per-fix flags let you isolate the effect of each change.
+  - The switch must be part of the cache key (`edata_setting_key_shorthand_dict`, `get_edata_settings_str`,
+    `func_args_dict` / `metadata_dict`), so legacy and corrected results never share cache entries.
+  - Add tests that run both paths on the test data. They should assert that the legacy path still reproduces the
+    numbers recorded in section 6, and that the corrected path meets the new tests in step 1. That keeps the legacy
+    code from rotting silently.
+  - Consider a small comparison helper (e.g. `compare_formalisms(edata, func, **kwargs)`) that returns legacy and
+    corrected spectra side by side. The scripts in `notes/theory_audit_checks/` are a starting point.
+- Bug fixes with no scientific content (e.g. the `math.erf` crash in F8) don't need a legacy path, but still get
+  documented.
 
 1. **Tests first** (no behaviour change), in `tests/funcs/`:
    (a) after the phase fix, Im(T*_s T_p) ≈ 0 at Γ for N2;
