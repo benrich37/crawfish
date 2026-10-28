@@ -85,7 +85,7 @@ def test_settings_change_updates_cache_sub_dir():
     edata = ElecData(exdir_path)
     for setting in [
         "legacy_orbital_phase", "legacy_matrices", "legacy_lattice_image", "legacy_fillings",
-        "legacy_reduced_kmesh", "unfold_time_reversal", "trim_excess_bands", "los_orbs", "p_uu_consistent", "norm_eigs_for_h"
+        "legacy_reduced_kmesh", "unfold_time_reversal", "legacy_normalization", "legacy_lowdin_cutoff", "trim_excess_bands", "los_orbs", "p_uu_consistent", "norm_eigs_for_h"
     ]:
         start_val = getattr(edata, setting)
         setattr(edata, setting, not start_val)

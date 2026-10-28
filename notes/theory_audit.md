@@ -14,10 +14,12 @@ References at the end. Every numbered "Check" can be rerun with the scripts in `
 
 ## 0a. Status (2026-10-27)
 
-F1–F8 are committed (F5 includes default time-reversal unfolding; F7 = `2de60d2`, F8 = `ca5793f`). F9 (refuse
-spinor runs with a clear error; nothing that worked changes) is done on `theory_check`, uncommitted. The next
-findings are F10 (misc), F11 (too few bands; add the section 2.4 diagnostics), and F12 (point-group unfolding,
-future). Supporting spinor runs properly is a separate project (F9 record).
+F1–F9 are committed (F5 includes default time-reversal unfolding; F7 = `2de60d2`, F8 = `ca5793f`, F9 =
+`0c9d8c2`). F10 (relative Löwdin cutoff with `legacy_lowdin_cutoff`, mu read in Hartree by crawfish, re-trimming
+fix and deprecation of `trim_excess_bands`, fallback weights summing to 2) is done on `theory_check`,
+uncommitted; **its `result_changes.py` entry (stage "matrices") has to be added after it is committed.** The next
+findings are F11 (too few bands; add the section 2.4 diagnostics) and F12 (point-group unfolding, future).
+Supporting spinor runs properly is a separate project (F9 record).
 
 ## 0. How to resume
 
@@ -44,8 +46,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | **fixed** in `44cf908` (2026-10-27); legacy via `legacy_normalization=True`; `result_changes.py` entry added |
 | F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | **fixed** in `2de60d2`: docs, warnings, `orbital_completeness_u`; no numbers change, so no legacy switch or `result_changes` entry |
 | F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. Also found while fixing: JDFTx's spelling `Cold` was rejected, and runs without smearing print no mu, so that path crashed. | Check 3 | No | **fixed** in `ca5793f`: vectorized helpers, constant fillings without smearing; bug fix, so no legacy switch or `result_changes` entry |
-| F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | **refused** on `theory_check` (uncommitted, 2026-10-27): clear `NotImplementedError` before anything is parsed; full support is future work |
-| F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | open |
+| F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | **refused** in `0c9d8c2`: clear `NotImplementedError` before anything is parsed; bug fix, so no legacy switch or `result_changes` entry; full support is future work |
+| F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | **fixed** on `theory_check` (uncommitted, 2026-10-27): Löwdin cutoff with legacy via `legacy_lowdin_cutoff=True`; mu, trimming and weights are bug fixes; `result_changes.py` entry still to add |
 | F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27 | No | open (README now warns) |
 | F12 | P2 | Meshes reduced by a point group (JDFTx `symmetries automatic`) can't give single-bond or m-resolved results; crawfish guards them (F5). Full unfolding with the symmetry operations would lift this. Time-reversal-only reductions are already unfolded (F5). | F5 work | No (`dump End Symmetries` exists) | open, future work |
 | U1 | — | Optional upstream improvements: apply the i^l phase in `dumpProjections` (as the Wannier code does), dump the AO overlap S(k) = <phi\|O\|phi> (and optionally <phi\|H\|phi>), and use higher precision or binary projections. None of these is required for the crawfish-only fixes. | — | Yes | not started |
@@ -633,7 +635,7 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   (IpCOBI 1.493, IpCOHP −0.8668), and z-spin results are identical in legacy and fixed.
 - README: a new "Occupations and k-point weights" section. The non-JDFTx instructions now say weights sum to 2
   (they said nspin, which undercounts unpolarized data by half). CLAUDE.md conventions are updated too.
-  `_get_arbitrary_wk` still gives Σw = nspin (F10, open).
+  `_get_arbitrary_wk` gave Σw = nspin until F10 (now 2; legacy under `legacy_reduced_kmesh`).
 - Tests: `tests/core/test_fillings.py` (8 tests: z-spin invariance, the electron-count warning, integration
   without max rescaling, no-spin halving, file vs. computed occupations, legacy pCOBI ×2, and no-spin vs.
   z-spin agreement). Full suite: 144 passed.
@@ -849,7 +851,7 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
     data without smearing, the step at the user's mu is used. The result goes through `_check_electron_count`.
   - The `broadening_type` setter accepts the JDFTx spellings in any case, plus `none`/None.
   - `ElecData.mu` raises a clear ValueError, suggesting `edata.mu` from the eigStats dump, when the outfile has no
-    mu. The pymatgen `_mu_backup` unit issue (F10) is untouched.
+    mu. The pymatgen `_mu_backup` unit issue was fixed later, with F10 (crawfish reads mu itself).
 - Why there's no legacy switch or `result_changes` entry: every old path either raised or (non-JDFTx data without
   smearing, which has no on-disk cache) gave occupations unrelated to mu. The Fermi path is numerically unchanged,
   so no cached result can change (section 4.0).
@@ -931,6 +933,81 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 - The README's non-JDFTx instructions say weights should sum to nspin. JDFTx's convention is that they sum to 2
   (spin-unpolarized weights carry the spin factor). `_get_arbitrary_wk` gives a sum of nspin, which is 1 for
   unpolarized runs and undercounts by 2. `ElecData.as_empty` is broken anyway (see memory note).
+
+**Implementation record for F10 (2026-10-27, `theory_check`, uncommitted).** Item by item:
+
+- **Löwdin cutoff (result-changing; legacy switch `legacy_lowdin_cutoff`, cache key `lglw`).**
+  - `matrix.py::los_projs_for_orbs(proj_tju, legacy=False, return_ndropped=False)` now works in float64 and drops
+    eigen-directions of S_t = P_t†P_t below `LOWDIN_RTOL` = 1e-6 times the largest eigenvalue. That is the same
+    rule `get_coef_tju` already used for the non-orthogonal basis. The old float32 code with the absolute 1e-15
+    cutoff is `_los_projs_for_orbs_legacy`, unchanged. A dropped direction gets zero projection, so P'†P' is the
+    projector onto the kept directions (not the identity).
+  - `ElecData.alloc_elec_data` warns with the count of dropped directions and states, and points to
+    `orbital_completeness_u` and F11. The setter calls `_init_caches()` and then `alloc_elec_data()`.
+  - Why: float32 eigenvalues carry noise of ~5e-8 absolute (measured on graphene_1x1, float32 vs. float64). An
+    orbital combination the bands don't span has an eigenvalue at that noise, and with the absolute cutoff it was
+    kept and scaled by 1/√λ (to unit weight) when the noise was positive, or dropped when negative. Synthetic
+    test: at λ = 1e-8 the legacy step dropped the direction in 4 of 10 random bases.
+  - Fixtures (smallest eigenvalue of S_t relative to the largest, per state): N2 ≥ 1.7e-3 and Al, Si ≥ 0.18
+    (nothing dropped; the two paths agree to float32 rounding, N2 IpCOHP identical to 1e-5). graphene_zspin_full,
+    _tr and _symm (20 bands): 4, 4 and 2 states at K drop one in-plane σ combination (|v|² = 0.25 on two p
+    orbitals per atom) whose band lies above all 20 bands. The eigenvalues are ≤ 4e-9 and the next ones ≥ 4e-3,
+    so the cutoff sits in a clean gap. The old cutoff had kept 3 of the 4 in graphene_zspin_full. IpCOHP changes
+    by 1e-5. graphene_1x1 (8 bands for 8 orbitals): the smallest eigenvalue is spread continuously from 1e-12 to
+    1e-2, 446 directions drop (338 of them were kept before). That is the F11 regime, where no cutoff is clean;
+    the fix only removes the noise amplification.
+  - graphene_1x1, all-orbital IpCOHP of C1's three equivalent nearest bonds R = (−1,−1,0), (0,−1,0), (0,0,0):
+    legacy −0.14569, −0.14604, −0.14539 (spread 6.5e-4); fixed −0.14352, −0.14346, −0.14348 (spread 6e-5). So
+    the bond strength moves by 1.5% and symmetry-equivalent bonds agree 10× better. (F11's 5% spread came from a
+    different 8-band graphene run, not rechecked here.) The F3 notes' "≈ −0.146 per bond" is the legacy value.
+  - Side observation: graphene_1x1 has two flat occupied bands near −3.3 and −2.9 Ha (~−90 and −80 eV below mu).
+    JDFTx's own eigStats in its outfile reports eMin = −3.315 Ha, so they come from that calculation (lattice-relaxed,
+    LinearPCM), not from crawfish parsing. Not investigated further. The F10 notebook plots only the valence window.
+- **mu (bug fix, no switch).** `data_parsing.py::get_mu_from_outfile_filepath` used to return the *first*
+  `FillingsUpdate` mu (the LCAO one: −0.247 instead of −0.0958 Ha for N2) and was unused. It now returns the last
+  `FillingsUpdate` mu after the last `LCAOMinimize:` line in the slice, as a float64 in Hartree, or None. JDFTx's
+  tutorials use the final FillingsUpdate line (`doc/tutorials/solid/Metals.dox`). LCAO lines are skipped because
+  LCAO always reports a mu: without `elec-smearing`, it sets temporary fillings (`ElecVars_LCAO.cpp`, "Transition
+  fillings") and nothing is printed afterwards. `ElecData.mu` uses it instead of pymatgen's `outfile.mu /
+  Ha_to_eV`.
+  - On every fixture, the new value equals the old one bit for bit, except graphene_zspin_symm (3e-18 Ha), so no
+    cached result changes.
+  - The Si runs without smearing show pymatgen's trap: `outfile.mu` is None there but the slice's `_mu_backup` is
+    0.267 (Hartree, from the LCAO lines). Only the eigStats dump (which sets `efermi`) keeps
+    `_set_eigvars` from copying `_mu_backup` into `mu`. Reproduced with a copy of that outfile with the eigStats
+    block removed: pymatgen's `outfile.mu` and `efermi` both become 0.267 (Hartree, labelled eV), and the old
+    crawfish path gave mu = 0.0098 Ha, silently, from a non-converged LCAO value. Crawfish now raises the F8 "no
+    chemical potential" error there. Recorded in `~/vs/claude-notes/pymatgen-jdftx.md`.
+- **`trim_excess_bands` (bug fix plus deprecation, no switch).** `alloc_elec_data` stores the untrimmed
+  `(e_tj, occ_tj, nbands)` in `_untrimmed_bands` before trimming and restores them at the next call (arrays a
+  setter reset to None are re-derived instead). Before, toggling any setting after `trim_excess_bands = True`
+  raised `IndexError: index 8 is out of bounds` on N2, and switching trimming off left 8-band `e_tj` with 15-band
+  projections. Setting it to True now raises a `FutureWarning` (deprecated: global band choice by Σ|T|,
+  non-unitary Sinkhorn rescaling). Its behaviour is unchanged otherwise.
+- **Fallback weights (bug fix, no new switch).** `_get_arbitrary_wk(nk, nspin, legacy)` gives 2/(nspin·nk) per
+  state (sum 2). `get_wk_t` passes its `legacy` (i.e. `legacy_reduced_kmesh`), so the pre-F5 path still
+  reproduces the old 1/nk. Since F5, the default path only reaches it when a kPts file has the wrong length; no
+  fixture does.
+- **Already settled:** the README S formula was rewritten with F2. `p_uu_consistent` only feeds the legacy
+  matrices (docstring and README now say so), and the signed matrices satisfy the band-energy sum rule without
+  it. The setter ordering was fixed with F2.
+- Tests: `tests/core/test_misc_f10.py` (14 tests), covering:
+  - mu vs. pymatgen's main path on 5 fixtures, and the LCAO skip on Si;
+  - synthetic Löwdin drop vs. legacy amplification, and the noise-sign dependence;
+  - N2 unchanged;
+  - the warning, the switch and the cache key;
+  - graphene's three bonds, legacy and fixed values;
+  - trimming round trip and the deprecation warning;
+  - weight sums.
+
+  `test_data_parsing.py` now expects the final mu, `test_elecdata.py`'s settings loop includes the new flag, and
+  `test_reduced_kmesh.py` builds the graphene_zspin_full ElecData outside its no-warnings block. Full suite: 203
+  passed (also from empty caches). All fix notebooks re-run clean (on copies), and the check scripts still run.
+- Notebook: `examples/fix_comparisons/F10_lowdin_cutoff_and_misc.ipynb` (figures `F10_overlap_eigenvalues.png`,
+  `F10_graphene_bonds.png`). `fixcompare.LEGACY_FLAGS["F10"] = "legacy_lowdin_cutoff"`, so `load_edata_at` for
+  F1–F6 now holds the Löwdin step at legacy too, and those notebooks keep their recorded numbers.
+- **`result_changes.py`: add an entry after this is committed** (stage "matrices": the Löwdin step feeds the
+  signed matrices and the weight caches; parsed `proj_tju.npy` is raw and unaffected).
 
 ---------------------------------------------------------------------------------------------------------------
 

@@ -10,6 +10,7 @@ of that fix, saves its figures to `figures/`, and ends with a cell of `assert` c
 | `F3_lattice_images.ipynb` | F3: lattice-image (R) resolution | implemented | legacy (R=0) vs. fixed (nearest image) vs. reference on a 1D chain; N2 with atom 2 wrapped into the next cell; graphene, where two of the three nearest C–C bonds are inter-cell (image shells, orbital-resolved bonds, wrapping) |
 | `F7_coop_basis.ipynb` | F7: pCOOP and the orbital basis; pCOMO's sign | implemented (docs + warnings; no numbers change) | orthonormalized vs. non-orthogonal projections (15/40 bands), Löwdin vs. non-orthogonal basis, pCOMO vs. COOP/COHP signs |
 | `F4_F8_inputs_and_normalization.ipynb` | F4, F5, F6, F8 | all implemented | F4: legacy vs. fixed on `N2_nospin` and z-spin N2; F5: graphene on full, point-group-reduced and k/−k-reduced (unfolded) meshes; F6: DOS integrals, Gaussian and LTI, legacy vs. fixed; F8: filling helpers vs. `ElecInfo::smear`, and occupations computed without the `fillings` file vs. the file for Al (four smearings) and Si (no smearing) |
+| `F10_lowdin_cutoff_and_misc.ipynb` | F10: Löwdin cutoff, mu units, `trim_excess_bands`, fallback weights | implemented | overlap eigenvalues vs. the cutoff (N2, graphene with 20 and 8 bands); the old cutoff's dependence on noise sign; graphene's three equivalent bonds, `legacy_lowdin_cutoff=True` vs. default; N2 unchanged; mu vs. pymatgen; re-trimming and weight sums |
 
 ## How the notebooks adapt as fixes land
 
@@ -22,6 +23,7 @@ of that fix, saves its figures to `figures/`, and ends with a cell of `assert` c
 - If an implementation names its legacy flag differently, update `LEGACY_FLAGS`. If it picks a different default
   basis (open question Q1), update `REF_BASIS` in the F2 notebook.
 - F8 has no legacy switch (crash and bug fixes don't need one), so its notebook checks the fixed code against JDFTx directly.
+  Of F10's items only the Löwdin cutoff changes results, so `legacy_lowdin_cutoff` is the F10 entry in `LEGACY_FLAGS`.
 - Add a notebook in the same style for every new result-changing fix.
 
 ## Running

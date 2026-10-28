@@ -787,16 +787,53 @@ def apply_jdftx_orbital_phase(proj_tju: np.ndarray[COMPLEX_DTYPE], l_u: np.ndarr
     return np.asarray(proj_tju * phase_u[np.newaxis, np.newaxis, :], dtype=COMPLEX_DTYPE)
 
 
-def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
+# Overlap eigenvalues below this fraction of the largest are dropped by the Löwdin step (as in get_coef_tju)
+LOWDIN_RTOL = 1e-6
+
+
+def los_projs_for_orbs(
+    proj_tju: np.ndarray[COMPLEX_DTYPE], legacy: bool = False, return_ndropped: bool = False
+) -> np.ndarray[COMPLEX_DTYPE] | tuple[np.ndarray[COMPLEX_DTYPE], np.ndarray[int]]:
     """Perform LOS on projections for projection orthogonality.
 
-    Perform Lowdin symmetric orthogonalization on projections for orbital projection orthogonality.
+    Perform Lowdin symmetric orthogonalization on projections for orbital projection orthogonality:
+    P'_t = P_t S_t^{-1/2}, with S_t = P_t^dag P_t the overlap of the band-projected orbitals at state t.
+
+    Directions of S_t with an eigenvalue below LOWDIN_RTOL times the largest are orbital combinations the bands
+    don't span. They are dropped (their projections become zero), because 1/sqrt(eigenvalue) would otherwise blow
+    float32 noise up to unit weight. This is done in float64. Before finding F10 (notes/theory_audit.md), the
+    cutoff was an absolute 1e-15 in float32, so whether such a direction was dropped or amplified depended on
+    the sign of the noise in its eigenvalue; legacy=True restores that.
 
     Parameters
     ----------
-    proj_sabcju : np.ndarray[COMPLEX_DTYPE]
+    proj_tju : np.ndarray[COMPLEX_DTYPE]
         Projections in shape (nstates, nbands, nproj).
+    legacy : bool
+        Use the pre-F10 float32 version with the absolute cutoff.
+    return_ndropped : bool
+        Also return the number of dropped directions per state, in shape (nstates,).
     """
+    if legacy:
+        low_proj_tju, ndropped_t = _los_projs_for_orbs_legacy(proj_tju)
+    else:
+        nstates = np.shape(proj_tju)[0]
+        low_proj_tju = np.zeros_like(proj_tju)
+        ndropped_t = np.zeros(nstates, dtype=int)
+        for t in range(nstates):
+            p_ju = np.asarray(proj_tju[t], dtype=np.complex128)
+            eigs, low_u = np.linalg.eigh(p_ju.conj().T @ p_ju)
+            idx = eigs > LOWDIN_RTOL * eigs.max()
+            ndropped_t[t] = np.sum(~idx)
+            low_proj_tju[t] = p_ju @ (low_u[:, idx] / np.sqrt(eigs[idx])) @ low_u[:, idx].conj().T
+    if return_ndropped:
+        return low_proj_tju, ndropped_t
+    return low_proj_tju
+
+
+def _los_projs_for_orbs_legacy(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> tuple[np.ndarray[COMPLEX_DTYPE], np.ndarray[int]]:
+    """Pre-F10 Löwdin step (float32, absolute eigenvalue cutoff 1e-15). See `los_projs_for_orbs`."""
+    ndropped_t = np.zeros(np.shape(proj_tju)[0], dtype=int)
     low_proj_tju = np.zeros_like(proj_tju)
     nstates = np.shape(proj_tju)[0]
     for t in range(nstates):
@@ -805,9 +842,10 @@ def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLE
         # TODO: The following two lines were stolen from pyscf. Figure out if pyscf should just be a dependency,
         # and dispatch orthogonalization to it.
         idx = eigs > 1e-15
+        ndropped_t[t] = np.sum(~idx)
         low_s_uu = np.dot(low_u[:,idx]/np.sqrt(eigs[idx]), low_u[:,idx].conj().T)
         low_proj_tju[t, :, :] += np.tensordot(proj_tju[t], low_s_uu, axes=([1], [0]))
-    return low_proj_tju
+    return low_proj_tju, ndropped_t
 
 
 # def los_projs_for_bands(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:

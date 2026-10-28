@@ -47,9 +47,11 @@ LEGACY_FLAGS = {
     "F4": "legacy_fillings",
     "F5": "legacy_reduced_kmesh",
     "F6": "legacy_normalization",
+    "F10": "legacy_lowdin_cutoff",
 }
 # F8 (crashing/inverted occupation helpers) is a bug fix without a legacy switch (notes section 4.0); its notebook
-# section compares the helpers and the computed occupations directly against JDFTx.
+# section compares the helpers and the computed occupations directly against JDFTx. Of F10's items only the
+# Löwdin cutoff changes results, so it is the one with a switch.
 
 
 def fix_available(finding: str) -> bool:

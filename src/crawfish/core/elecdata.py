@@ -10,6 +10,7 @@ from crawfish.core.operations.matrix import (
     get_h_p_s_t_uu_and_uu,
     normalize_square_proj_tju,
     los_projs_for_orbs,
+    LOWDIN_RTOL,
     get_weighted_overlap_tjuv,
     apply_jdftx_orbital_phase,
     get_coef_tju,
@@ -51,7 +52,6 @@ from pymatgen.io.jdftx.outputs import JDFTXOutfile
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.visualize import view
 from pymatgen.core.structure import Structure
-from pymatgen.core.units import Ha_to_eV
 from pathlib import Path
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
@@ -77,6 +77,7 @@ edata_setting_key_shorthand_dict = {
     "legacy_reduced_kmesh": "lgkm",
     "unfold_time_reversal": "utr",
     "legacy_normalization": "lgnm",
+    "legacy_lowdin_cutoff": "lglw",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -97,6 +98,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "legacy_reduced_kmesh": edata.legacy_reduced_kmesh,
         "unfold_time_reversal": edata.unfold_time_reversal,
         "legacy_normalization": edata.legacy_normalization,
+        "legacy_lowdin_cutoff": edata.legacy_lowdin_cutoff,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -202,6 +204,8 @@ class ElecData:
     for both bands and orbitals.
     Making the projection vector at each state square also enables techniques requiring
     dual spaces of bands and orbitals (not yet implemented)
+    Deprecated (notes/theory_audit.md, finding F10): the bands are ranked by the sum of |T| over all k-points, so
+    every k keeps the same band indices, and the Sinkhorn rescaling of |T|^2 isn't unitary. Setting it warns.
     """
 
     def view_structure(self, **kwargs):
@@ -387,7 +391,33 @@ class ElecData:
             self._init_caches()
 
     _legacy_normalization: bool = False
+
+    """
+    legacy_lowdin_cutoff: If False (default), the Löwdin step (los_orbs) runs in float64 and drops overlap
+    eigen-directions below LOWDIN_RTOL (1e-6) times the largest eigenvalue at that state, warning when it does. Such
+    directions are orbital combinations the bands don't span. If True, the pre-fix step is used: float32 with an
+    absolute cutoff of 1e-15, which kept eigenvalues of order 1e-8 (float32 noise) and scaled them up to unit
+    weight, or dropped them when the noise happened to be negative. Results only differ where the bands
+    leave orbitals unspanned (e.g. graphene with 8 bands), apart from float32 rounding.
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F10.
+    """
+
+    @property
+    def legacy_lowdin_cutoff(self) -> bool:
+        return self._legacy_lowdin_cutoff
+
+    @legacy_lowdin_cutoff.setter
+    def legacy_lowdin_cutoff(self, value: bool):
+        if value != self._legacy_lowdin_cutoff:
+            self._legacy_lowdin_cutoff = value
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_lowdin_cutoff: bool = False
     _tr_unfolding: dict | bool | None = None
+    # (e_tj, occ_tj, nbands) from before trim_excess_bands cut them, so a later alloc_elec_data can restore them
+    _untrimmed_bands: tuple | None = None
 
     def _reset_kpoint_arrays(self) -> None:
         """Drop every array indexed by state, so they are rebuilt for the current k-point settings."""
@@ -453,6 +483,15 @@ class ElecData:
     @trim_excess_bands.setter
     def trim_excess_bands(self, value: bool):
         if value != self._trim_excess_bands:
+            if value:
+                warnings.warn(
+                    "trim_excess_bands is deprecated. It keeps the same nproj bands at every k-point, ranked by the "
+                    "sum of |T| over all k-points, and then rescales |T|^2 to be doubly stochastic, which isn't a "
+                    "unitary change of the projections. Use enough elec-n-bands and los_orbs instead "
+                    "(notes/theory_audit.md, finding F10).",
+                    FutureWarning,
+                    stacklevel=2,
+                )
             self._trim_excess_bands = value
             # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
@@ -489,6 +528,8 @@ class ElecData:
     (ie the sum of all orbital populations at each band/state is equal to the filling at that state/band).
     This also coincidentally makes the LCAO hamiltonian matrix preserve energy conservation, as it will ensure
     sum_{u,v} h_tj_uv = e_tj * f_tj (as h_tj_uu = p_tj_uu * e_tj).
+    Only used by the legacy matrices (legacy_matrices=True). The signed matrices need no such rescaling: their band
+    energy sum rule holds by construction (notes/theory_audit.md, findings F2 and F10).
     """
 
     @property
@@ -675,13 +716,16 @@ class ElecData:
         """
         if self._mu is None:
             if self.jdftx:
-                if self.outfile.mu is None:
+                # Read in Hartree from the outfile, not pymatgen's outfile.mu, whose fallback is in Hartree while its
+                # main value is in eV (finding F10)
+                mu = get_mu_from_outfile_filepath(self.outfile_filepath)
+                if mu is None:
                     # JDFTx prints mu (FillingsUpdate) only with smearing; occupations don't need it (F8)
                     raise ValueError(
                         "No chemical potential in the outfile (calculation without elec-smearing). "
                         "Set edata.mu by hand, e.g. from the eigStats dump."
                     )
-                self._mu = self.outfile.mu / Ha_to_eV
+                self._mu = mu
             else:
                 raise ValueError("mu (Fermi level) must be set by user for non-JDFTx calculations")
         return self._mu
@@ -1535,6 +1579,13 @@ class ElecData:
 
     def alloc_elec_data(self):
         self._set_proj_tju()
+        if self._untrimmed_bands is not None:
+            # _set_proj_tju reloaded every band, so undo an earlier trim_excess_bands. Arrays a setter reset to None
+            # are re-derived instead. Before finding F10, the trimmed arrays were indexed with untrimmed band indices.
+            for name, arr in zip(["_e_tj", "_occ_tj", "_nbands"], self._untrimmed_bands):
+                if getattr(self, name) is not None:
+                    setattr(self, name, arr)
+            self._untrimmed_bands = None
         #_ = self.proj_tju
         _ = self.occ_tj
         _ = self.e_tj
@@ -1543,6 +1594,7 @@ class ElecData:
             self._trim_excess_bands = False
             self._los_orbs = False
         if self.trim_excess_bands:
+            self._untrimmed_bands = (self.e_tj, self.occ_tj, self.nbands)
             bestj = get_best_bands(self.proj_tju)
             _e_tj = self.e_tj[:, bestj]
             _proj_tju = self.proj_tju[:, bestj, :]
@@ -1553,7 +1605,19 @@ class ElecData:
             self._occ_tj = _occ_tj
             self._nbands = self.nproj
         if self.los_orbs:
-            self._proj_tju = los_projs_for_orbs(self.proj_tju)
+            self._proj_tju, ndropped_t = los_projs_for_orbs(
+                self.proj_tju, legacy=self.legacy_lowdin_cutoff, return_ndropped=True
+            )
+            if not self.legacy_lowdin_cutoff and np.any(ndropped_t):
+                warnings.warn(
+                    f"Löwdin orthonormalization (los_orbs) dropped {int(np.sum(ndropped_t))} orbital combination(s) "
+                    f"at {int(np.count_nonzero(ndropped_t))} of {len(ndropped_t)} states: the bands span them with "
+                    f"an overlap eigenvalue below {LOWDIN_RTOL:g} of the largest, so they get no weight there. "
+                    "Pair spectra involving those orbitals miss that part of the interaction. Check "
+                    "edata.orbital_completeness_u; more elec-n-bands usually fixes this (notes/theory_audit.md, "
+                    "findings F10 and F11).",
+                    stacklevel=2,
+                )
         self.reval_mat_uu()
 
     #################

@@ -83,28 +83,36 @@ def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) 
     return spintype_nspin[spintype]
 
 
-def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> REAL_DTYPE:
+def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> float | None:
     r"""Get the Fermi level from the output file.
 
-    Get the Fermi level from the output file.
+    Get the chemical potential from the last `FillingsUpdate` line of the calculation (ElecInfo.cpp::smearReport,
+    printed in Hartree), as JDFTx's own tutorials do. Lines printed during the LCAO initial guess are skipped: LCAO
+    always reports a mu, even without `elec-smearing` (which then prints none afterwards), and it isn't the
+    converged one. Read here rather than from pymatgen, whose fallback for mu (`_mu_backup`) is in Hartree while its
+    main value is in eV (notes/theory_audit.md, finding F10).
 
     Parameters
     ----------
     outfile_filepath : str | Path
         Path to output file.
-
+    slice_idx : int
+        Which calculation in the output file (default: the last).
 
     Returns
     -------
-    mu: float
-        Fermi level in Hartree.
+    mu: float | None
+        Chemical potential in Hartree (float64, as printed), or None if no mu was printed after LCAO.
     r"""
-    mu = None
     lookkey = "FillingsUpdate:  mu:"
     outfile = read_file(outfile_filepath)
     start, end = get_outfile_slice_bounds(outfile, slice_idx=slice_idx)
-    text = get_text_with_key_in_bounds(outfile_filepath, lookkey, start, end)
-    mu = REAL_DTYPE(text.split(lookkey)[1].strip().split()[0])
+    mu = None
+    for line in outfile[start:end]:
+        if line.startswith("LCAOMinimize:"):
+            mu = None
+        elif lookkey in line:
+            mu = float(line.split(lookkey)[1].split()[0])
     return mu
 
 
@@ -787,9 +795,14 @@ def _get_lti_allowed(bandfile_filepath: str | Path, outfile_filepath: str | Path
     return lti
 
 
-def _get_arbitrary_wk(nk: int, nspin: int) -> np.ndarray[REAL_DTYPE]:
+def _get_arbitrary_wk(nk: int, nspin: int, legacy: bool = False) -> np.ndarray[REAL_DTYPE]:
+    """Return uniform weights, one per state (spin and k-point), summing to 2 as JDFTx's do.
+
+    For no-spin, each state's weight carries the spin factor 2. With legacy=True the weights are 1/nk, as before
+    finding F10 (notes/theory_audit.md), which sums to nspin and halves every no-spin result.
+    """
     wk = np.ones(nk * nspin)
-    wk *= 1 / nk
+    wk *= (1.0 if legacy else 2.0 / nspin) / nk
     return wk
 
 
@@ -813,11 +826,12 @@ def get_wk_t(
     legacy : bool
         Reproduce the pre-F5 check (notes/theory_audit.md), which compared the number of weights (one per state,
         nspin * nk) with nk. For spin-polarized symmetry-reduced meshes that always failed, so the file's
-        non-uniform weights were replaced by uniform ones.
+        non-uniform weights were replaced by uniform ones. Also keeps the uniform fallback weights at 1/nk (they
+        now sum to 2, finding F10).
     r"""
     nk = np.prod(kfolding)
     if kptsfile_filepath is None:
-        wk = _get_arbitrary_wk(nk, nspin)
+        wk = _get_arbitrary_wk(nk, nspin, legacy=legacy)
     else:
         wk, ks, nstates = parse_kptsfile(kptsfile_filepath)
         wk = np.array(wk, dtype=REAL_DTYPE)
@@ -829,7 +843,7 @@ def get_wk_t(
                     "Kpts file does not match expected number of k-points. k-point weights will be meaningless.",
                     stacklevel=2,
                 )
-                wk = _get_arbitrary_wk(nk, nspin)
+                wk = _get_arbitrary_wk(nk, nspin, legacy=legacy)
     return wk
 
 

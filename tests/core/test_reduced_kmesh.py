@@ -113,10 +113,12 @@ def test_warnings_on_reduced_mesh():
         get_ipcohp(edata, idcs1=0, idcs2=1, orbs1="px", orbs2="px", image="all")
     with pytest.warns(UserWarning, match="averaged over symmetry-equivalent atoms"):
         get_ipdos(edata, idcs=0)
+    # Loading graphene_zspin_full warns that the Löwdin step dropped a sigma combination at K (finding F10)
+    full = _get_edata(full_dir)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         get_ipdos(edata, idcs=[0, 1])  # every orbital: exact, no warning
-        get_ipdos(_get_edata(full_dir), idcs=0, orbs="px")  # full mesh: no warning
+        get_ipdos(full, idcs=0, orbs="px")  # full mesh: no warning
 
 
 def test_orbital_shells():
