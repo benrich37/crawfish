@@ -15,5 +15,7 @@ projections. They were run with `~/Desktop/jdftx_hold/build_master/jdftx -c 8 -i
 `graphene_zspin_full` and `graphene_zspin_symm` agree on symmetry-invariant quantities: the C1–C2 pCOHP summed over all images, total-shell pDOS,
 pz. They differ for single bonds and for m-resolved px/py.
 
-20 bands are needed. With 8 bands (= number of orbitals), the σ* states fall outside the band set at some
-k-points, so the s/p orbitals aren't spanned there and the Löwdin step becomes ill-conditioned.
+8 bands (= number of orbitals) are far too few: the σ* states fall outside the band set at most k-points, so the
+s/p orbitals aren't spanned there and the Löwdin step becomes ill-conditioned. 20 bands still miss an in-plane σ*
+combination at K, so crawfish warns when loading these (finding F11), and the C–C IpCOHP is 3.5–4% weaker than with 30
+or 40 bands. `graphene_zspin_tr_30bands` is the 30-band version.

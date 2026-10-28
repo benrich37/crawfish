@@ -12,14 +12,13 @@ References at the end. Every numbered "Check" can be rerun with the scripts in `
 
 ---------------------------------------------------------------------------------------------------------------
 
-## 0a. Status (2026-10-27)
+## 0a. Status (2026-10-28)
 
-F1–F9 are committed (F5 includes default time-reversal unfolding; F7 = `2de60d2`, F8 = `ca5793f`, F9 =
-`0c9d8c2`). F10 (relative Löwdin cutoff with `legacy_lowdin_cutoff`, mu read in Hartree by crawfish, re-trimming
-fix and deprecation of `trim_excess_bands`, fallback weights summing to 2) is done on `theory_check`,
-uncommitted; **its `result_changes.py` entry (stage "matrices") has to be added after it is committed.** The next
-findings are F11 (too few bands; add the section 2.4 diagnostics) and F12 (point-group unfolding, future).
-Supporting spinor runs properly is a separate project (F9 record).
+F1–F10 are committed (F5 includes default time-reversal unfolding; F7 = `2de60d2`, F8 = `ca5793f`, F9 =
+`0c9d8c2`, F10 = `131fd7a`). F10's `result_changes.py` entry was added with the F11 work. F11 (too-few-bands
+diagnostic `orbital_span_t` and warning; no numbers change) is done on `theory_check`, uncommitted. The next
+finding is F12 (point-group unfolding, future). Still open from section 2.4: a charge-spilling property and a
+sum-rule residual (not needed for F11). Supporting spinor runs properly is a separate project (F9 record).
 
 ## 0. How to resume
 
@@ -47,8 +46,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | **fixed** in `2de60d2`: docs, warnings, `orbital_completeness_u`; no numbers change, so no legacy switch or `result_changes` entry |
 | F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. Also found while fixing: JDFTx's spelling `Cold` was rejected, and runs without smearing print no mu, so that path crashed. | Check 3 | No | **fixed** in `ca5793f`: vectorized helpers, constant fillings without smearing; bug fix, so no legacy switch or `result_changes` entry |
 | F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | **refused** in `0c9d8c2`: clear `NotImplementedError` before anything is parsed; bug fix, so no legacy switch or `result_changes` entry; full support is future work |
-| F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | **fixed** on `theory_check` (uncommitted, 2026-10-27): Löwdin cutoff with legacy via `legacy_lowdin_cutoff=True`; mu, trimming and weights are bug fixes; `result_changes.py` entry still to add |
-| F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27 | No | open (README now warns) |
+| F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | **fixed** in `131fd7a`: Löwdin cutoff with legacy via `legacy_lowdin_cutoff=True`; mu, trimming and weights are bug fixes; `result_changes.py` entry added |
+| F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27; band-count series 2026-10-28 | No | **warning added** on `theory_check` (uncommitted, 2026-10-28): `orbital_span_t`, warns below 1e-4; no numbers change, so no legacy switch or `result_changes` entry |
 | F12 | P2 | Meshes reduced by a point group (JDFTx `symmetries automatic`) can't give single-bond or m-resolved results; crawfish guards them (F5). Full unfolding with the symmetry operations would lift this. Time-reversal-only reductions are already unfolded (F5). | F5 work | No (`dump End Symmetries` exists) | open, future work |
 | U1 | — | Optional upstream improvements: apply the i^l phase in `dumpProjections` (as the Wannier code does), dump the AO overlap S(k) = <phi\|O\|phi> (and optionally <phi\|H\|phi>), and use higher precision or binary projections. None of these is required for the crawfish-only fixes. | — | Yes | not started |
 
@@ -165,6 +164,9 @@ Sum rules, to use as tests:
 - Orbital completeness ⟨φ_u|P_bands|φ_u⟩ = S_t[u,u] (ortho data). N2: s 0.80, py/pz 0.97, px (bond axis) 0.69, all
   with 15 bands. Low values mean too few empty bands (`elec-n-bands`). This directly limits COOP and COHP accuracy.
 - Sum-rule residual from 2.3.
+- Per-state band span (added with F11): `ElecData.orbital_span_t` = λ_min/λ_max of S_t, with a warning below 1e-4.
+  Orbital completeness exists as `orbital_completeness_u` (F7). Charge spilling and the sum-rule residual are not
+  implemented yet.
 
 ---------------------------------------------------------------------------------------------------------------
 
@@ -1006,8 +1008,95 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 - Notebook: `examples/fix_comparisons/F10_lowdin_cutoff_and_misc.ipynb` (figures `F10_overlap_eigenvalues.png`,
   `F10_graphene_bonds.png`). `fixcompare.LEGACY_FLAGS["F10"] = "legacy_lowdin_cutoff"`, so `load_edata_at` for
   F1–F6 now holds the Löwdin step at legacy too, and those notebooks keep their recorded numbers.
-- **`result_changes.py`: add an entry after this is committed** (stage "matrices": the Löwdin step feeds the
-  signed matrices and the weight caches; parsed `proj_tju.npy` is raw and unaffected).
+- **`result_changes.py`:** entry added with the F11 work for commit `131fd7a` (stage "matrices": the Löwdin step
+  feeds the signed matrices and the weight caches; parsed `proj_tju.npy` is raw and unaffected).
+- Later (F11): the "dropped" warning was merged into the too-few-bands warning; see the F11 record.
+
+### F11: too few bands (P1)
+
+- **What:** the Löwdin step inverts S_t^{1/2} and the non-orthogonal basis inverts S_t, where S_t = P_t†P_t is
+  the overlap of the orbitals' band-space parts. When an orbital combination (typically σ*) lies above every
+  computed band at some k-point, S_t is nearly singular there. crawfish then rebuilds that orbital from bands
+  that barely contain it, or (since F10) drops it. Pair spectra are then not converged in the number of bands,
+  with no error or warning.
+- **Fix (crawfish-only):** report it. A per-state measure plus a warning on load. No numbers change.
+
+**Implementation record for F11 (2026-10-28, `theory_check`, uncommitted):**
+- Band-count series, run locally (`~/Desktop/jdftx_hold/build_master/jdftx -c 8`, 25–86 s each). Only
+  `elec-n-bands` changes. Graphene is the `graphene_zspin_tr` input; N2 is `N2_nospin`; both use ortho-orbital
+  projections unless noted. IpCOHP in Ha, from crawfish defaults (Löwdin basis, nearest image). Graphene: the mean
+  of C1's three nearest bonds. N2: N1–N2.
+
+  | system | bands | IpCOHP | vs. 40 bands | min span | k-weight with span < 1e-4 | min k-avg completeness |
+  |---|---|---|---|---|---|---|
+  | graphene | 8 | −0.3342 | −36% | 8e-16 | 1.00 | 0.58 |
+  | | 10 | −0.3867 | −26% | 3e-13 | 0.875 | 0.67 |
+  | | 12 | −0.4205 | −20% | 4e-13 | 0.458 | 0.73 |
+  | | 16 | −0.4813 | −8.1% | 1e-13 | 0.035 | 0.84 |
+  | | 20 | −0.5013 | −4.3% | 4e-10 | 0.014 | 0.92 |
+  | | 30 | −0.5193 | −0.9% | 0.93 | 0 | 0.98 |
+  | | 40 | −0.5239 | | 0.95 | 0 | 0.99 |
+  | N2 | 8 | −0.8084 | −7.7% | 1e-8 | 1.00 | 0.68 |
+  | | 10 | −0.8497 | −3.0% | 4e-8 | 0.625 | 0.68 |
+  | | 12 | −0.8647 | −1.3% | 9e-3 | 0 | 0.69 |
+  | | 15 | −0.8668 | −1.0% | 2e-2 | 0 | 0.69 |
+  | | 25 | −0.8713 | −0.5% | 4e-2 | 0 | 0.70 |
+  | | 40 | −0.8757 | | 7e-2 | 0 | 0.71 |
+  | graphene, non-ortho, `los_orbs=False` | 8 | +16.18 | nonsense | 4e-16 | 1.00 | 0.90 |
+  | | 12 | +6.98 | nonsense | 8e-15 | 0.92 | 0.95 |
+  | | 20 | −0.2332 | −15% | 4e-11 | 0.014 | 0.99 |
+  | | 40 | −0.2730 | | 3e-2 | 0 | 1.00 |
+  | N2, non-ortho, `los_orbs=False` | 15 | −0.2843 | −6.9% | 2e-3 | 0 | 0.90 |
+  | | 40 | −0.3053 | | 5e-3 | 0 | 0.90 |
+
+  Orbital-resolved values converge more slowly (graphene px–px: −0.0146 at 20 bands vs. −0.0177 at 40, 17%).
+  The graphene non-ortho 8- and 12-band IpCOBI were 474 and 181: S⁻¹ amplifies near-singular directions.
+- **Choosing the measure.** Candidates, judged on whether they separate the runs that are clearly unconverged
+  from those within ~1%:
+  - Smallest eigenvalue of S_t in absolute terms: for N2 it is below 0.1 at every k-point even with 40 bands
+    (N2's σ* sits among many box states and stays partly unspanned), yet N2 converges to 1% at 15 bands. The σ*
+    combination barely enters N2's occupied bonding states. A threshold near 0.1 would always warn on N2.
+  - Per-state diagonal of S_t: fine for ortho projections, but for non-orthogonal ones in a periodic cell the
+    Bloch-sum orbital's norm Σ_R e^{ik·R} S_AO(R) varies with k (graphene, 40 bands: 0.50 to 1.68 per state), so
+    it isn't a span measure. Only its k-average is (that is `orbital_completeness_u`, which is 1 at complete
+    bands because the average picks out S_AO(R=0)).
+  - k-averaged completeness (`orbital_completeness_u`): misses the non-ortho failures (0.90 and 0.95 for the
+    8- and 12-band runs that give nonsense) and sits at 0.69 for converged N2.
+  - **Chosen: λ_min(S_t)/λ_max(S_t) per state, warn if any state is below 1e-4.** A missing combination sits at
+    float32 noise (1e-8 to 1e-16) in every failing run. Every quiet run has its smallest value at 8.7e-3 or
+    above (ortho) or 1.7e-3 or above (non-ortho, where the true orbital overlap's own conditioning enters: ~2e-3
+    for N2). So 1e-4 leaves a margin of at least 17. With ortho projections, the warning fires for every run
+    that is 3% or more off and for none within 1.3%. With non-ortho projections it catches the graphene runs
+    (nonsense and 15% off) but not the N2 15-band run (6.9% off): there the bands span every orbital combination
+    at every k-point, and the slow convergence is a different effect (pCOOP has the F7 completeness warning).
+- **Code (`core/elecdata.py`):**
+  - `ElecData.orbital_span_t`: λ_min/λ_max of the raw file projections' S_t per state, unfolded onto the full
+    mesh (`_unfold_states`; time-reversal partners have conjugate S_t). Settings-independent, cached, reset by
+    `_reset_kpoint_arrays`. The weakest eigenvector's |v_u|² is kept in `_weakest_orbital_tu`.
+  - `SPAN_WARN_RTOL = 1e-4` (module constant).
+  - `ElecData._warn_if_bands_too_few(ndropped_t)`, called at the end of `alloc_elec_data` (so on load and after
+    setting changes; Python shows an identical warning once per location). The message gives the states and
+    k-weight fraction below the threshold, the smallest value, the orbitals the missing combinations are made of
+    (k-weighted share of |v_u|², summed over atoms of an element, listed if ≥ 15%), and, when `los_orbs`, how
+    many directions the Löwdin step dropped. That replaces F10's separate "dropped" warning, so a load gives one
+    warning instead of two. On the `legacy_lowdin_cutoff` path drops aren't reported (as before), but the band
+    part still is.
+- **Which fixtures warn now:** `graphene_1x1` (830 of 1058 states, C px/py, the 8-band run), `graphene_zspin_full`
+  / `_tr` (4 of 288) and `_symm` (2 of 38): an in-plane σ* combination at K, which F10 already reported as
+  dropped. Not: all N2 fixtures (15 bands), Al, Si (8 bands for 8 orbitals, but diamond's 4 antibonding sp³
+  bands are within them: span ≥ 0.18).
+- **Fixtures added:** `N2_nospin_10bands` (warns: N s/px σ* at 5 of 8 k-points) and `graphene_zspin_tr_30bands`
+  (quiet), each next to its original. README in both.
+- Tests: `tests/core/test_band_span.py` (14): quiet on 7 fixtures, the warning's state count and orbitals on 4,
+  warned runs differ from the quiet companions (N2 −0.8497 vs. −0.8668; graphene −0.5013 vs. −0.5193), the span
+  is settings-independent and matches the unreduced mesh, and the legacy Löwdin path reports no drops.
+  `test_misc_f10.py::test_lowdin_warning_and_legacy_switch` now matches the merged message. Full suite: 217
+  passed, from empty caches.
+- Notebook: `examples/fix_comparisons/F11_band_span.ipynb` (`figures/F11_orbital_span.png`,
+  `figures/F11_band_convergence.png`, the latter from the series above).
+- README: the `elec-n-bands` row of the JDFTx-settings table describes the warning. The graphene fixture README
+  no longer says 20 bands suffice.
+- No legacy switch or `result_changes.py` entry: no number changes.
 
 ---------------------------------------------------------------------------------------------------------------
 

@@ -25,7 +25,7 @@ Ruff settings live in `pyproject.toml` (line length 120, py310), but the ruff ho
 - Use `REAL_DTYPE` (float32) / `COMPLEX_DTYPE` (complex64) from `crawfish.utils.typing`, not bare numpy dtypes.
 - Energies are in **Hartree** and are **not** shifted to the Fermi level. `ElecData.mu` is read in Hartree from the outfile by `io/data_parsing.get_mu_from_outfile_filepath`, not from pymatgen's `outfile.mu` (eV, with a Hartree fallback).
 - Only collinear spin (`no-spin`, `z-spin`) is supported. `ElecData.__init__` refuses spinor runs (`vector-spin`, `spin-orbit`) through `io/data_parsing.check_spintype_supported`, before anything is parsed or cached.
-- `ElecData.orbital_completeness_u` (how much of each orbital the bands span, from the raw projections) backs the pCOOP warnings; low values mean too few `elec-n-bands`.
+- `ElecData.orbital_completeness_u` (how much of each orbital the bands span, from the raw projections) backs the pCOOP warnings; low values mean too few `elec-n-bands`. `ElecData.orbital_span_t` (per state, smallest/largest eigenvalue of the raw band-space overlap) backs the too-few-bands warning that `alloc_elec_data` raises below `SPAN_WARN_RTOL` (1e-4); that warning also reports the directions the Löwdin step dropped.
 - Occupations `occ_tj` are per state in [0, 1], and `wk_t` carries the spin factor (sums to 2), as in JDFTx. JDFTx's `fillings` file is in [0, 2] for no-spin, so `ElecData.occ_tj` divides it by `spin_weight` (unless `legacy_fillings`).
 - Hot loops are numba `@jit(nopython=True)` helpers (suffix `_jit`) that sit next to a plain-Python wrapper (`core/operations/`, `io/data_parsing.py`).
 

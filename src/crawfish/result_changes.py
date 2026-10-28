@@ -104,4 +104,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="Normalized Gaussian kernel and single N_k in LTI spectra (notes/theory_audit.md F6; "
         "legacy_normalization restores the old scales)",
     ),
+    ResultChange(
+        commit="131fd7a689e220ee46cff85f4bd02d97bfc4bcc0",
+        version="1.0.0",
+        stage="matrices",
+        description="Löwdin step in float64 with a relative eigenvalue cutoff (notes/theory_audit.md F10; "
+        "legacy_lowdin_cutoff restores the old one)",
+    ),
 ]

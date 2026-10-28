@@ -63,6 +63,9 @@ warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
 warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
 
+# ElecData warns when the band-space overlap S_t has an eigenvalue below this fraction of its largest at any state:
+# an orbital combination is then essentially missing from the bands (notes/theory_audit.md, finding F11)
+SPAN_WARN_RTOL = 1e-4
 # Signed (F2) state-resolved matrices, cached as <name>.npy in the settings sub-directory
 signed_mat_names = ["h_t_uv", "s_t_uv", "d_t_uv"]
 cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
@@ -422,7 +425,7 @@ class ElecData:
     def _reset_kpoint_arrays(self) -> None:
         """Drop every array indexed by state, so they are rebuilt for the current k-point settings."""
         for name in ["_proj_tju", "_e_tj", "_occ_tj", "_wk_t", "_ks_t", "_kfolding", "_lti_allowed", "_nstates",
-                     "_nbands", "_tr_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv"]:
+                     "_nbands", "_tr_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t"]:
             setattr(self, name, None)
 
     @property
@@ -1320,6 +1323,80 @@ class ElecData:
         return np.array(np.tensordot(wk, per_state, axes=1) / np.sum(wk), dtype=REAL_DTYPE)
 
     @property
+    def orbital_span_t(self) -> np.ndarray[REAL_DTYPE]:
+        """Return, per state, how well the computed bands span the orbitals, in shape (nstates,).
+
+        The smallest eigenvalue of S_t = P_t^dag P_t over its largest, from the projections JDFTx wrote. S_t is the
+        overlap of the orbitals' band-space parts at state t, which the Löwdin step (los_orbs) and the
+        non-orthogonal coefficients (S^-1 T) both invert. With ortho-orbital projections ('band-projection-params
+        yes ...') the true orbital overlap is the identity, so this is the fraction of the worst-represented
+        orbital combination that the bands hold. With non-orthogonal projections it also includes the
+        conditioning of the true orbital overlap, which isn't dumped (about 2e-3 for N2's s/p orbitals). Values
+        far below that mean an orbital combination is missing from the bands at that state: crawfish then
+        rebuilds it from bands that barely contain it, or drops it (see legacy_lowdin_cutoff). Independent of
+        crawfish's settings, like orbital_completeness_u. See notes/theory_audit.md, finding F11.
+        """
+        if self._orbital_span_t is None:
+            if self.jdftx:
+                proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
+                if proj is None:
+                    proj = get_proj_tju_from_file(self.bandfile_filepath)
+            else:
+                proj = self.user_proj_tju
+            span_t = np.zeros(len(proj))
+            weakest_tu = np.zeros(np.shape(proj)[::2])
+            for t, p_ju in enumerate(np.asarray(proj, dtype=np.complex128)):
+                eigs, vecs = np.linalg.eigh(p_ju.conj().T @ p_ju)
+                span_t[t] = eigs[0] / eigs[-1]
+                weakest_tu[t] = np.abs(vecs[:, 0]) ** 2
+            if self.jdftx:
+                # Time-reversal partners have conjugate S_t: the same eigenvalues and |eigenvectors|
+                span_t, weakest_tu = self._unfold_states(span_t), self._unfold_states(weakest_tu)
+            self._orbital_span_t = np.array(span_t, dtype=REAL_DTYPE)
+            self._weakest_orbital_tu = weakest_tu
+        return self._orbital_span_t
+
+    _orbital_span_t: np.ndarray | None = None
+    # |eigenvector|^2 of the smallest eigenvalue behind orbital_span_t, per state, for naming the orbitals in warnings
+    _weakest_orbital_tu: np.ndarray | None = None
+
+    def _warn_if_bands_too_few(self, ndropped_t: np.ndarray | None = None) -> None:
+        """Warn when the bands leave an orbital combination (nearly) unspanned at some states (finding F11).
+
+        ndropped_t: directions the Löwdin step dropped per state (finding F10), reported in the same warning.
+        """
+        span_t = self.orbital_span_t
+        bad_t = span_t < SPAN_WARN_RTOL
+        if ndropped_t is not None and np.any(ndropped_t):
+            bad_t = bad_t | (ndropped_t > 0)
+        if not np.any(bad_t):
+            return
+        wk_t = np.asarray(self.wk_t, dtype=np.float64)
+        frac = wk_t[bad_t].sum() / wk_t.sum()
+        # Which orbitals the missing combinations are made of, summed over atoms of the same element
+        share = {}
+        for atom, idcs in self.orbs_idx_dict.items():
+            labels = self.atom_orb_labels_dict[atom.split(" #")[0]]
+            for label, u in zip(labels, idcs):
+                key = f"{atom.split(' #')[0]} {label}"
+                share[key] = share.get(key, 0.0) + float(np.sum(wk_t[bad_t] * self._weakest_orbital_tu[bad_t, u]))
+        total = sum(share.values())
+        names = ", ".join(k for k, v in sorted(share.items(), key=lambda kv: -kv[1]) if v >= 0.15 * total)
+        dropped = ""
+        if ndropped_t is not None and np.any(ndropped_t):
+            dropped = (f" The Löwdin step (los_orbs) dropped {int(np.sum(ndropped_t))} of these combination(s), "
+                       f"below {LOWDIN_RTOL:g}, so they get no weight there.")
+        warnings.warn(
+            f"Too few bands: at {int(np.count_nonzero(bad_t))} of {len(bad_t)} states ({100 * frac:.1f}% of the "
+            f"k-point weight), an orbital combination is almost missing from the bands (band-space overlap "
+            f"eigenvalue below {SPAN_WARN_RTOL:g} of the largest; smallest {float(span_t.min()):.1e}), mostly "
+            f"{names}.{dropped} Pair spectra (and pDOS with los_orbs) rebuild the orbitals from these bands, so they "
+            "aren't converged in the number of bands, often by several percent. Increase elec-n-bands until "
+            "edata.orbital_span_t has no small values (notes/theory_audit.md, findings F10 and F11).",
+            stacklevel=3,
+        )
+
+    @property
     def bandprojfile_is_ortho(self) -> bool:
         """Return True if JDFTx orthonormalized the orbitals before projecting (band-projection-params yes ...)."""
         return "ortho-orbital-projections" in read_file(self.bandfile_header_filepath)[0]
@@ -1604,20 +1681,13 @@ class ElecData:
             self._proj_tju = _proj_tju
             self._occ_tj = _occ_tj
             self._nbands = self.nproj
+        ndropped_t = None
         if self.los_orbs:
             self._proj_tju, ndropped_t = los_projs_for_orbs(
                 self.proj_tju, legacy=self.legacy_lowdin_cutoff, return_ndropped=True
             )
-            if not self.legacy_lowdin_cutoff and np.any(ndropped_t):
-                warnings.warn(
-                    f"Löwdin orthonormalization (los_orbs) dropped {int(np.sum(ndropped_t))} orbital combination(s) "
-                    f"at {int(np.count_nonzero(ndropped_t))} of {len(ndropped_t)} states: the bands span them with "
-                    f"an overlap eigenvalue below {LOWDIN_RTOL:g} of the largest, so they get no weight there. "
-                    "Pair spectra involving those orbitals miss that part of the interaction. Check "
-                    "edata.orbital_completeness_u; more elec-n-bands usually fixes this (notes/theory_audit.md, "
-                    "findings F10 and F11).",
-                    stacklevel=2,
-                )
+        # One warning for unspanned orbitals (F11) and the directions Löwdin dropped (F10; not counted on the legacy path)
+        self._warn_if_bands_too_few(None if self.legacy_lowdin_cutoff else ndropped_t)
         self.reval_mat_uu()
 
     #################

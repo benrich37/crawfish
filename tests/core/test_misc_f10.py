@@ -110,12 +110,15 @@ def test_lowdin_unchanged_when_bands_span_orbitals():
 def test_lowdin_warning_and_legacy_switch():
     from crawfish.core.elecdata import ElecData, get_edata_settings_str
 
-    with pytest.warns(UserWarning, match="dropped 4 orbital combination"):
+    # Since F11 the dropped directions are reported in the too-few-bands warning
+    with pytest.warns(UserWarning, match="dropped 4 of these combination"):
         edata = ElecData(calc_dirs / "graphene_zspin_full")
     assert "lglw_False" in get_edata_settings_str(edata)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        edata.legacy_lowdin_cutoff = True  # no warning on the legacy path
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        edata.legacy_lowdin_cutoff = True
+    # The legacy step drops nothing reportable; the F11 part about the bands still applies
+    assert caught and all("dropped" not in str(w.message) for w in caught)
     assert edata.cache_sub_dir.name == get_edata_settings_str(edata)
     assert "lglw_True" in edata.cache_sub_dir.name
 

@@ -1,0 +1,24 @@
+# Gas-phase N2, spin-unpolarized: crawfish test fixture for JDFTx's no-spin fillings convention (finding F4)
+lattice \
+    24.588925 0.0 0.0 \
+    0.0 24.588925 0.0 \
+    0.0 0.0 24.588925
+coords-type Cartesian
+ion N  13.895656  12.992521  11.400385 0
+ion N  11.832075  12.992521  11.400385 0
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/n_pbe_v1.2.uspp
+core-overlap-check none
+
+elec-ex-corr gga-PBE
+elec-cutoff 20 100
+elec-n-bands 10
+elec-smearing Fermi 0.001
+spintype no-spin
+symmetries none
+kpoint-folding 2 2 2
+converge-empty-states yes
+electronic-minimize energyDiffThreshold 1e-8
+
+band-projection-params yes no
+dump-name $VAR
+dump End BandEigs BandProjections Fillings Kpoints EigStats
