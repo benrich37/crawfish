@@ -1234,6 +1234,27 @@ class ElecData:
         return self._complex_bandprojs
 
     @property
+    def orbital_completeness_u(self) -> np.ndarray[REAL_DTYPE]:
+        """Return how much of each orbital lies in the span of the computed bands, in shape (nproj,).
+
+        The k-point-weighted average over states of sum_j |<phi_u|O|psi_j>|^2, from the projections JDFTx wrote.
+        That is the diagonal of the band-space overlap before any Löwdin step. JDFTx normalizes each orbital so
+        that <phi|O|phi> = 1, so values near 1 mean the bands represent the orbital fully, while low values mean
+        too few bands (`elec-n-bands`). It is independent of crawfish's settings: |T| doesn't depend on the orbital
+        phase, and |T(-k)| = |T(k)|. See notes/theory_audit.md, findings F7 and F11.
+        """
+        if self.jdftx:
+            proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
+            if proj is None:
+                proj = get_proj_tju_from_file(self.bandfile_filepath)
+            wk, _, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
+        else:
+            proj, wk = self.user_proj_tju, self.wk_t
+        wk = np.asarray(wk, dtype=np.float64)
+        per_state = np.sum(np.abs(np.asarray(proj)) ** 2, axis=1)  # (t, u)
+        return np.array(np.tensordot(wk, per_state, axes=1) / np.sum(wk), dtype=REAL_DTYPE)
+
+    @property
     def bandprojfile_is_ortho(self) -> bool:
         """Return True if JDFTx orthonormalized the orbitals before projecting (band-projection-params yes ...)."""
         return "ortho-orbital-projections" in read_file(self.bandfile_header_filepath)[0]

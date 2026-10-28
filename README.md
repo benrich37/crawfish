@@ -90,7 +90,13 @@ Images other than the same cell need the full k-mesh (run JDFTx with `symmetries
 
 Notes:
 - Summing the integrated pCOHP over all orbital pairs, including on-site ones, reproduces the band energy $\sum w f\epsilon$, up to the charge spilling of the projection.
-- **pCOOP vanishes between different orbitals in an orthonormal basis.** It needs `los_orbs=False` and projections from `band-projection-params no no`. With ortho-orbital projections it only reflects band truncation, and crawfish warns in both cases.
+- **pCOOP vanishes between different orbitals in an orthonormal basis.** For meaningful pCOOP:
+  - run JDFTx with `band-projection-params no no` (non-orthogonal atomic orbitals);
+  - set `edata.los_orbs = False`;
+  - use enough bands that the orbitals are spanned.
+
+  crawfish builds the overlap from the bands ($S = TT^\dagger$), which approaches $\langle\phi_\mu|\hat O|\phi_\nu\rangle$ as `edata.orbital_completeness_u` approaches 1. crawfish warns when pCOOP is zero (Löwdin basis), when it is only a band-truncation artifact (orthonormalized-orbital projections), and when the selected orbitals' completeness is below 0.85. For gas-phase N2 with non-orthogonal projections, completeness is 0.90–0.99 with 15 bands. The overlaps have the textbook signs (σ between parallel p negative, π positive), and ICOOP changes by less than 0.03 from 15 to 40 bands (`examples/fix_comparisons/F7_coop_basis.ipynb`).
+- **Basis dependence.** pCOHP depends on the orbital basis, and in the non-orthogonal basis also on the energy zero (`norm_eigs_for_h`). For N2, the non-orthogonal basis gives the textbook net-antibonding s–s interaction, while the Löwdin basis gives a bonding one and about 3× the total ICOHP. Compare results within one basis.
 - **pCOMO** has no matrix factor, so its sign depends on how the two orbitals are oriented. For example, a p–p σ bonding combination of parallel p orbitals has $C_{\mu}^*C_{\nu} < 0$. Read it as a bond-order density, not as a bonding indicator.
 - The spin factor and sign convention of pCOBI still need to be checked against Müller et al., J. Phys. Chem. C 125, 7959 (2021).
 

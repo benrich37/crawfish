@@ -143,8 +143,16 @@ def get_pair_images(
     ]
 
 
-def _warn_if_coop_is_artifact(edata: ElecData):
-    """Warn when pCOOP between different orbitals is zero or a band-truncation artifact (finding F7)."""
+# Below this, a non-orthogonal pCOOP is noticeably reduced by the overlap missing from the band space (F7, F11)
+COOP_COMPLETENESS_WARN = 0.85
+
+
+def _warn_if_coop_is_artifact(edata: ElecData, orbs: list[int] | None = None):
+    """Warn when pCOOP between different orbitals is zero, a band-truncation artifact, or underestimated (F7).
+
+    The band-space overlap S_t = T T^dag only approaches <phi|O|phi> as the bands span the orbitals, so with
+    non-orthogonal projections pCOOP also needs enough bands: see ElecData.orbital_completeness_u.
+    """
     if edata.legacy_matrices:
         return
     if edata.los_orbs:
@@ -160,6 +168,15 @@ def _warn_if_coop_is_artifact(edata: ElecData):
             "truncation. Use projections from 'band-projection-params no no' for pCOOP.",
             stacklevel=3,
         )
+    elif orbs is not None:
+        completeness = edata.orbital_completeness_u[np.asarray(orbs, dtype=int)]
+        if completeness.min() < COOP_COMPLETENESS_WARN:
+            warnings.warn(
+                f"Some selected orbitals are only {completeness.min():.2f} represented by the computed bands "
+                f"(ElecData.orbital_completeness_u), so the band-space overlap behind pCOOP is underestimated. "
+                "Increase elec-n-bands.",
+                stacklevel=3,
+            )
 
 #@assert_complex_bandprojections
 def get_pcohp(
@@ -613,9 +630,9 @@ def _get_pcoop_tj(
         use_cache: bool = False,
         image: str | list[int] | tuple[int, int, int] = "nearest",
         ):
-    _warn_if_coop_is_artifact(edata)
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
+    _warn_if_coop_is_artifact(edata, list(orbs_u) + list(orbs_v))
     check_repeat(orbs_u, orbs_v)
     image = _resolve_image(state_sep, image)
     check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOOP", image)

@@ -14,9 +14,8 @@ References at the end. Every numbered "Check" can be rerun with the scripts in `
 
 ## 0a. Status (2026-10-27)
 
-F1–F5 are committed (F5 includes default time-reversal unfolding). F6 is implemented, tested and documented on
-`theory_check` (uncommitted); its `result_changes.py` entry (stage "spectra") is due after commit. The next
-findings are F7 (docs), F8 (filling
+F1–F6 are committed (F5 includes default time-reversal unfolding; F6's `result_changes.py` entry is added). F7
+(docs, warnings, `orbital_completeness_u`; no numbers change) is done on `theory_check`, uncommitted. The next findings are F8 (filling
 helpers), F9 (spinors), F10 (misc), F11 (too few bands; add the section 2.4 diagnostics), and F12 (point-group
 unfolding, future).
 
@@ -42,8 +41,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | F3 | P0 | Pair weights are the R=0 lattice-image element. k-point coordinates are never used, so there is no Bloch phase. The A–B result depends on how atoms are wrapped into the cell, and may describe a far-away image instead of the bond the user means. | Code + Check 4 | No | **fixed** in `ceffa10` (2026-10-27); legacy via `legacy_lattice_image=True`; `result_changes.py` entry added |
 | F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | **fixed** in `756f9e0` (2026-10-27); legacy via `legacy_fillings=True`; `result_changes.py` entry added |
 | F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | **fixed** in `cc5f71e` (2026-10-27), with time-reversal unfolding; legacy via `legacy_reduced_kmesh=True`; `result_changes.py` entry added |
-| F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27); legacy via `legacy_normalization=True`; `result_changes.py` entry to add after commit |
-| F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | open |
+| F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | **fixed** in `44cf908` (2026-10-27); legacy via `legacy_normalization=True`; `result_changes.py` entry added |
+| F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27): docs, warnings, `orbital_completeness_u`; no numbers change, so no legacy switch or `result_changes` entry |
 | F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. | Check 3 | No | open |
 | F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | open |
 | F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | open |
@@ -791,6 +790,33 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   false whenever S_uv < 0. Coulson's mobile order was defined for π systems, where all pz overlaps are positive.
   Keep pCOMO, but document it as orientation-dependent.
 
+**Implementation record for F7 (2026-10-27, branch `theory_check`, not yet committed):**
+- Already done with F2: the pCOOP warnings for the Löwdin basis and for orthonormalized-orbital projections, and
+  the README notes on pCOOP and pCOMO. The README's false claim about pCOMO's sign was removed then.
+- New:
+  - `ElecData.orbital_completeness_u`: the k-weighted average of Σ_j |⟨φ_u|O|ψ_j⟩|² from the raw projections,
+    so it doesn't depend on any setting. This is the first piece of the section 2.4 / F11 diagnostics.
+  - `funcs/pcohp._warn_if_coop_is_artifact(edata, orbs)` also warns when a selected orbital's completeness is
+    below `COOP_COMPLETENESS_WARN` = 0.85.
+  - README: how to get meaningful pCOOP (`band-projection-params no no`, `los_orbs=False`, enough bands), plus
+    a basis-dependence note.
+- Test data: `N2_nospin_nonortho15` and `N2_nospin_nonortho40` (the `N2_nospin` input with
+  `band-projection-params no no` and 15/40 bands; 38 s / 85 s locally; README inside).
+- Results:
+  - Completeness (s, py/pz, px): non-orthogonal 0.986, 0.976, 0.895 at 15 bands and 0.986, 0.982, 0.905 at 40;
+    orthonormalized-orbital projections only 0.798, 0.974, 0.691.
+  - N1–N2 overlaps (R=0, 40 bands): s–s +0.50, py–py +0.37, px–px −0.21. With orthonormalized-orbital data the
+    band-space "overlap" py–py is 0.009, an artifact.
+  - ICOOP (40 bands): all +0.507, px–px +0.203, py–py +0.271, s–s −0.208. The 15-band values are within 0.03.
+  - **Basis dependence (input for Q1):** non-orthogonal ICOHP gives s–s +0.215 (net antibonding, the textbook
+    N2 result with both 2σg and 2σu* filled) and all −0.305. The Löwdin basis on the same data gives s–s −0.160
+    and all −0.896. pCOMO px–px is −0.95 while COOP/COHP say bonding.
+- Tests: `tests/funcs/test_coop_basis.py` (6): no warning on the correct route, overlap signs, band convergence,
+  s–s antibonding, pCOMO's orientation sign, all warnings (completeness via a raised threshold), and
+  completeness independent of settings. Full suite: 172 passed.
+- Notebook: `examples/fix_comparisons/F7_coop_basis.ipynb` (`figures/F7_completeness_overlap.png`,
+  `figures/F7_coop_cohp_pairs.png`).
+
 ### F8: occupation helpers (P2)
 
 - `elecdata.py::calculate_filling_nobroad`: `np.heaviside(eig, efermi)` gives 0 below 0 Ha and 1 above,
@@ -910,7 +936,8 @@ integral is 1.104 ≈ 30/27, exactly the extra 1/N_k of F6. In the current code 
 
 ## 5. Open questions / not verified this session
 
-- Q1. COHP basis choice: should the default be the Löwdin band-projected basis (energy-zero invariant, matches
+- Q1. (2026-10-27 update: on N2 the non-orthogonal basis reproduces the textbook net-antibonding s–s interaction, while
+  the Löwdin basis doesn't, and total ICOHP differs about 3×; see the F7 record.) COHP basis choice: should the default be the Löwdin band-projected basis (energy-zero invariant, matches
   current `los_orbs=True`) or the non-orthogonal basis (closer to LOBSTER)? On N2 they agree in sign and roughly
   in size (A–B total −0.867 vs −0.833 Ha). This is the user's call.
 - Q2. **Answered (2026-10-27):** yes. `JDFTXOutfile.structure` (pymatgen fork) never calls `to_unit_cell`, and

@@ -97,4 +97,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="JDFTx k-point weights on reduced meshes, reduced-mesh guards, time-reversal unfolding "
         "(notes/theory_audit.md F5; legacy_reduced_kmesh / unfold_time_reversal)",
     ),
+    ResultChange(
+        commit="44cf9081d9bcab99c2acfc478d789823ad261009",
+        version="1.0.0",
+        stage="spectra",
+        description="Normalized Gaussian kernel and single N_k in LTI spectra (notes/theory_audit.md F6; "
+        "legacy_normalization restores the old scales)",
+    ),
 ]

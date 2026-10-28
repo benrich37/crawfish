@@ -24,6 +24,7 @@ Ruff settings live in `pyproject.toml` (line length 120, py310), but the ruff ho
 - `tj` arrays are converted to `sabcj` with `reshape([nspin] + list(kfolding) + [nbands])`. This depends on states being ordered spin-major and then by k-grid. A mesh JDFTx reduced only by k ↔ −k is unfolded into that order on load (`ElecData.tr_unfolding`, `unfold_time_reversal`); `nstates_file` is the number of states JDFTx actually wrote, and arrays parsed from files are re-indexed with `_unfold_states`.
 - Use `REAL_DTYPE` (float32) / `COMPLEX_DTYPE` (complex64) from `crawfish.utils.typing`, not bare numpy dtypes.
 - Energies are in **Hartree** and are **not** shifted to the Fermi level.
+- `ElecData.orbital_completeness_u` (how much of each orbital the bands span, from the raw projections) backs the pCOOP warnings; low values mean too few `elec-n-bands`.
 - Occupations `occ_tj` are per state in [0, 1], and `wk_t` carries the spin factor (sums to 2), as in JDFTx. JDFTx's `fillings` file is in [0, 2] for no-spin, so `ElecData.occ_tj` divides it by `spin_weight` (unless `legacy_fillings`).
 - Hot loops are numba `@jit(nopython=True)` helpers (suffix `_jit`) that sit next to a plain-Python wrapper (`core/operations/`, `io/data_parsing.py`).
 
