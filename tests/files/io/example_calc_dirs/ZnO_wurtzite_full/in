@@ -1,0 +1,28 @@
+# Wurtzite ZnO, no-spin, 4x4x3 k-mesh, symmetries none, non-self-consistent at the density of the reduced run (ZnO_wurtzite_pg): full-mesh reference: crawfish test fixture for point-group unfolding (finding F12)
+lattice \
+    6.1416 -3.0708 0.0 \
+    0.0 5.318782 0.0 \
+    0.0 0.0 9.8398
+coords-type Lattice
+ion Zn 0.333333333333 0.666666666667 0.0 0
+ion Zn 0.666666666667 0.333333333333 0.5 0
+ion O  0.333333333333 0.666666666667 0.382 0
+ion O  0.666666666667 0.333333333333 0.882 0
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/zn_pbe_v1.uspp
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/o_pbe_v1.2.uspp
+core-overlap-check none
+
+elec-ex-corr gga-PBE
+elec-cutoff 20 100
+elec-n-bands 56
+elec-smearing Fermi 0.005
+spintype no-spin
+symmetries none
+fix-electron-density ../ZnO_wurtzite_pg/$VAR
+kpoint-folding 4 4 3
+converge-empty-states yes
+electronic-minimize energyDiffThreshold 1e-12
+
+band-projection-params yes no
+dump-name $VAR
+dump End BandEigs BandProjections Fillings Kpoints EigStats

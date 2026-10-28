@@ -17,3 +17,6 @@ pz. They differ for single bonds and for m-resolved px/py.
 
 20 bands are needed. With 8 bands (= number of orbitals), the σ* states fall outside the band set at some
 k-points, so the s/p orbitals aren't spanned there and the Löwdin step becomes ill-conditioned.
+
+`graphene_zspin_pg` (added 2026-10-28, finding F12) is `graphene_zspin_symm` rerun with `dump End ... Symmetries`, so
+crawfish can unfold it with JDFTx's operations. `graphene_zspin_symm` has no `sym` file and stays reduced and guarded.

@@ -48,7 +48,10 @@ LEGACY_FLAGS = {
     "F5": "legacy_reduced_kmesh",
     "F6": "legacy_normalization",
     "F10": "legacy_lowdin_cutoff",
+    "F12": "unfold_point_group",
 }
+# Settings whose pre-fix value is False rather than True: switches for new behaviour that is on by default
+LEGACY_VALUES = {"F12": False}
 # F8 (crashing/inverted occupation helpers) is a bug fix without a legacy switch (notes section 4.0); its notebook
 # section compares the helpers and the computed occupations directly against JDFTx. Of F10's items only the
 # Löwdin cutoff changes results, so it is the one with a switch.
@@ -79,8 +82,9 @@ def load_edata_at(finding: str, fixed: bool, calc_dir: Path = N2_CALC_DIR, **set
     order = list(LEGACY_FLAGS)
     for later in order[order.index(finding) + 1 :]:
         if fix_available(later):
-            flags[LEGACY_FLAGS[later]] = True
-    flags[LEGACY_FLAGS[finding]] = not fixed
+            flags[LEGACY_FLAGS[later]] = LEGACY_VALUES.get(later, True)
+    legacy_value = LEGACY_VALUES.get(finding, True)
+    flags[LEGACY_FLAGS[finding]] = (not legacy_value) if fixed else legacy_value
     return load_edata(calc_dir, **flags, **settings)
 
 

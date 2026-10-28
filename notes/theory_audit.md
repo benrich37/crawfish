@@ -10,23 +10,58 @@ lower-priority upstream options.
 Code citations use `path::function` and avoid line numbers, which drift. Literature citations are listed under
 References at the end. Every numbered "Check" can be rerun with the scripts in `notes/theory_audit_checks/`.
 
+**Layout (reorganized 2026-10-28, before merging `theory_check` into `master`).** Resolved and open issues are kept
+apart. No information was dropped: text was moved, the status section was brought up to date, and status lines
+were added.
+
+- Section 0a is the current status and section 0 how to resume.
+- Section 1 has two summary tables: 1.1 lists what is still open, 1.2 what is resolved (F1–F12).
+- Section 2 is the target formalism, reference material for both.
+- Section 3 holds the resolved findings in detail (F1–F12). Each keeps its original analysis and its implementation
+  record, and a **Status** line under its heading gives the commit. The answered question Q2 is at the end.
+- Section 4 is the implementation plan, with each step marked done or open, and the requirements every fix follows
+  (4.0).
+- Section 5 holds everything still open: U1, the unimplemented diagnostics, follow-ups left by resolved
+  findings, and the open questions.
+- Sections 6 (reproducing the evidence) and 7 (references) are unchanged.
+
+Code, tests and notebooks cite sections 2.3, 4.0 and 6 by number, so those numbers are kept. Finding IDs (F1–F12, U1,
+Q1–Q5) never change.
+
 ---------------------------------------------------------------------------------------------------------------
 
 ## 0a. Status (2026-10-28)
 
-F1–F10 are committed (F5 includes default time-reversal unfolding; F7 = `2de60d2`, F8 = `ca5793f`, F9 =
-`0c9d8c2`, F10 = `131fd7a`). F10's `result_changes.py` entry was added with the F11 work. F11 (too-few-bands
-diagnostic `orbital_span_t` and warning; no numbers change) is done on `theory_check`, uncommitted. The next
-finding is F12 (point-group unfolding, future). Still open from section 2.4: a charge-spilling property and a
-sum-rule residual (not needed for F11). Supporting spinor runs properly is a separate project (F9 record).
+**Resolved on `theory_check`: F1–F12.** F1–F11 are committed; F12 is not yet.
+
+| Finding | Commit | `result_changes.py` entry |
+|---|---|---|
+| F1 | `a22c558` | yes (added with F2) |
+| F2 | `3d9ab1b` | yes (added with F3) |
+| F3 | `ceffa10` | yes (added with F4) |
+| F4 | `756f9e0` | yes (added with F5) |
+| F5 | `cc5f71e`, including default time-reversal unfolding | yes (added with F6) |
+| F6 | `44cf908` | yes (added with F7, `2de60d2`) |
+| F7 | `2de60d2` | not needed: no numbers change |
+| F8 | `ca5793f` | not needed: bug fix |
+| F9 | `0c9d8c2` | not needed: spinor runs are refused, so no result changes |
+| F10 | `131fd7a` | yes (added with F11, `8943d71`) |
+| F11 | `8943d71` (too-few-bands diagnostic `orbital_span_t` and warning) | not needed: no numbers change |
+| F12 | uncommitted (2026-10-28): point-group unfolding from JDFTx's `sym` file | to add after the commit (stage "matrices") |
+
+**Still open (section 5):** U1 (upstream JDFTx options, not started); a
+charge-spilling property and a sum-rule residual from section 2.4 (not needed for F11); full spinor support, a
+separate project (F9 record); smaller follow-ups from F3, F10 and F11; and open questions Q1 (the default basis, the
+user's call), Q3, Q4 and Q5.
 
 ## 0. How to resume
 
-1. Read section 1 (summary table) and section 2 (the target formalism, in crawfish's array conventions).
+1. Read section 1 (1.1 open, 1.2 resolved) and section 2 (the target formalism, in crawfish's array conventions).
 2. Rerun the checks (section 6) to confirm the evidence still holds against the current code.
-3. Nothing in `src/` has been changed by this audit. The recommended implementation order is in section 4. Each
-   item that changes numbers needs a `src/crawfish/result_changes.py` entry (see CLAUDE.md, "Invalidation").
-4. Open questions are in section 5. Don't treat them as settled.
+3. When the audit started (2026-10-27), nothing in `src/` had been changed by it. F1–F12 have since been fixed in the
+   order of section 4 (records in section 3). Any further fix follows section 4.0. Each item that changes numbers
+   needs a `src/crawfish/result_changes.py` entry (see CLAUDE.md, "Invalidation").
+4. Open questions are in section 5.4. Don't treat them as settled.
 
 ---------------------------------------------------------------------------------------------------------------
 
@@ -34,6 +69,26 @@ sum-rule residual (not needed for F11). Supporting spinor runs properly is a sep
 
 Priority: **P0** = results are qualitatively wrong (wrong sign, or an interaction is silently zero).
 **P1** = wrong magnitudes or settings-dependent inconsistencies. **P2** = crashes, edge cases, documentation.
+
+### 1.1 Open
+
+Details are in section 5.
+
+| #  | Pri | Finding | Evidence | Fix needs JDFTx? | Status |
+|----|-----|---------|----------|------------------|--------|
+| U1 | — | Optional upstream improvements: apply the i^l phase in `dumpProjections` (as the Wannier code does), dump the AO overlap S(k) = <phi\|O\|phi> (and optionally <phi\|H\|phi>), and use higher precision or binary projections. None of these is required for the crawfish-only fixes. | — | Yes | not started (section 5.1) |
+| Diagnostics | — | Charge spilling and the sum-rule residual are not reported (section 2.4, plan step 7). Orbital completeness (F7) and the per-state band span (F11) are done. | Section 2.4; Check 3 | No | not implemented (section 5.2) |
+| F9 follow-up | — | Full support for spinor runs (`vector-spin`, `spin-orbit`). Since F9 they are refused with a clear error. | F9 record | No | future, separate project (section 5.3) |
+| F11 follow-up | — | The too-few-bands warning misses slow band convergence with non-orthogonal projections when every orbital combination is spanned (N2, 15 bands: −6.9% vs. 40 bands, no warning). | F11 band-count series | No | known limitation, not addressed (section 5.3) |
+| F3 follow-up | — | Lattice-image selection has no end-to-end check against a JDFTx re-run with wrapped coordinates; the tests use the Bloch-sum gauge change instead. | F3 record | No | not done (section 5.3) |
+| F10 follow-ups | — | `trim_excess_bands` is deprecated but not removed. graphene_1x1's flat bands near −3 Ha were not investigated. `ElecData.as_empty` is broken. | F10 record | No | open (section 5.3) |
+| 2.1 follow-up | — | The docstring example in `get_atom_orb_labels_dict` lists p (and d) orbitals in the wrong order; the code is right. | Section 2.1 | No | open (section 5.3) |
+| pymatgen fork | — | Bugs found along the way: mu units (`_mu_backup`), smearing width in `_calculate_filling`, the spinor error message. Crawfish doesn't depend on them. | F8, F9, F10 records | No (pymatgen fork) | logged in `~/vs/claude-notes/pymatgen-jdftx.md` (section 5.3) |
+| Q1, Q3–Q5 | — | Open questions: default COHP basis (Q1, the user's call), COBI conventions (Q3), LOBSTER's symmetry and H(k) details (Q4), symmetrized atom positions (Q5). | — | — | open (section 5.4) |
+
+### 1.2 Resolved
+
+Details are in section 3.
 
 | #  | Pri | Finding | Evidence | Fix needs JDFTx? | Status |
 |----|-----|---------|----------|------------------|--------|
@@ -47,9 +102,10 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. Also found while fixing: JDFTx's spelling `Cold` was rejected, and runs without smearing print no mu, so that path crashed. | Check 3 | No | **fixed** in `ca5793f`: vectorized helpers, constant fillings without smearing; bug fix, so no legacy switch or `result_changes` entry |
 | F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | **refused** in `0c9d8c2`: clear `NotImplementedError` before anything is parsed; bug fix, so no legacy switch or `result_changes` entry; full support is future work |
 | F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | **fixed** in `131fd7a`: Löwdin cutoff with legacy via `legacy_lowdin_cutoff=True`; mu, trimming and weights are bug fixes; `result_changes.py` entry added |
-| F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27; band-count series 2026-10-28 | No | **warning added** on `theory_check` (uncommitted, 2026-10-28): `orbital_span_t`, warns below 1e-4; no numbers change, so no legacy switch or `result_changes` entry |
-| F12 | P2 | Meshes reduced by a point group (JDFTx `symmetries automatic`) can't give single-bond or m-resolved results; crawfish guards them (F5). Full unfolding with the symmetry operations would lift this. Time-reversal-only reductions are already unfolded (F5). | F5 work | No (`dump End Symmetries` exists) | open, future work |
-| U1 | — | Optional upstream improvements: apply the i^l phase in `dumpProjections` (as the Wannier code does), dump the AO overlap S(k) = <phi\|O\|phi> (and optionally <phi\|H\|phi>), and use higher precision or binary projections. None of these is required for the crawfish-only fixes. | — | Yes | not started |
+| F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27; band-count series 2026-10-28 | No | **warning added** in `8943d71` (2026-10-28): `orbital_span_t`, warns below 1e-4; no numbers change, so no legacy switch or `result_changes` entry |
+| F12 | P2 | Meshes reduced by a point group (JDFTx `symmetries automatic`) can't give single-bond or m-resolved results; crawfish guards them (F5). Full unfolding with the symmetry operations would lift this. Time-reversal-only reductions are already unfolded (F5). | F5 work | No (`dump End Symmetries` exists) | **fixed** on `theory_check` (uncommitted, 2026-10-28): unfolded with JDFTx's operations from the `sym` file; F5 behaviour via `unfold_point_group=False`; `result_changes.py` entry to add after the commit |
+
+Answered question: Q2 (atom positions are not wrapped by pymatgen), at the end of section 3.
 
 ---------------------------------------------------------------------------------------------------------------
 
@@ -166,13 +222,20 @@ Sum rules, to use as tests:
 - Sum-rule residual from 2.3.
 - Per-state band span (added with F11): `ElecData.orbital_span_t` = λ_min/λ_max of S_t, with a warning below 1e-4.
   Orbital completeness exists as `orbital_completeness_u` (F7). Charge spilling and the sum-rule residual are not
-  implemented yet.
+  implemented yet (open: section 5.2).
 
 ---------------------------------------------------------------------------------------------------------------
 
-## 3. Findings in detail
+## 3. Resolved findings in detail (F1–F12)
+
+Each finding keeps its original analysis (what, evidence, proposed fix) and its implementation record, written as
+the work happened. The records say "not yet committed" or "uncommitted" because they were written before each
+commit; the **Status** line under each heading gives the commit. Open work that came out of these findings is
+collected in sections 5.1 and 5.3.
 
 ### F1: the missing i^l phase zeroes odd-Δl interactions (P0)
+
+**Status:** fixed in `a22c558`. Legacy: `legacy_orbital_phase=True`. `result_changes.py` entry present.
 
 - **What:** the real-space orbital behind each dumped projection is i^l φ_real, so
   T_raw = ⟨i^l φ_real|O|ψ⟩ = (−i)^l T_real and T_real = i^l T_raw. For an s–p pair, Re[T*_s T_p] is really
@@ -213,7 +276,7 @@ Sum rules, to use as tests:
 - `result_changes.py`: **not added yet**. The entry needs the commit hash. Add it in a follow-up commit, with stage
   "matrices" and a description like "Apply i^l orbital phase to JDFTx band projections (F1)". With the new cache
   key, stale results can't be reused even without the entry, but CLAUDE.md requires one for every
-  result-changing change.
+  result-changing change. (Added since, with the F2 work.)
 - Docs: README "Projection modifications" item 0, a note on user projections in "Creating your own ElecData", the
   CLAUDE.md settings list, docstrings on the new functions and setting.
 - Tests: `tests/core/test_orbital_phase.py` covers header parsing, the phase helper, Γ s–p products (real when
@@ -233,6 +296,8 @@ Sum rules, to use as tests:
   px–px is still antibonding: that is F2, which F1 alone can't fix.
 
 ### F2: sign-blind H/S/P construction (P0)
+
+**Status:** fixed in `3d9ab1b`. Legacy: `legacy_matrices=True`. `result_changes.py` entry present.
 
 - **What:** `matrix.py::_get_h_p_s_t_uu_and_uu_jit` computes x = Re[T*_u T_v] and s = x², with
   p_coef = f·w (÷ Σ_uv s if `p_sc`) and h_coef = p_coef·(ε − μ). So S_uv ≥ 0, P_uv ≥ 0, and H_uv ≤ 0 for occupied
@@ -308,8 +373,12 @@ Sum rules, to use as tests:
   for pCOOP (with a caveat), and `fixcompare.load_edata_at` keeps each notebook isolated to its own fix.
 - `result_changes.py`: the F1 entry is added (`a22c558`, stage "matrices"). **The F2 entry still has to be added
   after this work is committed** (stage "matrices", e.g. "Signed projected H/S/D matrices for pair spectra (F2)").
+  Added since, with the F3 work.
 
 ### F3: lattice image (R) not resolved (P0 for periodic solids, irrelevant for isolated molecules)
+
+**Status:** fixed in `ceffa10`. Legacy: `legacy_lattice_image=True`. `result_changes.py` entry present. One
+validation gap is open (section 5.3).
 
 - **What:** Σ_k w_k Re[T*_u(k) T_v(k)] with no phase is the R=0 element of the real-space density matrix, i.e.
   the interaction of u at τ_u with v at τ_v in the *same* cell. Nothing in crawfish uses k-point coordinates:
@@ -323,7 +392,8 @@ Sum rules, to use as tests:
   analogue of today's `state_sep=True`) and `R="nearest"` (default), or an explicit integer 3-vector. The
   per-atom-pair R from the minimum image becomes a phase array on the coefficient matrix. Requirements: a full
   MP grid (see F5), atom positions exactly as JDFTx used them (verify that `JDFTXOutfile.structure` does not wrap
-  them; open question Q2), and k-points from `kPts` or the bandProjections header (`ks_t`).
+  them; open question Q2, answered yes at the end of section 3), and k-points from `kPts` or the bandProjections
+  header (`ks_t`).
 
 #### F3 explained: the pCOHP equation before and after, and the misconceptions it clears up
 
@@ -604,9 +674,11 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   step 3 and settings list, the F3 notebook (chain + N2 wrapping, legacy vs. fixed vs. reference), and a
   `get_pair_images` cell in `examples/N2.ipynb`.
 - `result_changes.py`: the F2 entry was added (`3d9ab1b`). **The F3 entry still has to be added after this work is
-  committed** (stage "matrices", since cached weight arrays change).
+  committed** (stage "matrices", since cached weight arrays change). Added since, with the F4 work.
 
 ### F4: fillings-file factor 2 for no-spin (P1)
+
+**Status:** fixed in `756f9e0`. Legacy: `legacy_fillings=True`. `result_changes.py` entry present.
 
 - JDFTx `Dump.cpp` writes `fillings` as F×2 for `SpinNone`. k-weights already include the factor 2. Crawfish
   `ElecData.occ_tj` reads the file as-is, but computes [0,1] when the file is absent. N_e = Σ w f is therefore 2×
@@ -644,9 +716,12 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 - Notebook: the F4 section of `F4_F8_inputs_and_normalization.ipynb` compares legacy and fixed for no-spin and
   z-spin (`figures/F4_nospin_fillings.png`).
 - `result_changes.py`: the F3 entry was added (`ceffa10`). **The F4 entry still has to be added after this work is
-  committed** (stage "matrices": occupations feed D and the cached weights).
+  committed** (stage "matrices": occupations feed D and the cached weights). Added since, with the F5 work.
 
 ### F5: symmetry-reduced k-meshes (P1)
+
+**Status:** fixed in `cc5f71e`, with time-reversal unfolding (`unfold_time_reversal`, on by default). Legacy:
+`legacy_reduced_kmesh=True`. `result_changes.py` entry present. Point-group unfolding followed as F12.
 
 - With the default `symmetries automatic`, k-points are reduced by the point group and by time reversal. For
   scalar, rotation-invariant quantities (total DOS, l-summed pDOS of a symmetry-complete atom set) the reduced
@@ -729,9 +804,12 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   `F4_F8_inputs_and_normalization.ipynb` (`figures/F5_reduced_mesh_weights.png`,
   `figures/F5_reduced_mesh_quantities.png`).
 - `result_changes.py`: the F4 entry was added (`756f9e0`). **The F5 entry still has to be added after this work is
-  committed** (stage "matrices": the weights feed every matrix and cached weight array).
+  committed** (stage "matrices": the weights feed every matrix and cached weight array). Added since, with
+  the F6 work.
 
 ### F6: spectrum normalization (P1)
+
+**Status:** fixed in `44cf908`. Legacy: `legacy_normalization=True`. `result_changes.py` entry present.
 
 - `core/operations/scalar.py::gauss` returns `exp(-(x-mu)^2/sig)`. Its integral is sqrt(π·sig) (0.0056 for the
   default `SIGMA_DEFAULT=1e-5`). Docstrings call `sig` a "standard deviation", but the actual standard deviation is
@@ -777,9 +855,12 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 - Docs: the README smearing paragraph (normalized kernel, `sig` meaning, legacy switch); CLAUDE.md; the F6
   section of `F4_F8_inputs_and_normalization.ipynb` (`figures/F6_dos_normalization.png`).
 - `result_changes.py`: the F5 entry was added (`cc5f71e`). **The F6 entry still has to be added after this work is
-  committed** (stage "spectra").
+  committed** (stage "spectra"). Added since, with the F7 work (`2de60d2`).
 
 ### F7: COOP in an orthonormal basis; pCOMO's sign (P1, mostly documentation)
+
+**Status:** fixed in `2de60d2` (docs, warnings, `orbital_completeness_u`). No numbers change, so no legacy switch
+or `result_changes.py` entry.
 
 - With `band-projection-params yes no` (README requirement) the orbitals are O-orthonormal, so the physical
   ⟨φ_u|O|φ_v⟩ = δ_uv and COOP_uv = 0 for u ≠ v. After crawfish's Löwdin, the band-space S is exactly I as well
@@ -822,6 +903,8 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   `figures/F7_coop_cohp_pairs.png`).
 
 ### F8: occupation helpers (P2)
+
+**Status:** fixed in `ca5793f`. Bug fix, so no legacy switch or `result_changes.py` entry.
 
 - `elecdata.py::calculate_filling_nobroad`: `np.heaviside(eig, efermi)` gives 0 below 0 Ha and 1 above,
   ignoring mu. It should be `np.heaviside(efermi - eig, 0.5)`. Check 3 output: `[0,0,1,1]` for eig `[-.5,-.1,.1,.5]`.
@@ -876,6 +959,9 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 
 ### F9: spinor modes (P2)
 
+**Status:** refused in `0c9d8c2` with a clear `NotImplementedError`. No legacy switch or `result_changes.py`
+entry. Full support is open (section 5.3).
+
 - JDFTx: `SpinVector` and `SpinOrbit` use spinor ColumnBundles with one state per k-point
   (`ElecInfo::kpointsReduce` comment). Orbitals come with `nSpinCopies = 2/qWeightSum` copies per m
   (`SpeciesInfo_atomic.cpp`), or are j-resolved for relativistic pseudopotentials (`getYlmToSpinAngleMatrix`).
@@ -911,6 +997,10 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   `tr_unfolding` is limited to collinear spin types.
 
 ### F10: smaller items (P2)
+
+**Status:** fixed in `131fd7a`. Legacy for the Löwdin cutoff: `legacy_lowdin_cutoff=True`; the mu, trimming and
+fallback-weight changes are bug fixes. `result_changes.py` entry added in `8943d71`. Follow-ups are open
+(section 5.3).
 
 - `matrix.py::los_projs_for_orbs`: the eigenvalue cutoff is an absolute `eigs > 1e-15` on complex64 input. Use a
   relative cutoff (e.g. 1e-6·max) and warn when an orbital is dropped, since that means it isn't represented by the
@@ -1014,6 +1104,9 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
 
 ### F11: too few bands (P1)
 
+**Status:** warning added in `8943d71`. No numbers change, so no legacy switch or `result_changes.py` entry. A
+known blind spot is open (section 5.3).
+
 - **What:** the Löwdin step inverts S_t^{1/2} and the non-orthogonal basis inverts S_t, where S_t = P_t†P_t is
   the overlap of the orbitals' band-space parts. When an orbital combination (typically σ*) lies above every
   computed band at some k-point, S_t is nearly singular there. crawfish then rebuilds that orbital from bands
@@ -1098,11 +1191,146 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   no longer says 20 bands suffice.
 - No legacy switch or `result_changes.py` entry: no number changes.
 
+### F12: k-meshes reduced by the point group (P2)
+
+**Status:** fixed on `theory_check` (uncommitted, 2026-10-28). The F5 behaviour is restored by
+`unfold_point_group=False`. A `result_changes.py` entry is still to be added after the commit (stage "matrices").
+
+Original analysis (section 5.1 before the fix):
+
+- **What:** meshes reduced by a point group (JDFTx `symmetries automatic`, the default) can't give single-bond or
+  m-resolved results. Since F5, crawfish guards them: single-image pair spectra raise, and `image="all"` pair spectra
+  and partial pDOS warn (F5 record). Meshes reduced only by time reversal are already unfolded (F5,
+  `unfold_time_reversal`). Full unfolding with the symmetry operations would lift the guard.
+- **What it needs** (from the F5 record): `dump End Symmetries` (the `sym` file), rotation matrices for JDFTx's real
+  Ylm (with the i^l convention), atom permutations and translation phases (tied to F3 bookkeeping). JDFTx's
+  `ColumnBundleTransform` is the reference for conventions.
+- **Fix needs JDFTx?** No: `dump End Symmetries` already exists.
+- **Until then:** run JDFTx with `symmetries none`, or with `symmetries manual` and only the identity
+  `symmetry-matrix` (README "JDFTx settings" table; the `graphene_zspin_tr` fixture is made this way).
+- Test data for the work: `graphene_zspin_symm` (point-group reduced, 19 k per spin) next to `graphene_zspin_full`
+  (the same calculation on the full mesh), both from F5.
+
+**Implementation record for F12 (2026-10-28, `theory_check`, uncommitted):**
+
+- **Derivation.** A JDFTx operation g = (rot, a) acts on lattice coordinates as x → rot·x + a
+  (`Symmetries.cpp::findSpaceGroup`); its Cartesian rotation is S = R·rot·R⁻¹ with the lattice vectors as the columns
+  of R. If ψ is a Bloch state at k, gψ = ψ(g⁻¹r) is one at Sk, whose fractional coordinates are rot^−T·k. JDFTx's
+  orbitals are Bloch sums φ_{a,m,k} = Σ_R e^{ik·R} χ_m(r − τ_a − R) (`Vnl_calc`; real χ after F1). If g takes atom a
+  to atom b, S·τ_a + τ_g = τ_b + L_a with L_a a lattice vector, then g⁻¹φ_{b,m',Sk} = e^{iSk·L_a} Σ_m M_{mm'} φ_{a,m,k},
+  where Y_m'(Sx) = Σ_m M_{mm'} Y_m(x). O commutes with g (augmentation spheres map onto equivalent atoms), so
+
+  T_{b,m'}(k') = ⟨φ_{b,m',k'}|O|gψ_k⟩ = e^{−2πi k'·L_a} Σ_m M_{mm'} T_{a,m}(k),   k' ≡ rot^−T·k (mod G).
+
+  τ_g only enters through L_a. Time reversal (ψ(−k) = ψ(k)*, collinear spin) conjugates T before the rotation; the
+  formula is otherwise the same with k' ≡ −rot^−T·k. M acts within one (atom, l, shell), so the i^l of JDFTx's raw
+  convention passes through it, and the raw-convention time-reversal factor (−1)^l (F5) still applies. Eigenvalues
+  and occupations are those of the source state.
+- **Code.**
+  - `utils/symmetry.py` (new): `real_ylm` (JDFTx's real Ylm for l ≤ 3, copied from `core/SphericalHarmonics.h` with
+    signs and normalization, which fix how orbitals transform); `get_ylm_rotation` (M by a fit at fixed sample
+    directions, as `Symmetries::getSphericalMatrices` builds its transpose); `get_cartesian_rotation` (S, replaced by
+    the nearest orthogonal matrix: input lattices carry ~7 digits, e.g. a √3/2 component, which made the fit fail at
+    1e-8); `get_atom_map` (perm and L per atom, species-aware, raises if an operation doesn't map the structure onto
+    itself within 1e-3 fractional); `get_orbital_transform` / `apply_orbital_transform` (a sparse (nproj, 2l+1)
+    form of the block-permutation-rotation, plus the per-orbital L for the phase).
+  - `io/data_parsing.py`: `get_kmesh_unfolding` generalizes `get_time_reversal_unfolding` (kept as a wrapper with
+    the identity only). For every full-mesh point it picks (time reversal, source, operation) in that order of
+    preference, then requires every point covered and JDFTx's weights equal to (images) × (one point's weight) in
+    every spin channel; otherwise it returns None and the mesh stays reduced. `parse_symfile` (the `sym` file:
+    three rows of rot, a line with a, a blank line, per operation; `Dump.cpp`), `get_input_echo_commands` and
+    `get_symmetries_from_outfile_filepath` (`symmetries manual` matrices from the input echo; `symmetries
+    automatic` doesn't print its operations).
+  - `core/elecdata.py`: the optional `sym` file (`symfile_suffix`), also a cache source file (`source_filetypes`).
+    Setting `unfold_point_group` (default True, cache key `upg`). The operations come from the `sym` file, else
+    the manual matrices, else the identity alone (which is the F5 time-reversal unfolding); `|projection|^2`
+    files only get the identity. `kmesh_unfolding` (was `tr_unfolding`, kept as an alias) adds `op_t` and `ops`;
+    `kmesh_unfolded`, `point_group_unfolded` and `time_reversal_unfolded` (identity only) report what happened.
+    `_unfold_proj` rebuilds the projections; `orbital_span_t` and `orbital_completeness_u` now use the unfolded
+    projections (the point group mixes the m of a shell, so the per-orbital weak share and completeness need the
+    full mesh). Along the way: the old time-reversal code multiplied real `|T|^2` partners by (−1)^l under
+    `legacy_orbital_phase`; that factor is now applied to complex projections only.
+  - `utils/lattice.py`: the guard's hint now suggests `dump End Symmetries`.
+- **Conventions checked against JDFTx.** `Symmetries::reduceKmesh` maps k to `k * rot` (row vector), i.e. rot^T·k,
+  which is the inverse operation of the one crawfish applies; both are in the group. Its `kMap` dump (written with
+  `Kpoints` when symmetries are on) lists, per full-mesh point, the source and whether inversion was used. crawfish's
+  map reproduces both columns exactly for both fixtures (test).
+- **Fixtures** (READMEs inside):
+  - `graphene_zspin_pg`: `graphene_zspin_symm` rerun with `Symmetries` in the dump (24 operations, 19 of 144 k per
+    spin, D6h so no time reversal needed). Reference: `graphene_zspin_full`.
+  - `ZnO_wurtzite_pg`: P6_3mc, 12 operations (6 with c/2 screws or glides), no inversion (16 of 48 states need time
+    reversal), Zn with two s, two p shells and d, two species, 8 of 48 k. `energyDiffThreshold 1e-12`, density
+    dumped. Reference `ZnO_wurtzite_full`: the full mesh, non-self-consistent at that density.
+- **Why the ZnO reference is non-self-consistent.** Separate SCF runs with and without symmetries converge to
+  slightly different potentials: total energies differ by 7.8e-7 Ha (ZnO) and 3e-7 Ha (graphene), even on the same
+  FFT grids (checked: both ZnO runs use 28x28x48 and 28x28x40, both graphene runs 24x24x96 and 20x20x84) and at a
+  1e-12 threshold, while graphene's full and time-reversal-only runs agree to 5e-10. That rotates individual band
+  subspaces by up to ~2e-3 between runs, which would hide errors in the unfolding. At the same density the
+  full-mesh run's own symmetry-equivalent k-points have eigenvalues equal to 3e-6 and S_t spectra to 1e-7.
+- **Validation.**
+  - The full-band overlap P_t†P_t is a weak test: with ortho projections and enough bands it is close to the identity,
+    which any orbital rotation leaves nearly unchanged. The tests use S and H over the bands below a gap (> 1e-3 Ha),
+    so no degenerate multiplet is cut. At Γ the 56th ZnO band is half of a degenerate pair, which cut S by 2e-3.
+  - Little group (no second calculation): every operation that maps a computed k-point onto itself leaves S and H
+    unchanged: graphene 376 (state, operation) pairs, max 1.7e-5; ZnO 60 pairs, max 3.9e-6.
+  - Rotated vs. directly computed (ZnO, same density): all 40 states that needed an operation or time reversal
+    match to 4.3e-6 (file precision). Γ, which needs neither, differs by up to 2e-3 between JDFTx's two runs.
+  - Results (IpCOHP and occupied pDOS; legacy = `unfold_point_group=False`, i.e. F5's guard / unfolded / full):
+
+    | quantity | legacy | unfolded | full mesh |
+    |---|---|---|---|
+    | graphene C1–C2 bond, R = (0,0,0), (−1,0,0), (0,1,0) | raises | −0.50126 each | −0.50126 each |
+    | graphene px–px, R = 0 | raises | −0.06650 | −0.06650 |
+    | graphene px–px, all images | −0.31527 | −0.14880 | −0.14880 |
+    | graphene C1 px / py pDOS | 0.98570 / 1.09208 | 1.03889 / 1.03889 | 1.03889 / 1.03889 |
+    | ZnO axial Zn1–O1 | raises | −0.14438 | −0.14438 |
+    | ZnO basal Zn1–O2, R = (0,0,−1) / (0,1,−1) | raises | −0.14943 / −0.14942 | −0.14941 / −0.14943 |
+    | ZnO Zn1 dxy / dz2 pDOS | 1.99518 / 1.98996 | 1.99269 / 1.99002 | 1.99269 / 1.99002 |
+
+    The two basal bonds differ by 1.5e-5 inside the full run itself, as much as unfolded vs. full.
+- Tests: `tests/core/test_point_group_unfolding.py` (19): Ylm orthonormality, the representation property
+  M(S1S2) = M(S2)M(S1) and inversion for l ≤ 3, the p order; `sym` and manual-matrix parsing; the map against
+  `kMap`; mesh, weights and eigenvalues; little-group invariance; rotated vs. computed; graphene and ZnO bonds and
+  m-resolved pDOS; band diagnostics on the unfolded mesh (graphene's F11 warning now counts 4 of 288 states); the
+  switch, time reversal off, `legacy_reduced_kmesh`, no `sym` file; the raw orbital phase; an operation that
+  doesn't fit the structure raises. `test_elecdata.py`'s settings loop includes `unfold_point_group`, and
+  `test_cache_validation.py` expects `sym` in the stamp. Full suite: 236 passed, from empty caches. All 8 fix
+  notebooks run clean (on copies).
+- Notebook: `examples/fix_comparisons/F12_point_group_unfolding.ipynb` (`figures/F12_graphene_3x3_groups.png`: which k-points of a 3x3 graphene mesh the
+  point group lumps together, and how, against time reversal alone, checked against JDFTx's `kPts`/`kMap` for that
+  mesh;
+  `figures/F12_graphene_pxpx.png`, `figures/F12_zno_bonds.png`). `fixcompare.LEGACY_FLAGS["F12"] =
+  "unfold_point_group"` with `LEGACY_VALUES["F12"] = False`, since this switch is on by default.
+- Docs: README "JDFTx settings" (dump `Symmetries`; `symmetries automatic` is now the cheapest option) and a
+  paragraph on point-group unfolding; CLAUDE.md conventions and settings list.
+- **Legacy switch.** Like F5's `unfold_time_reversal`, the switch enables the new behaviour (default True) instead
+  of being named `legacy_*`; False gives exactly the F5 behaviour. It is in the cache key.
+- **Limits.** `symmetries automatic` needs the `sym` file: JDFTx doesn't print its operations in the out file.
+  Collinear spin only (spinor operations would need the spin rotation too; F9). `|projection|^2` files are only
+  unfolded by time reversal. Positions come from pymatgen's `JDFTXOutfile.structure` (Q2, Q5); an operation that
+  doesn't map them onto themselves within 1e-3 (fractional) raises.
+
+### Additional evidence from the comparison notebooks (2026-10-27, after F1 and before F2 and F6 were fixed)
+
+Additional evidence from the comparison notebooks (2026-10-27): with `rattle_eigenvals=True` the N2 LTI DOS
+integral is 1.104 ≈ 30/27, exactly the extra 1/N_k of F6. In the current code (after F1), pCOBI px–px is
+−0.214 vs. a reference of +0.173: F2 also flips COBI signs.
+
+### Answered questions
+
+- **Q2. Does `JDFTXOutfile.structure` keep the atom positions exactly as JDFTx used them (no
+  wrapping)?** **Answered (2026-10-27):** yes. `JDFTXOutfile.structure` (pymatgen fork) never calls `to_unit_cell`, and
+  pymatgen `Structure` keeps unwrapped fractional coordinates. For N2 the Cartesian coordinates equal the outfile's
+  final `ion` lines (13.895656 bohr = 7.3533 Å). F3 uses `edata.structure.frac_coords` as τ.
+
 ---------------------------------------------------------------------------------------------------------------
 
-## 4. Proposed implementation plan (crawfish-only)
+## 4. Implementation plan (crawfish-only) and requirements for every fix
 
 Each step is independently testable. Add a `result_changes.py` entry per step that changes numbers.
+
+**Status (2026-10-28):** steps 1–6 and 8 are done (F1–F8, F10, F11). Step 7 is partly done (section 5.2), and
+the upstream options (U1) are not started. Section 4.0 still applies to any further fix.
 
 ### 4.0 Requirements for every fix (user instruction, 2026-10-27)
 
@@ -1144,48 +1372,121 @@ These apply to every item in this plan and to any later fix that changes results
    (e) ∫DOS = Σw·nbands for Gaussian and LTI;
    (f) `fillings` file vs computed occupations agree (needs a no-spin fixture; ask the user for one, or generate
        one with JDFTx).
+   **Done** alongside the fixes; each record in section 3 lists its tests.
 2. **Phase fix (F1):** l_u from the header, applied in `ElecData._set_proj_tju` for JDFTx data. Stage "matrices".
+   **Done** (F1, `a22c558`).
 3. **New matrices (F2):** add `get_s_h_t_uv_complex(proj_tju, e_tj)` plus coefficients C (Löwdin or S⁻¹T) and
    D_t, as a one-pass numba kernel in `core/operations/matrix.py`, following the `_jit` pattern. Replace
    `_get_gen_tj_coef_uu/_tuu` with a complex-coefficient kernel taking `(C, M_t or M_R·phase, orbs_u, orbs_v, wk)`.
    Update `funcs/pcohp.py::_compute_*_tj`. Update `cache_mats`, `edata_setting_key_shorthand_dict` and
    `get_edata_settings_str` for any new setting (CLAUDE.md warns that missing these returns stale cache). Stage
    "matrices".
+   **Done** (F2, `3d9ab1b`). The functions ended up as `get_coef_tju`, `get_h_s_d_t_uv` and, with F3,
+   `_get_gen_tj_block` (F2 and F3 records).
 4. **R-resolution (F3):** a pair-to-R map (minimum image by default), M(R) by Fourier sum over the full grid, and
    `R` added to `func_args_dict`. Requires step 5's grid check.
+   **Done** (F3, `ceffa10`).
 5. **Inputs and weights (F4, F5, F8):** fillings /2 for no-spin; N_e check; raise for pair functions on reduced
    meshes; fix `get_wk_t`; fix `calculate_filling_*`. Stage "matrices" (occupations feed D).
+   **Done** (F4 `756f9e0`, F5 `cc5f71e`, F8 `ca5793f`).
 6. **Normalization (F6):** Gaussian and LTI scale. Stage "spectra".
+   **Done** (F6, `44cf908`).
 7. **Diagnostics (2.4):** `ElecData.charge_spilling`, `orbital_completeness`, `sum_rule_residual`, with a warning
    above a threshold (e.g. 5%).
+   **Partly done:** `orbital_completeness_u` (F7) and `orbital_span_t` with its warning (F11). Charge spilling
+   and the sum-rule residual are open (section 5.2).
 8. **Docs:** README formalism and required JDFTx flags (`symmetries none`; `band-projection-params yes no` for
    COHP/COBI, `no no` for COOP; enough `elec-n-bands`); remove the false pCOMO claim.
+   **Done** across the fixes: the README "JDFTx settings" table (F5, F11) and pCOOP basis notes (F7); the pCOMO
+   claim was removed with F2.
 
 Upstream JDFTx (only if wanted later, U1): flag-gated i^l phase in `dumpProjections`; optional dump of
 `psi ^ Opsi` (AO overlap per k) and `Opsi ^ (H psi)`; binary or `%.15le` projections.
+Not started (section 5.1).
 
 ---------------------------------------------------------------------------------------------------------------
 
-Additional evidence from the comparison notebooks (2026-10-27): with `rattle_eigenvals=True` the N2 LTI DOS
-integral is 1.104 ≈ 30/27, exactly the extra 1/N_k of F6. In the current code (after F1), pCOBI px–px is
-−0.214 vs. a reference of +0.173: F2 also flips COBI signs.
+## 5. Open issues
 
-## 5. Open questions / not verified this session
+Everything not yet resolved. Work on any of it follows section 4.0. (Before the 2026-10-28 reorganization this
+section held only the open questions, titled "Open questions / not verified this session"; they are now 5.4, and the
+answered Q2 moved to the end of section 3.)
 
-- Q1. (2026-10-27 update: on N2 the non-orthogonal basis reproduces the textbook net-antibonding s–s interaction, while
-  the Löwdin basis doesn't, and total ICOHP differs about 3×; see the F7 record.) COHP basis choice: should the default be the Löwdin band-projected basis (energy-zero invariant, matches
+### 5.1 Open findings
+
+F12 (point-group unfolding) was here until it was fixed on 2026-10-28; it is now in section 3.
+
+#### U1: upstream JDFTx options (not started)
+
+Optional. None of these is required for the crawfish-only fixes (summary row in section 1.1; plan in section 4):
+
+- Apply the i^l phase in `dumpProjections` behind a new flag, as the Wannier code does. Old outputs would then differ,
+  so crawfish would need a header marker. Not recommended as the primary fix (F1, "Upstream option").
+- Dump the AO overlap S(k) = ⟨φ|O|φ⟩ (`psi ^ Opsi`) and optionally ⟨φ|H|φ⟩ (`Opsi ^ (H psi)`). The overlap would be
+  the exact alternative to the band-space overlap for COOP (F7).
+- Higher-precision projections: binary or `%.15le` instead of `%9.7lf` (section 2.1).
+
+### 5.2 Diagnostics not implemented yet (section 2.4, plan step 7)
+
+- **Charge spilling** of occupied states (Sánchez-Portal 1995) as a property (plan step 7 suggested
+  `ElecData.charge_spilling`), with a warning above a threshold (e.g. 5%). The definition is in section 2.4; it is
+  only meaningful for ortho-orbital projections, and Π_jj replaces it for non-orthogonal ones. Check 3 computes it
+  (N2: 2.06%), but crawfish doesn't expose it.
+- **Sum-rule residual** (the sum rules in section 2.3; plan step 7's `sum_rule_residual`). The band-energy sum rule
+  is tested (F2, `tests/core/test_signed_matrices.py`) but not reported to users.
+- Done from the same list: orbital completeness (`orbital_completeness_u`, F7) and the per-state band span
+  (`orbital_span_t` and its warning, F11). F11 didn't need charge spilling or the residual.
+
+### 5.3 Follow-ups left by resolved findings
+
+- **Full spinor support (F9).** Spinor runs are refused with a clear error since `0c9d8c2`. What support would need is
+  at the end of the F9 record: the spinor state layout, orbital labels with the spin copy or j, m_j, pair matrices
+  summed over the spin components, and the spinor time-reversal relation T(−k) = iσ_y T(k)* for unfolding. A
+  separate project.
+- **F11 blind spot with non-orthogonal projections.** With ortho projections the warning fires for every run 3% or
+  more off. With non-orthogonal projections, N2 at 15 bands is 6.9% off (vs. 40 bands) with no warning: every orbital
+  combination is spanned there, and the slow convergence is a different effect. pCOOP has F7's completeness warning;
+  pCOHP has nothing for this case. Not addressed.
+- **F3 end-to-end check.** The wrapping tests use the Bloch-sum gauge change T → e^{2πik·L}T instead of rerunning
+  JDFTx with wrapped coordinates (F3 record, "Still missing"). JDFTx wasn't built when F3 was done; it runs locally
+  now (F4 record), so the check is feasible.
+- **`trim_excess_bands` (F10).** Deprecated with a `FutureWarning` since `131fd7a`, but still present. Removing it, or
+  selecting bands per k by an energy window as F10 suggested, is open.
+- **graphene_1x1's flat bands (F10 side observation).** Two flat occupied bands near −3.3 and −2.9 Ha; JDFTx's own
+  eigStats agree, so they come from that calculation, not from crawfish. Not investigated.
+- **`ElecData.as_empty` is broken** (noted in F10's list of findings). Outside this audit's fixes; not fixed.
+- **Docstring example (section 2.1).** `utils/indexing.py::get_atom_orb_labels_dict` still lists p as px, py, pz
+  (JDFTx's order is py, pz, px), and its d order (dxy, dxz, dyz, dx2y2, dz2) isn't JDFTx's either (xy, yz, z², xz,
+  x²−y²). The code (`orb_ref_list`) is right.
+- **pymatgen fork bugs** found along the way, logged in `~/vs/claude-notes/pymatgen-jdftx.md`. Crawfish doesn't depend
+  on any of them:
+  - `_mu_backup` is in Hartree while `mu` is in eV (F10; crawfish now reads mu itself).
+  - The scalar `_calculate_filling` divides eV energies by a Hartree broadening, so its smearing is 27× too narrow
+    and fcc Al reads as `is_metal == False` (F8).
+  - Spinor runs raise an uninformative `NotImplementedError` in `_get_spinvars` (F9).
+
+### 5.4 Open questions
+
+- **Q1.** COHP basis choice: should the default be the Löwdin band-projected basis (energy-zero invariant, matches
   current `los_orbs=True`) or the non-orthogonal basis (closer to LOBSTER)? On N2 they agree in sign and roughly
   in size (A–B total −0.867 vs −0.833 Ha). This is the user's call.
-- Q2. **Answered (2026-10-27):** yes. `JDFTXOutfile.structure` (pymatgen fork) never calls `to_unit_cell`, and
-  pymatgen `Structure` keeps unwrapped fractional coordinates. For N2 the Cartesian coordinates equal the outfile's
-  final `ion` lines (13.895656 bohr = 7.3533 Å). F3 uses `edata.structure.frac_coords` as τ.
-- Q3. COBI details (spin factor, sign convention, whether LOBSTER evaluates it in an orthonormalized basis): check
+  - 2026-10-27 update: on N2 the non-orthogonal basis reproduces the textbook net-antibonding s–s interaction,
+    while the Löwdin basis doesn't, and total ICOHP differs about 3×; see the F7 record.
+  - Both bases are available: `los_orbs=True` (default, Löwdin) or `los_orbs=False` (F2 record, "Basis (Q1)").
+- **Q3.** COBI details (spin factor, sign convention, whether LOBSTER evaluates it in an orthonormalized basis): check
   Müller et al. 2021 before implementing M=D.
-- Q4. LOBSTER's exact requirements on VASP symmetry (ISYM) and its H(k) reconstruction formula for
+  - Status: F2 implemented pCOBI with M = D (section 2.3, `d_t_uv`). This check isn't recorded as done.
+- **Q4.** LOBSTER's exact requirements on VASP symmetry (ISYM) and its H(k) reconstruction formula for
   nbands > nAO: from memory, it reconstructs H from projected coefficients and eigenvalues, consistent with
   section 2.3. Re-read Deringer 2011 / Maintz 2013 to confirm.
-- Q5. Whether JDFTx's `atpos` can be changed by symmetrization (`symmetries automatic` may snap positions). This
+- **Q5.** Whether JDFTx's `atpos` can be changed by symmetrization (`symmetries automatic` may snap positions). This
   is moot if `symmetries none` becomes required.
+  - Since F5, the README asks for `symmetries none` (or `symmetries manual` with only the identity) for atom-,
+    bond- and m-resolved results, and single-bond results on point-group-reduced meshes raise. Not checked
+    further.
+  - Since F12, point-group-reduced meshes with a `sym` file are unfolded using the positions in pymatgen's
+    structure; an operation that doesn't map them onto themselves within 1e-3 (fractional) raises. In the F12
+    fixtures JDFTx moved the atoms by at most 4e-12 bohr ("Applied RMS atom displacement").
 
 ---------------------------------------------------------------------------------------------------------------
 

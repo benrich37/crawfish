@@ -19,3 +19,6 @@ pz. They differ for single bonds and for m-resolved px/py.
 s/p orbitals aren't spanned there and the Löwdin step becomes ill-conditioned. 20 bands still miss an in-plane σ*
 combination at K, so crawfish warns when loading these (finding F11), and the C–C IpCOHP is 3.5–4% weaker than with 30
 or 40 bands. `graphene_zspin_tr_30bands` is the 30-band version.
+
+`graphene_zspin_pg` (added 2026-10-28, finding F12) is `graphene_zspin_symm` rerun with `dump End ... Symmetries`, so
+crawfish can unfold it with JDFTx's operations. `graphene_zspin_symm` has no `sym` file and stays reduced and guarded.

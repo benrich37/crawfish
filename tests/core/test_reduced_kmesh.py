@@ -2,6 +2,8 @@
 
 graphene_zspin_full and graphene_zspin_symm are the same z-spin graphene calculation (12x12x1 mesh, 20 bands) run
 with 'symmetries none' (144 k per spin) and 'symmetries automatic' (19 k per spin, non-uniform weights).
+graphene_zspin_symm has no `sym` file, so it stays reduced and guarded (unfolding it is tested in
+test_point_group_unfolding.py, finding F12).
 """
 
 from crawfish.utils.testing import EXAMPLE_CALC_DIRS_DIR

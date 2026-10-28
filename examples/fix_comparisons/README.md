@@ -12,6 +12,7 @@ of that fix, saves its figures to `figures/`, and ends with a cell of `assert` c
 | `F4_F8_inputs_and_normalization.ipynb` | F4, F5, F6, F8 | all implemented | F4: legacy vs. fixed on `N2_nospin` and z-spin N2; F5: graphene on full, point-group-reduced and k/−k-reduced (unfolded) meshes; F6: DOS integrals, Gaussian and LTI, legacy vs. fixed; F8: filling helpers vs. `ElecInfo::smear`, and occupations computed without the `fillings` file vs. the file for Al (four smearings) and Si (no smearing) |
 | `F10_lowdin_cutoff_and_misc.ipynb` | F10: Löwdin cutoff, mu units, `trim_excess_bands`, fallback weights | implemented | overlap eigenvalues vs. the cutoff (N2, graphene with 20 and 8 bands); the old cutoff's dependence on noise sign; graphene's three equivalent bonds, `legacy_lowdin_cutoff=True` vs. default; N2 unchanged; mu vs. pymatgen; re-trimming and weight sums |
 | `F11_band_span.ipynb` | F11: too few bands | implemented (diagnostic + warning; no numbers change) | `orbital_span_t` per state for fixture pairs that differ only in `elec-n-bands` (N2 10/15, graphene 20/30) and graphene_1x1; IpCOHP band convergence vs. the warning |
+| `F12_point_group_unfolding.ipynb` | F12: unfolding k-meshes reduced by the point group | implemented | which k-points a 3x3 graphene mesh lumps together (point group vs. time reversal alone); `unfold_point_group=False` (the F5 guard) vs. default vs. full-mesh runs, for graphene (single bonds, px–px, m-resolved pDOS) and wurtzite ZnO (axial and basal Zn–O bonds, Zn d pDOS); little-group invariance and rotated vs. directly computed states |
 
 ## How the notebooks adapt as fixes land
 
@@ -25,6 +26,7 @@ of that fix, saves its figures to `figures/`, and ends with a cell of `assert` c
   basis (open question Q1), update `REF_BASIS` in the F2 notebook.
 - F8 has no legacy switch (crash and bug fixes don't need one), so its notebook checks the fixed code against JDFTx directly.
   Of F10's items only the Löwdin cutoff changes results, so `legacy_lowdin_cutoff` is the F10 entry in `LEGACY_FLAGS`.
+- F12's switch is `unfold_point_group`, on by default, so its pre-fix value is False (`fixcompare.LEGACY_VALUES`).
 - Add a notebook in the same style for every new result-changing fix.
 
 ## Running

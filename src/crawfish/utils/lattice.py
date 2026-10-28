@@ -109,7 +109,8 @@ def get_pair_image_map(
 
 
 REDUCED_KMESH_HINT = (
-    "Rerun JDFTx with 'symmetries none' for atom-, bond- or orbital-resolved results (notes/theory_audit.md, F5)."
+    "For atom-, bond- or orbital-resolved results, add 'Symmetries' to the JDFTx 'dump End' line (crawfish then "
+    "unfolds the mesh with JDFTx's operations), or rerun with 'symmetries none' (notes/theory_audit.md, F5 and F12)."
 )
 
 
@@ -118,7 +119,8 @@ def check_reduced_kmesh(edata: ElecData, orbs: list[int], what: str, image=None)
 
     On a mesh reduced by the point group, a quantity for one atom, bond or m-orbital is averaged over its
     symmetry-equivalent copies. It is exact only for selections the group maps onto themselves: the sum over all
-    lattice images (pair spectra), complete orbital shells, and complete sets of equivalent atoms.
+    lattice images (pair spectra), complete orbital shells, and complete sets of equivalent atoms. Meshes that
+    ElecData unfolds (time reversal, F5; JDFTx's space group from the `sym` file, F12) are full meshes and pass.
 
     Parameters
     ----------

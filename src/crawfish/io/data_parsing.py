@@ -328,27 +328,48 @@ def get_kpoint_offset_from_outfile_filepath(outfile_filepath: str | Path) -> np.
     return np.array(offsets[0], dtype=np.float64)
 
 
-def get_time_reversal_unfolding(
-    ks_raw: np.ndarray, w_raw: np.ndarray, nspin: int, kfolding, k0, tol: float = 1e-5
+def get_kmesh_unfolding(
+    ks_raw: np.ndarray,
+    w_raw: np.ndarray,
+    nspin: int,
+    kfolding,
+    k0,
+    rots: list[np.ndarray] | None = None,
+    time_reversal: bool = True,
+    tol: float = 1e-5,
 ) -> dict | None:
-    r"""Map a k-mesh JDFTx reduced only by time reversal (k <-> -k) back onto the full Monkhorst-Pack mesh.
+    r"""Map a k-mesh JDFTx reduced by symmetry back onto the full Monkhorst-Pack mesh.
 
     JDFTx folds the offset k0 into the mesh k = (k0 + i) / kfolding with i0 slowest and i2 fastest, each
-    coordinate reduced to (-0.5, 0.5] (ElecInfo.cpp), and states are spin-major. With `kpoint-reduce-inversion
-    yes` (the default) and no other symmetry, it keeps one of each k / -k pair with twice the weight. This
-    returns, for each full-mesh state in that order, the computed state it comes from and whether it is the
-    partner -k (to be complex-conjugated).
+    coordinate reduced to (-0.5, 0.5] (ElecInfo.cpp), and states are spin-major. It keeps one k-point per orbit
+    of its space group, plus k <-> -k when `kpoint-reduce-inversion yes` (the default) and the group lacks
+    inversion, and gives it the orbit's weight (`Symmetries::reduceKmesh`). This returns, for each full-mesh state
+    in that order, the computed state it comes from, the operation that maps it there, and whether time reversal
+    is needed (the projections are then complex-conjugated).
 
-    Returns None if the computed k-points are already the full mesh, or if they aren't exactly a k <-> -k
-    reduction of it with JDFTx's weights (e.g. a point-group reduction, or an explicit k-point list).
+    An operation with lattice-coordinate rotation rot (x -> rot x + a) maps k to rot^-T k. JDFTx's own k-point map
+    (the `kMap` dump) applies rot^T instead, i.e. the inverse operation; the group contains both. Operations
+    without time reversal are preferred, then the earliest source and the earliest operation.
+
+    Parameters
+    ----------
+    rots : list[np.ndarray] | None
+        Integer rotation matrices of the operations (lattice coordinates). None means the identity only, i.e. a
+        mesh reduced by time reversal alone.
+    time_reversal : bool
+        Whether k -> -k (complex conjugation) may be used.
 
     Returns
     -------
     dict | None
         "src_t": int array (nstates_full,), the computed state for each full-mesh state;
-        "conj_t": bool array, True where the state is the -k partner of its source;
+        "op_t": int array, the index into rots of the operation used;
+        "conj_t": bool array, True where time reversal is used as well;
         "ks_t": float array (nstates_full, 3), the full-mesh k-points;
-        "wfactor_t": float array, the factor that splits the source's weight over its 1 or 2 images.
+        "wfactor_t": float array, the factor that splits the source's weight over its images.
+        None if the computed k-points are already the full mesh, or if these operations don't reproduce JDFTx's
+        reduction with its weights (e.g. a point-group reduction without the operations, or an explicit k-point
+        list).
     r"""
     ks_raw = np.asarray(ks_raw, dtype=np.float64)
     w_raw = np.asarray(w_raw, dtype=np.float64)
@@ -357,7 +378,8 @@ def get_time_reversal_unfolding(
     nk_raw = len(ks_raw) // nspin
     kfolding = [int(x) for x in kfolding]
     i = np.stack(np.meshgrid(*[np.arange(n) for n in kfolding], indexing="ij"), -1).reshape(-1, 3)
-    grid = (np.mod(np.asarray(k0, dtype=np.float64), 1.0)[None, :] + i) / np.array(kfolding)[None, :]
+    k0_mod = np.mod(np.asarray(k0, dtype=np.float64), 1.0)
+    grid = (k0_mod[None, :] + i) / np.array(kfolding)[None, :]
     grid[grid > 0.5] -= 1.0
     nk_full = len(grid)
     if nk_raw >= nk_full:
@@ -366,24 +388,27 @@ def get_time_reversal_unfolding(
     for s in range(1, nspin):  # JDFTx gives every spin channel the same k-points
         if not np.allclose(ks_raw[s * nk_raw : (s + 1) * nk_raw], k_spin, atol=tol):
             return None
-
-    def _match(diff):
-        return np.all(np.abs(diff - np.round(diff)) < tol, axis=-1)
-
-    same = _match(grid[:, None, :] - k_spin[None, :, :])  # (nk_full, nk_raw)
-    partner = _match(grid[:, None, :] + k_spin[None, :, :])
-    src_k = np.full(nk_full, -1, dtype=np.int64)
-    conj_k = np.zeros(nk_full, dtype=bool)
-    for g in range(nk_full):
-        if same[g].any():
-            src_k[g] = int(np.argmax(same[g]))
-        elif partner[g].any():
-            src_k[g] = int(np.argmax(partner[g]))
-            conj_k[g] = True
-        else:
-            return None
+    if rots is None:
+        rots = [np.eye(3, dtype=np.int64)]
+    # Best (conj, source, operation) per full-mesh point; lexicographic order gives the preference described above
+    best = np.full((nk_full, 3), np.iinfo(np.int64).max, dtype=np.int64)
+    for op, rot in enumerate(rots):
+        rot_inv = np.round(np.linalg.inv(np.asarray(rot, dtype=np.float64))).astype(np.int64)
+        for conj, sign in ((0, 1.0), (1, -1.0)) if time_reversal else ((0, 1.0),):
+            img = sign * (k_spin @ rot_inv)  # rows: rot^-T k
+            pos = img * np.array(kfolding)[None, :] - k0_mod[None, :]
+            on_grid = np.all(np.abs(pos - np.round(pos)) < tol * max(kfolding), axis=1)
+            idx3 = np.mod(np.round(pos).astype(np.int64), np.array(kfolding)[None, :])
+            flat = (idx3[:, 0] * kfolding[1] + idx3[:, 1]) * kfolding[2] + idx3[:, 2]
+            for src in np.flatnonzero(on_grid):
+                cand = np.array([conj, src, op], dtype=np.int64)
+                if tuple(cand) < tuple(best[flat[src]]):
+                    best[flat[src]] = cand
+    if np.any(best[:, 0] == np.iinfo(np.int64).max):
+        return None
+    conj_k, src_k, op_k = best[:, 0].astype(bool), best[:, 1], best[:, 2]
     mult = np.bincount(src_k, minlength=nk_raw)
-    if np.any(mult == 0) or np.any(mult > 2):
+    if np.any(mult == 0):
         return None
     # JDFTx weights must be (images represented) x (weight of one full-mesh k-point), in every spin channel
     for s in range(nspin):
@@ -393,10 +418,82 @@ def get_time_reversal_unfolding(
     src_t = np.concatenate([s * nk_raw + src_k for s in range(nspin)])
     return {
         "src_t": src_t,
+        "op_t": np.tile(op_k, nspin),
         "conj_t": np.tile(conj_k, nspin),
         "ks_t": np.tile(grid, (nspin, 1)),
         "wfactor_t": 1.0 / mult[np.tile(src_k, nspin)],
     }
+
+
+def get_time_reversal_unfolding(
+    ks_raw: np.ndarray, w_raw: np.ndarray, nspin: int, kfolding, k0, tol: float = 1e-5
+) -> dict | None:
+    r"""Map a k-mesh JDFTx reduced only by time reversal (k <-> -k) back onto the full Monkhorst-Pack mesh.
+
+    `get_kmesh_unfolding` with the identity as the only operation (finding F5). With `kpoint-reduce-inversion
+    yes` (the default) and no other symmetry, JDFTx keeps one of each k / -k pair with twice the weight.
+    Returns None if the computed k-points are already the full mesh, or if they aren't exactly a k <-> -k
+    reduction of it with JDFTx's weights.
+    r"""
+    return get_kmesh_unfolding(ks_raw, w_raw, nspin, kfolding, k0, rots=None, time_reversal=True, tol=tol)
+
+
+def parse_symfile(symfile_filepath: str | Path) -> list[tuple[np.ndarray, np.ndarray]]:
+    r"""Return JDFTx's space-group operations from a `sym` file (`dump End Symmetries`), as (rot, a) pairs.
+
+    Each operation is written by `Dump.cpp` as the three rows of the integer rotation matrix (lattice coordinates)
+    and a line with the translation a (lattice coordinates), followed by a blank line: x -> rot x + a. The first
+    operation is the identity.
+    r"""
+    rows = [line.split() for line in read_file(symfile_filepath) if line.strip()]
+    if len(rows) % 4:
+        raise ValueError(f"Unexpected format of the symmetries file {symfile_filepath}")
+    ops = []
+    for i in range(0, len(rows), 4):
+        rot = np.array([[int(x) for x in row] for row in rows[i : i + 3]], dtype=np.int64)
+        a = np.array([float(x) for x in rows[i + 3]], dtype=np.float64)
+        ops.append((rot, a))
+    return ops
+
+
+def get_input_echo_commands(outfile_filepath: str | Path, slice_idx: int = -1) -> list[list[str]]:
+    r"""Return the tokens of each command in the input echo of a JDFTx out file (continuation lines joined)."""
+    text = read_file(outfile_filepath)
+    start, end = get_outfile_slice_bounds(text, slice_idx=slice_idx)
+    commands, current = [], []
+    in_echo = False
+    for line in text[start:end]:
+        if line.startswith("Input parsed successfully"):
+            in_echo = True
+            continue
+        if not in_echo:
+            continue
+        if line.startswith("----------"):
+            break
+        stripped = line.strip()
+        cont = stripped.endswith("\\")
+        current += stripped.rstrip("\\").split()
+        if not cont:
+            if current:
+                commands.append(current)
+            current = []
+    return commands
+
+
+def get_symmetries_from_outfile_filepath(outfile_filepath: str | Path) -> tuple[str, list | None]:
+    r"""Return JDFTx's `symmetries` mode and, for `symmetries manual`, its operations as (rot, a) pairs.
+
+    The operations of `symmetries automatic` aren't printed in the out file; they need the `sym` file
+    (`dump End Symmetries`, see parse_symfile). Returns (mode, None) in that case and for `symmetries none`.
+    r"""
+    mode, ops = "automatic", []
+    for tokens in get_input_echo_commands(outfile_filepath):
+        if tokens[0] == "symmetries" and len(tokens) > 1:
+            mode = tokens[1]
+        elif tokens[0] == "symmetry-matrix" and len(tokens) == 13:
+            rot = np.array([int(float(x)) for x in tokens[1:10]], dtype=np.int64).reshape(3, 3)
+            ops.append((rot, np.array([float(x) for x in tokens[10:13]], dtype=np.float64)))
+    return mode, (ops if mode == "manual" and ops else None)
 
 
 def get_orb_shell_u_from_bandfile_filepath(bandfile_filepath: Path | str) -> np.ndarray[int]:

@@ -28,7 +28,9 @@ from crawfish.io.data_parsing import (
     get_orb_shell_u_from_bandfile_filepath,
     parse_kptsfrom_bandfile_header,
     get_kpoint_offset_from_outfile_filepath,
-    get_time_reversal_unfolding,
+    get_kmesh_unfolding,
+    get_symmetries_from_outfile_filepath,
+    parse_symfile,
     get_kfolding_from_outfile_filepath,
     get_e_tj_helper,
     get_proj_tju_from_file,
@@ -46,6 +48,8 @@ from crawfish.io.data_parsing import (
 from crawfish.utils.caching import CachedFunction, validate_cache_dir
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_kmap_from_edata, get_atom_orb_labels_dict
+from crawfish.utils.lattice import get_orb_atom_idx_u
+from crawfish.utils.symmetry import get_orbital_transform, apply_orbital_transform
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.inputs import JDFTXInfile
 from pymatgen.io.jdftx.outputs import JDFTXOutfile
@@ -70,7 +74,7 @@ SPAN_WARN_RTOL = 1e-4
 signed_mat_names = ["h_t_uv", "s_t_uv", "d_t_uv"]
 cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
 # Output files read during analysis - changes to any of these invalidate the cache (Gvectors/wfns are located but never read)
-source_filetypes = ["band", "eig", "out", "kpts", "fillings"]
+source_filetypes = ["band", "eig", "out", "kpts", "fillings", "sym"]
 
 edata_setting_key_shorthand_dict = {
     "legacy_orbital_phase": "lgph",
@@ -79,6 +83,7 @@ edata_setting_key_shorthand_dict = {
     "legacy_fillings": "lgfl",
     "legacy_reduced_kmesh": "lgkm",
     "unfold_time_reversal": "utr",
+    "unfold_point_group": "upg",
     "legacy_normalization": "lgnm",
     "legacy_lowdin_cutoff": "lglw",
     "trim_excess_bands": "trimj",
@@ -100,6 +105,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "legacy_fillings": edata.legacy_fillings,
         "legacy_reduced_kmesh": edata.legacy_reduced_kmesh,
         "unfold_time_reversal": edata.unfold_time_reversal,
+        "unfold_point_group": edata.unfold_point_group,
         "legacy_normalization": edata.legacy_normalization,
         "legacy_lowdin_cutoff": edata.legacy_lowdin_cutoff,
         "trim_excess_bands": edata.trim_excess_bands,
@@ -132,6 +138,7 @@ class ElecData:
     outfile_suffix: str = "out"
     gvecfile_suffix: str = "Gvectors"
     wfnfile_suffix: str = "wfns"
+    symfile_suffix: str = "sym"
     #
     bandfile_filepath: Path | None = None
     kptsfile_filepath: Path | None = None
@@ -140,6 +147,7 @@ class ElecData:
     outfile_filepath: Path | None = None
     gvecfile_filepath: Path | None = None
     wfnfile_filepath: Path | None = None
+    symfile_filepath: Path | None = None
     ##
     proj_tju_filename: str = "proj_tju.npy"
     bandfile_header_filename: str = "bandProjections_header"
@@ -353,8 +361,8 @@ class ElecData:
     T(-k) = T(k)*, and the eigenvalues and occupations of k. Each pair's JDFTx weight is split between k and -k.
     This is exact for collinear calculations (no-spin, z-spin), whose Hamiltonian is real in each spin channel.
     Single bonds, chosen lattice images, m-resolved results and LTI then all work as on a full mesh. Meshes
-    reduced by a point group can't be unfolded this way and stay guarded (see legacy_reduced_kmesh). Not applied
-    when legacy_reduced_kmesh is True. See notes/theory_audit.md, finding F5.
+    reduced by a point group also need unfold_point_group (and JDFTx's operations); otherwise they stay guarded.
+    Not applied when legacy_reduced_kmesh is True. See notes/theory_audit.md, finding F5.
     """
 
     @property
@@ -370,6 +378,34 @@ class ElecData:
             self.alloc_elec_data()
 
     _unfold_time_reversal: bool = True
+
+    """
+    unfold_point_group: If True (default), a k-mesh that JDFTx reduced by its space group (`symmetries
+    automatic`, or `symmetries manual` with several matrices) is unfolded onto the full Monkhorst-Pack mesh, using
+    JDFTx's own operations: the `sym` file written by `dump End Symmetries`, or the matrices echoed for `symmetries
+    manual`. Each full-mesh state is rebuilt from the computed state its k-point is a symmetry image of: the
+    operation permutes the atoms, rotates each orbital shell (real spherical harmonics in JDFTx's convention), and
+    multiplies by the Bloch phase of the lattice vector a mapped atom moves by; time reversal (unfold_time_reversal)
+    conjugates where needed. Eigenvalues and occupations are those of the source state. Single bonds, chosen
+    lattice images, m-resolved results and LTI then work as on a full mesh. Without the operations (a reduced run
+    without `dump End Symmetries`) the mesh stays reduced and guarded, as when this is False. Only for complex
+    projections of collinear calculations; not applied when legacy_reduced_kmesh is True.
+    See notes/theory_audit.md, finding F12.
+    """
+
+    @property
+    def unfold_point_group(self) -> bool:
+        return self._unfold_point_group
+
+    @unfold_point_group.setter
+    def unfold_point_group(self, value: bool):
+        if value != self._unfold_point_group:
+            self._unfold_point_group = value
+            self._reset_kpoint_arrays()
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _unfold_point_group: bool = True
 
     """
     legacy_normalization: If False (default), smeared spectra are densities that integrate to the state count:
@@ -418,47 +454,127 @@ class ElecData:
             self.alloc_elec_data()
 
     _legacy_lowdin_cutoff: bool = False
-    _tr_unfolding: dict | bool | None = None
+    _kmesh_unfolding: dict | bool | None = None
     # (e_tj, occ_tj, nbands) from before trim_excess_bands cut them, so a later alloc_elec_data can restore them
     _untrimmed_bands: tuple | None = None
 
     def _reset_kpoint_arrays(self) -> None:
         """Drop every array indexed by state, so they are rebuilt for the current k-point settings."""
         for name in ["_proj_tju", "_e_tj", "_occ_tj", "_wk_t", "_ks_t", "_kfolding", "_lti_allowed", "_nstates",
-                     "_nbands", "_tr_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t"]:
+                     "_nbands", "_kmesh_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t"]:
             setattr(self, name, None)
 
+    def _get_unfolding_ops(self) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Return the operations the k-mesh may be unfolded with, as (rot, a) pairs (see kmesh_unfolding)."""
+        identity = [(np.eye(3, dtype=np.int64), np.zeros(3))]
+        if not self.unfold_point_group or not self.bandprojfile_is_complex:
+            return identity  # |T|^2 projections can't be rotated
+        if self.symfile_filepath is not None:
+            return parse_symfile(self.symfile_filepath)
+        _, ops = get_symmetries_from_outfile_filepath(self.outfile_filepath)
+        return ops if ops else identity
+
     @property
-    def tr_unfolding(self) -> dict | None:
-        """Return the time-reversal unfolding map (see get_time_reversal_unfolding), or None if not applied."""
-        if self._tr_unfolding is None:
-            self._tr_unfolding = False
-            if (self.jdftx and self.unfold_time_reversal and not self.legacy_reduced_kmesh
-                    and self.outfile.spintype in ("no-spin", "z-spin")):
+    def kmesh_unfolding(self) -> dict | None:
+        """Return the map from the computed states onto the full k-mesh, or None if the mesh isn't unfolded.
+
+        The dict from get_kmesh_unfolding ("src_t", "op_t", "conj_t", "ks_t", "wfactor_t"), plus "w_raw" (JDFTx's
+        weights) and "ops" (the operations as (rot, a) pairs, indexed by "op_t"). The operations are JDFTx's own
+        (see unfold_point_group), or the identity alone when there are none, which unfolds a mesh reduced by time
+        reversal only (unfold_time_reversal). See notes/theory_audit.md, findings F5 and F12.
+        """
+        if self._kmesh_unfolding is None:
+            self._kmesh_unfolding = False
+            if (self.jdftx and not self.legacy_reduced_kmesh and self.outfile.spintype in ("no-spin", "z-spin")
+                    and (self.unfold_time_reversal or self.unfold_point_group)):
+                ops = self._get_unfolding_ops()
                 wk, ks, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
-                unfolding = get_time_reversal_unfolding(
+                unfolding = get_kmesh_unfolding(
                     ks, wk, self.nspin, get_kfolding_from_outfile_filepath(self.outfile_filepath),
                     get_kpoint_offset_from_outfile_filepath(self.outfile_filepath),
+                    rots=[rot for rot, _ in ops], time_reversal=self.unfold_time_reversal,
                 )
                 if unfolding is not None:
                     unfolding["w_raw"] = np.asarray(wk, dtype=np.float64)
-                    self._tr_unfolding = unfolding
-        return self._tr_unfolding or None
+                    unfolding["ops"] = ops
+                    self._kmesh_unfolding = unfolding
+        return self._kmesh_unfolding or None
+
+    @property
+    def tr_unfolding(self) -> dict | None:
+        """Return kmesh_unfolding (the name from finding F5, when only time reversal was unfolded)."""
+        return self.kmesh_unfolding
+
+    @property
+    def kmesh_unfolded(self) -> bool:
+        """Return True if JDFTx reduced the k-mesh by symmetry and it has been unfolded to the full mesh."""
+        return self.kmesh_unfolding is not None
 
     @property
     def time_reversal_unfolded(self) -> bool:
         """Return True if the k-mesh was reduced by time reversal only and has been unfolded to the full mesh."""
-        return self.tr_unfolding is not None
+        unfolding = self.kmesh_unfolding
+        if unfolding is None:
+            return False
+        return all(self._is_identity_op(unfolding["ops"][int(op)]) for op in np.unique(unfolding["op_t"]))
+
+    @property
+    def point_group_unfolded(self) -> bool:
+        """Return True if the k-mesh was unfolded with space-group operations other than the identity (F12)."""
+        return self.kmesh_unfolded and not self.time_reversal_unfolded
+
+    @staticmethod
+    def _is_identity_op(op: tuple[np.ndarray, np.ndarray]) -> bool:
+        rot, a = op
+        return bool(np.array_equal(rot, np.eye(3)) and np.allclose(a, 0.0))
 
     @property
     def nstates_file(self) -> int:
-        """Return the number of states JDFTx computed (before any time-reversal unfolding)."""
+        """Return the number of states JDFTx computed (before any unfolding of a reduced k-mesh)."""
         return get_nstates_from_bandfile_filepath(self.bandfile_header_filepath)
 
     def _unfold_states(self, arr: np.ndarray) -> np.ndarray:
         """Index a per-state array (states first) onto the unfolded full mesh. Identity if not unfolded."""
-        unfolding = self.tr_unfolding
+        unfolding = self.kmesh_unfolding
         return arr if unfolding is None else arr[unfolding["src_t"]]
+
+    def _get_orbital_transforms(self) -> dict[int, dict | None]:
+        """Return, per operation used by kmesh_unfolding, how it maps the projections (None for the identity)."""
+        unfolding = self.kmesh_unfolding
+        if "transforms" not in unfolding:
+            st = self.structure
+            atom_u = get_orb_atom_idx_u(self)
+            species = [str(sp) for sp in st.species]
+            transforms = {}
+            for op in np.unique(unfolding["op_t"]):
+                rot, a = unfolding["ops"][int(op)]
+                transforms[int(op)] = None if self._is_identity_op((rot, a)) else get_orbital_transform(
+                    rot, a, st.lattice.matrix, st.frac_coords, species, atom_u, self.orb_l_u, self.orb_shell_u
+                )
+            unfolding["transforms"] = transforms
+        return unfolding["transforms"]
+
+    def _unfold_proj(self, proj_tju: np.ndarray, raw_phase: bool) -> np.ndarray:
+        """Return the projections of every full-mesh state from those JDFTx computed (see kmesh_unfolding).
+
+        raw_phase: whether proj_tju is in JDFTx's raw orbital convention (i^l times real orbitals; F1), where time
+        reversal gives T(-k) = (-1)^l T(k)* instead of T(k)*. Rotations act within an l shell, so they don't care.
+        """
+        unfolding = self.kmesh_unfolding
+        if unfolding is None:
+            return proj_tju
+        transforms = self._get_orbital_transforms() if np.iscomplexobj(proj_tju) else {}
+        tr_factor_u = ((-1.0) ** self.orb_l_u)[None, :] if raw_phase and np.iscomplexobj(proj_tju) else None
+        out = np.empty((len(unfolding["src_t"]),) + np.shape(proj_tju)[1:], dtype=np.asarray(proj_tju).dtype)
+        for t, (src, op, conj) in enumerate(zip(unfolding["src_t"], unfolding["op_t"], unfolding["conj_t"])):
+            p_ju = proj_tju[src]
+            if conj:
+                p_ju = np.conj(p_ju) if tr_factor_u is None else np.conj(p_ju) * tr_factor_u
+            transform = transforms.get(int(op))
+            if transform is not None:
+                p_ju = apply_orbital_transform(p_ju, transform, unfolding["ks_t"][t])
+            out[t] = p_ju
+        return out
 
     @property
     def kmesh_is_reduced(self) -> bool:
@@ -639,7 +755,7 @@ class ElecData:
         """
         if self._nstates is None:
             if self.jdftx:
-                unfolding = self.tr_unfolding
+                unfolding = self.kmesh_unfolding
                 self._nstates = self.nstates_file if unfolding is None else len(unfolding["src_t"])
         return self._nstates
 
@@ -808,17 +924,13 @@ class ElecData:
             self._cache_proj_tju()
         if self.jdftx and not self.legacy_orbital_phase and self.bandprojfile_is_complex:
             self._proj_tju = apply_jdftx_orbital_phase(self._proj_tju, self.orb_l_u)
-        unfolding = self.tr_unfolding if self.jdftx else None
-        if unfolding is not None:
-            # T(-k) = T(k)* for real orbitals. In JDFTx's raw convention (legacy_orbital_phase) the orbitals are
-            # i^l times real ones, which gives T(-k) = (-1)^l T(k)*.
-            proj = np.array(self._proj_tju[unfolding["src_t"]])
-            conj = unfolding["conj_t"]
-            partner = np.conj(proj[conj])
-            if self.legacy_orbital_phase:
-                partner = partner * ((-1.0) ** self.orb_l_u)[None, None, :]
-            proj[conj] = partner
-            self._proj_tju = proj
+        if self.jdftx:
+            # Rebuild every full-mesh state of a reduced k-mesh (findings F5 and F12). T(-k) = T(k)* for real
+            # orbitals; in JDFTx's raw convention (legacy_orbital_phase) they are i^l times real ones, which gives
+            # T(-k) = (-1)^l T(k)*.
+            self._proj_tju = self._unfold_proj(
+                self._proj_tju, raw_phase=self.legacy_orbital_phase and self.bandprojfile_is_complex
+            )
 
     def _cache_proj_tju(self) -> None:
         """ Back up bandprojections file in easier to load pieces.
@@ -1219,9 +1331,9 @@ class ElecData:
         """
         if self._wk_t is None:
             if self.jdftx:
-                unfolding = self.tr_unfolding
+                unfolding = self.kmesh_unfolding
                 if unfolding is not None:
-                    # Each pair's weight is split evenly between k and -k
+                    # Each computed k-point's weight is split evenly over the full-mesh points it stands for
                     self._wk_t = np.array(unfolding["w_raw"][unfolding["src_t"]] * unfolding["wfactor_t"], dtype=REAL_DTYPE)
                 elif self.kptsfile_filepath is None and not self.legacy_reduced_kmesh:
                     # The bandProjections header lists every state's k-point and weight, like kPts
@@ -1253,7 +1365,7 @@ class ElecData:
         """
         if self._ks_t is None:
             if self.jdftx:
-                unfolding = self.tr_unfolding
+                unfolding = self.kmesh_unfolding
                 if unfolding is not None:
                     self._ks_t = np.array(unfolding["ks_t"], dtype=REAL_DTYPE)
                 else:
@@ -1275,7 +1387,7 @@ class ElecData:
         Return kpoint folding as a list of 3 integers.
         """
         if self._kfolding is None:
-            if self.jdftx and self.time_reversal_unfolded:
+            if self.jdftx and self.kmesh_unfolded:
                 self._kfolding = get_kfolding_from_outfile_filepath(self.outfile_filepath)
             else:
                 self._kfolding = get_kfolding(self.lti_allowed, self.outfile_filepath, self.nspin, self.nstates)
@@ -1309,13 +1421,17 @@ class ElecData:
         That is the diagonal of the band-space overlap before any Löwdin step. JDFTx normalizes each orbital so
         that <phi|O|phi> = 1, so values near 1 mean the bands represent the orbital fully, while low values mean
         too few bands (`elec-n-bands`). It is independent of crawfish's settings: |T| doesn't depend on the orbital
-        phase, and |T(-k)| = |T(k)|. See notes/theory_audit.md, findings F7 and F11.
+        phase. On a k-mesh reduced by symmetry it is taken over the unfolded mesh (kmesh_unfolding), since the point
+        group mixes the m of a shell and permutes equivalent atoms. See notes/theory_audit.md, findings F7 and F11.
         """
         if self.jdftx:
             proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
             if proj is None:
                 proj = get_proj_tju_from_file(self.bandfile_filepath)
-            wk, _, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
+            if self.kmesh_unfolded:
+                proj, wk = self._unfold_proj(proj, raw_phase=True), self.wk_t
+            else:
+                wk, _, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
         else:
             proj, wk = self.user_proj_tju, self.wk_t
         wk = np.asarray(wk, dtype=np.float64)
@@ -1341,6 +1457,8 @@ class ElecData:
                 proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
                 if proj is None:
                     proj = get_proj_tju_from_file(self.bandfile_filepath)
+                # Every full-mesh state of a reduced k-mesh (the span is invariant, but which orbitals are weak isn't)
+                proj = self._unfold_proj(proj, raw_phase=True)
             else:
                 proj = self.user_proj_tju
             span_t = np.zeros(len(proj))
@@ -1349,9 +1467,6 @@ class ElecData:
                 eigs, vecs = np.linalg.eigh(p_ju.conj().T @ p_ju)
                 span_t[t] = eigs[0] / eigs[-1]
                 weakest_tu[t] = np.abs(vecs[:, 0]) ** 2
-            if self.jdftx:
-                # Time-reversal partners have conjugate S_t: the same eigenvalues and |eigenvectors|
-                span_t, weakest_tu = self._unfold_states(span_t), self._unfold_states(weakest_tu)
             self._orbital_span_t = np.array(span_t, dtype=REAL_DTYPE)
             self._weakest_orbital_tu = weakest_tu
         return self._orbital_span_t
@@ -1409,7 +1524,7 @@ class ElecData:
         automatically reduced the k-point mesh to a non-MK pack grid, and the existence of a kpts file
         to refer to).
         """
-        if self._lti_allowed is None and self.jdftx and self.time_reversal_unfolded:
+        if self._lti_allowed is None and self.jdftx and self.kmesh_unfolded:
             self._lti_allowed = True  # the unfolded states are the full mesh
         if self._lti_allowed is None:
             with warnings.catch_warnings():
@@ -1585,10 +1700,10 @@ class ElecData:
     
         
 
-    def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings"]):
+    def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings", "sym"]):
         if self.fprefix is None:
             raise RuntimeError("File prefix (fprefix) must be set before setting file paths")
-        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn"]:
+        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn", "sym"]:
             suffix = getattr(self, f"{filetype}file_suffix")
             filepath = self._get_filepath_generic(suffix)
             if filepath is None and filetype not in optional_sufficies:
