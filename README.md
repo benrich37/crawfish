@@ -131,7 +131,7 @@ $$
 
 | setting | why |
 |---|---|
-| `dump End BandProjections BandEigs Fillings Kpoints` | Projections, eigenvalues, occupations and k-point weights. `Fillings` and `Kpoints` are optional but recommended. Without them, occupations are computed from the smearing, and weights are read from the `bandProjections` header. |
+| `dump End BandProjections BandEigs Fillings Kpoints` | Projections, eigenvalues, occupations and k-point weights. `Fillings` and `Kpoints` are optional but recommended. Without them, occupations are computed from the smearing and mu (or, without smearing, JDFTx's constant fillings), and weights are read from the `bandProjections` header. |
 | `band-projection-params yes no` | Complex projections onto orthonormalized orbitals, for pCOHP/pCOBI/pCOMO. Use `no no` for pCOOP, which is identically zero in an orthonormal basis. |
 | `symmetries none`, or `symmetries manual` with only the identity `symmetry-matrix 1 0 0  0 1 0  0 0 1  0 0 0` | Needed for results resolved by atom, bond or m-orbital (see below). The identity-only option is about 2× cheaper: JDFTx then reduces only k ↔ −k, and crawfish unfolds that exactly. |
 | `elec-n-bands` well above the number of orbitals | The bands must span the atomic orbitals at every k-point, including antibonding (σ*) states. With too few bands (e.g. as many bands as orbitals), the orbital basis is ill-conditioned at some k-points and pair spectra become unreliable without any error. |

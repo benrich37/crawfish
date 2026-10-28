@@ -27,12 +27,11 @@ print(f"Gaussian amplitude factor sqrt(pi*sig) for sig=1e-5: {np.sqrt(np.pi*1e-5
 # --- occupation helpers
 eig = np.array([-0.5, -0.1, 0.1, 0.5])
 print("\ncalculate_filling_nobroad(mu=0.0) for eig", eig, "->", calculate_filling_nobroad(0.0, eig, 0.0),
-      " (expected [1,1,0,0])")
+      " (expected [1,1,0,0]; [0,0,1,1] before the F8 fix)")
 try:
-    calculate_filling_gauss(0.01, eig, 0.0)
-    print("calculate_filling_gauss ok")
+    print("calculate_filling_gauss on an array:", calculate_filling_gauss(0.01, eig, 0.0))
 except TypeError as err:
-    print("calculate_filling_gauss on an array raises TypeError:", err)
+    print("calculate_filling_gauss on an array raises TypeError (before the F8 fix):", err)
 
 # --- spilling diagnostics (with ortho-orbital projections, |T|^2 sums are meaningful)
 raw = get_proj_tju_from_file(f"{calc}/bandProjections").astype(np.complex128)

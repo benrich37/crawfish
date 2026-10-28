@@ -14,10 +14,10 @@ References at the end. Every numbered "Check" can be rerun with the scripts in `
 
 ## 0a. Status (2026-10-27)
 
-F1–F6 are committed (F5 includes default time-reversal unfolding; F6's `result_changes.py` entry is added). F7
-(docs, warnings, `orbital_completeness_u`; no numbers change) is done on `theory_check`, uncommitted. The next findings are F8 (filling
-helpers), F9 (spinors), F10 (misc), F11 (too few bands; add the section 2.4 diagnostics), and F12 (point-group
-unfolding, future).
+F1–F7 are committed (F5 includes default time-reversal unfolding; F7 = `2de60d2`). F8 (occupations without a
+`fillings` file; bug fix, no legacy switch or `result_changes.py` entry) is done on `theory_check`, uncommitted. The
+next findings are F9 (spinors), F10 (misc), F11 (too few bands; add the section 2.4 diagnostics), and F12
+(point-group unfolding, future).
 
 ## 0. How to resume
 
@@ -42,8 +42,8 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
 | F4 | P1 | The `fillings` file is in [0,2] for `spintype no-spin`, but occupations crawfish computes itself are in [0,1]. k-weights already sum to 2. P/H (hence pCOHP/pCOBI) double when a fillings file exists for unpolarized runs. | JDFTx `Dump.cpp` | No | **fixed** in `756f9e0` (2026-10-27); legacy via `legacy_fillings=True`; `result_changes.py` entry added |
 | F5 | P1 | JDFTx's default `symmetries automatic` reduces the k-mesh by point group + time reversal. Atom-pair and m-resolved quantities from a reduced mesh are symmetry-averaged, and R=0 pairing gets scrambled. Crawfish only warns (and `README` never asks for `symmetries none`). Separately, `get_wk_t` silently replaces symmetry weights with uniform ones for spin-polarized reduced meshes. | JDFTx `Symmetries.cpp`, crawfish `data_parsing.py` | No | **fixed** in `cc5f71e` (2026-10-27), with time-reversal unfolding; legacy via `legacy_reduced_kmesh=True`; `result_changes.py` entry added |
 | F6 | P1 | Spectrum normalization: the Gaussian kernel `exp(-(E-e)^2/sig)` is unnormalized (integral = sqrt(pi*sig)). For LTI, libtetrabz weights already include 1/N_k, and crawfish multiplies by w_k again. The two methods give different, arbitrary scales, and neither integrates to a state count. | Check 3 | No | **fixed** in `44cf908` (2026-10-27); legacy via `legacy_normalization=True`; `result_changes.py` entry added |
-| F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27): docs, warnings, `orbital_completeness_u`; no numbers change, so no legacy switch or `result_changes` entry |
-| F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. | Check 3 | No | open |
+| F7 | P1 | pCOOP is basis-dependent in a way the docs don't say. With `band-projection-params yes ...` (the README recommendation) the true AO overlap is the identity, so physical COOP between different orbitals is zero, and anything non-zero is a band-truncation artifact. The README's claim that pCOMO's sign identifies bonding is false for pairs with negative overlap (ppσ) and for odd-Δl pairs, where pCOMO's sign depends on orbital orientation. | Check 2 | No | **fixed** in `2de60d2`: docs, warnings, `orbital_completeness_u`; no numbers change, so no legacy switch or `result_changes` entry |
+| F8 | P2 | `elecdata.py::calculate_filling_nobroad` uses `np.heaviside(eig, efermi)`, which gives inverted fillings and ignores mu. `calculate_filling_gauss/mp1/cold` call `math.erf` on arrays and raise TypeError. Both paths are only reached when no `fillings` file exists. Also found while fixing: JDFTx's spelling `Cold` was rejected, and runs without smearing print no mu, so that path crashed. | Check 3 | No | **fixed** on `theory_check` (uncommitted, 2026-10-27): vectorized helpers, constant fillings without smearing; bug fix, so no legacy switch or `result_changes` entry |
 | F9 | P2 | Spinor modes (`vector-spin`, `spin-orbit`) are mis-handled. `data_parsing.py::spintype_nspin` maps them to nspin=2, but JDFTx has one state per k-point there. Orbital labels ignore JDFTx's per-m spin copies or j-resolved orbitals. | JDFTx `ElecInfo.cpp`, `SpeciesInfo_atomic.cpp` | No | open |
 | F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | open |
 | F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27 | No | open (README now warns) |
@@ -95,7 +95,7 @@ Priority: **P0** = results are qualitatively wrong (wrong sign, or an interactio
   inversion reduction either. `automatic` is the default (`commands/symmetries.cpp`), and `kpoint-reduce-inversion`
   defaults to yes.
 - Smearing (`ElecInfo.cpp::ElecInfo::smear`): x = (ε-μ)/(2σ). Fermi 0.5(1-tanh x), Gauss 0.5 erfc x, MP1, Cold.
-  **crawfish's `calculate_filling_*` formulas match** (only the array/erf issue in F8 is wrong). The broadening
+  **crawfish's `calculate_filling_*` formulas match** (the array/erf issue in F8 is fixed). The broadening
   value comes from the echoed `elec-smearing` line (`pymatgen ... jdftxoutfileslice.py::_get_broadeningvars`), which is
   in Hartree, consistent with `e_tj`.
 
@@ -825,6 +825,50 @@ because the input happened to place a bonded copy in the same cell. With C2 writ
   `scipy.special.erf`/`erfc`.
 - These only run without a `fillings` file. For calculations without smearing, the outfile has no
   `FillingsUpdate: mu:` line, so the `mu` path is shaky too.
+
+**Implementation record (2026-10-27, `theory_check`, uncommitted).**
+
+- Two more defects turned up when the helpers were run on real data. JDFTx spells cold smearing `Cold`
+  (`commands/elec_fillings.cpp`), but `occ_tj` compared against `"cold"` and raised "Unknown broadening type".
+  Without `elec-smearing`, JDFTx never calls `ElecInfo::smearReport`, so it prints no mu. pymatgen's `outfile.mu`
+  is then None, and `ElecData.mu` raised TypeError (`None / Ha_to_eV`) before the step function was ever reached.
+- Without smearing, JDFTx doesn't use a step function at mu at all. It uses constant fillings (`FillingsConst`),
+  and `ElecInfo.cpp::ElecInfo::setup` fills the lowest bands of every state with `nsElectrons[s] * wInv` electrons:
+  N/2 for no-spin, and (N ± M)/2 for z-spin, where `qNet[s] = (Qinitial ± Minitial)/nSpins` and M is
+  `elec-initial-magnetization`. Electrons aren't moved between spin channels or k-points, so a constrained
+  magnetic run can have a spin-up HOMO above the spin-down LUMO. A step at any single mu (aufbau) would be wrong
+  there.
+- `elecdata.py`:
+  - `calculate_filling_gauss/mp1/cold` use `scipy.special.erfc`, the same function `ElecInfo::smear` uses, and take
+    scalars or arrays. `calculate_filling_nobroad` is `np.heaviside(efermi - eig, 0.5)`.
+  - New: `SMEARING_FUNCS` (lower-case type → helper) and `calculate_fillings_constant(e_tj, nelec_per_state_s)`.
+  - `occ_tj` calls the new `ElecData._calculate_occ_tj`, which matches the smearing type case-insensitively. For
+    JDFTx data without smearing it uses `calculate_fillings_constant` with counts from
+    `_constant_fillings_per_spin` (`outfile.total_electrons`, and `elec-initial-magnetization` from the echoed
+    infile). It warns if the run read `elec-initial-fillings`, since those can't be reproduced. For non-JDFTx
+    data without smearing, the step at the user's mu is used. The result goes through `_check_electron_count`.
+  - The `broadening_type` setter accepts the JDFTx spellings in any case, plus `none`/None.
+  - `ElecData.mu` raises a clear ValueError, suggesting `edata.mu` from the eigStats dump, when the outfile has no
+    mu. The pymatgen `_mu_backup` unit issue (F10) is untouched.
+- Why there's no legacy switch or `result_changes` entry: every old path either raised or (non-JDFTx data without
+  smearing, which has no on-disk cache) gave occupations unrelated to mu. The Fermi path is numerically unchanged,
+  so no cached result can change (section 4.0).
+- Fixtures (each dumps `fillings` for comparison; README in `Al_fcc_Fermi/`): `Al_fcc_{Fermi,Gauss,MP1,Cold}` (fcc
+  Al, 8x8x8 mesh reduced to 29 states, smearing 0.01 Ha) and `Si_nosmear_{nospin,zspin_M2}` (diamond Si, 4x4x4, no
+  smearing, the second with z-spin and `elec-initial-magnetization 2 yes`). pymatgen can't parse
+  `lattice face-centered Cubic`, so the inputs give the vectors explicitly.
+- Results: occupations computed without the file match JDFTx's dump to 2.2e-5 (Fermi), 9e-6 (Gauss), 6e-6 (MP1)
+  and 3e-6 (Cold), and exactly for both constant-filling runs. Every case gives N_e equal to the outfile's count.
+  The remaining smeared difference comes from mu being printed to 1e-9 Ha and from float32 eigenvalues.
+- Origin: these helpers were copied from the pymatgen JDFTx module (`jdftxoutfileslice.py::_calculate_filling`,
+  used for `homo_filling`/`lumo_filling`/`is_metal`). That copy is scalar-only, spells `Cold` correctly and has no
+  step function, so F8's bugs don't carry over. It has a different one: eV energies divided by a Hartree
+  broadening, which makes the smearing 27× too narrow (fcc Al reads as `is_metal == False`). Logged in the
+  pymatgen-core agent notes (`~/vs/claude-notes/pymatgen-jdftx.md`, "Open bugs", out-file parsing) and not fixed
+  here, since crawfish doesn't use those attributes.
+- Tests: `tests/core/test_occupation_helpers.py` (10). Full suite: 182 passed.
+- Notebook: the F8 section of `F4_F8_inputs_and_normalization.ipynb` (`figures/F8_filling_helpers.png`,
+  `figures/F8_fillings_vs_jdftx.png`).
 
 ### F9: spinor modes (P2)
 

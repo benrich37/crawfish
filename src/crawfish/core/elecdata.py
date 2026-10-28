@@ -53,7 +53,7 @@ from pymatgen.core.units import Ha_to_eV
 from pathlib import Path
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
-from math import erf
+from scipy.special import erfc
 from crawfish.io.general import safe_load, read_file
 import shutil
 
@@ -673,6 +673,12 @@ class ElecData:
         """
         if self._mu is None:
             if self.jdftx:
+                if self.outfile.mu is None:
+                    # JDFTx prints mu (FillingsUpdate) only with smearing; occupations don't need it (F8)
+                    raise ValueError(
+                        "No chemical potential in the outfile (calculation without elec-smearing). "
+                        "Set edata.mu by hand, e.g. from the eigStats dump."
+                    )
                 self._mu = self.outfile.mu / Ha_to_eV
             else:
                 raise ValueError("mu (Fermi level) must be set by user for non-JDFTx calculations")
@@ -825,8 +831,9 @@ class ElecData:
             return self._broadening_type
 
     @broadening_type.setter
-    def broadening_type(self, value: str):
-        if value not in ["Fermi", "Gauss", "MP1", "cold"]:
+    def broadening_type(self, value: str | None):
+        # JDFTx spells these Fermi, Gauss, MP1 and Cold (commands/elec_fillings.cpp); None means no smearing
+        if value is not None and value.lower() not in SMEARING_FUNCS and value.lower() != "none":
             raise ValueError(f"Unknown broadening type {value}")
         self._broadening_type = value
 
@@ -838,38 +845,7 @@ class ElecData:
         """
         if self._occ_tj is None:
             if self.fillingsfile_filepath is None:
-                if self.jdftx:
-                    btype = self.outfile.broadening_type
-                    broad = self.outfile.broadening
-                else:
-                    btype = self._broadening_type
-                    broad = self._broadening
-                def bfunc(eig):
-                    return calculate_filling_nobroad(0.0, eig, self.mu)
-                if isinstance(btype, str):
-                    if btype == "Fermi":
-
-                        def bfunc(eig):
-                            return calculate_filling_fermi(broad, eig, self.mu)
-                    elif btype == "Gauss":
-
-                        def bfunc(eig):
-                            return calculate_filling_gauss(broad, eig, self.mu)
-                    elif btype == "MP1":
-
-                        def bfunc(eig):
-                            return calculate_filling_mp1(broad, eig, self.mu)
-                    elif btype == "cold":
-
-                        def bfunc(eig):
-                            return calculate_filling_cold(broad, eig, self.mu)
-                    elif btype.lower() == "none":
-
-                        def bfunc(eig):
-                            return calculate_filling_nobroad(0.0, eig, self.mu)
-                    else:
-                        raise ValueError(f"Unknown broadening type {btype}")
-                self._occ_tj = bfunc(self.e_tj)
+                self._occ_tj = self._calculate_occ_tj()
             else:
                 fillings = np.fromfile(self.fillingsfile_filepath)
                 fillings = np.array(fillings, dtype=REAL_DTYPE)
@@ -880,6 +856,49 @@ class ElecData:
                     self._check_electron_count(fillings)
                 self._occ_tj = fillings
         return self._occ_tj
+
+    def _calculate_occ_tj(self) -> np.ndarray[REAL_DTYPE]:
+        """Compute occupations in [0, 1] from the eigenvalues when there is no `fillings` file (finding F8).
+
+        With smearing this is ElecInfo.cpp::ElecInfo::smear at the outfile's mu. Without smearing, JDFTx uses
+        constant fillings (FillingsConst), which don't depend on mu, and prints no mu: ElecInfo.cpp::ElecInfo::setup
+        fills the lowest bands of each state with N/2 electrons for no-spin, or (N +/- M)/2 for spin up/down in
+        z-spin, M being the `elec-initial-magnetization`. For non-JDFTx data without smearing, states below mu are
+        filled.
+        """
+        if self.jdftx:
+            btype, broad = self.outfile.broadening_type, self.outfile.broadening
+        else:
+            btype, broad = self._broadening_type, self._broadening
+        e_tj = np.asarray(self.e_tj, dtype=np.float64)
+        if btype is not None and btype.lower() in SMEARING_FUNCS:
+            occ_tj = SMEARING_FUNCS[btype.lower()](broad, e_tj, self.mu)
+        elif btype is None or btype.lower() == "none":
+            if self.jdftx:
+                occ_tj = calculate_fillings_constant(e_tj, self._constant_fillings_per_spin())
+            else:
+                occ_tj = calculate_filling_nobroad(0.0, e_tj, self.mu)
+        else:
+            raise ValueError(f"Unknown broadening type {btype}")
+        occ_tj = np.array(occ_tj, dtype=REAL_DTYPE)
+        self._check_electron_count(occ_tj)
+        return occ_tj
+
+    def _constant_fillings_per_spin(self) -> list[float]:
+        """Return the electrons per state in each spin channel for JDFTx constant fillings (ElecInfo::setup)."""
+        n_electrons = self.outfile.total_electrons
+        infile = self.outfile.infile
+        if "elec-initial-fillings" in infile:
+            warnings.warn(
+                "This calculation read its initial fillings from a file, which crawfish can't reproduce without "
+                "the `fillings` dump. The occupations assume the lowest bands are filled.",
+                stacklevel=4,
+            )
+        if self.nspin == 1:
+            return [n_electrons / 2]
+        mag = infile.get("elec-initial-magnetization")
+        m = float(mag["M"]) if isinstance(mag, dict) else 0.0
+        return [(n_electrons + m) / 2, (n_electrons - m) / 2]
 
     def _check_electron_count(self, occ_tj: np.ndarray[REAL_DTYPE]) -> None:
         """Warn if sum_t w_t sum_j f_tj differs from the electron count JDFTx reports (notes/theory_audit.md, F4)."""
@@ -1671,37 +1690,63 @@ def get_best_bands(unnorm_proj_tju):
     return idcs_return
 
 
-# @jit(nopython=True)
-def calculate_filling_fermi(broadening: float, eig: float, efermi: float) -> float:
+# Occupations in [0, 1] as in ElecInfo.cpp::ElecInfo::smear, with x = (eig - mu) / (2 * broadening). They take
+# scalars or arrays (the old math.erf versions raised TypeError on arrays, finding F8)
+def calculate_filling_fermi(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
     filling = 0.5 * (1 - np.tanh(x))
     return filling
 
 
-# @jit(nopython=True)
-def calculate_filling_gauss(broadening: float, eig: float, efermi: float) -> float:
+def calculate_filling_gauss(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - erf(x))
+    filling = 0.5 * erfc(x)
     return filling
 
 
-# @jit(nopython=True)
-def calculate_filling_mp1(broadening: float, eig: float, efermi: float) -> float:
+def calculate_filling_mp1(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - erf(x)) - x * np.exp(-1 * x**2) / (2 * np.pi**0.5)
+    filling = 0.5 * erfc(x) - x * np.exp(-1 * x**2) / (2 * np.pi**0.5)
     return filling
 
 
-# @jit(nopython=True)
-def calculate_filling_cold(broadening: float, eig: float, efermi: float) -> float:
+def calculate_filling_cold(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - erf(x + 0.5**0.5)) + np.exp(-1 * (x + 0.5**0.5) ** 2) / (2 * np.pi) ** 0.5
+    filling = 0.5 * erfc(x + 0.5**0.5) + np.exp(-1 * (x + 0.5**0.5) ** 2) / (2 * np.pi) ** 0.5
     return filling
 
-# @jit(nopython=True)
-def calculate_filling_nobroad(broadening: float, eig: float, efermi: float) -> float:
-    filling = np.heaviside(eig, efermi)
+
+def calculate_filling_nobroad(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
+    # Step function: 1 below mu, 0 above, 1/2 at mu. It was np.heaviside(eig, efermi), which filled every state
+    # above 0 Ha regardless of mu (F8)
+    filling = np.heaviside(efermi - eig, 0.5)
     return filling
+
+
+SMEARING_FUNCS = {
+    "fermi": calculate_filling_fermi,
+    "gauss": calculate_filling_gauss,
+    "mp1": calculate_filling_mp1,
+    "cold": calculate_filling_cold,
+}
+
+
+def calculate_fillings_constant(e_tj: np.ndarray, nelec_per_state_s: list[float]) -> np.ndarray:
+    """Return JDFTx's constant fillings (no smearing) in shape (nstates, nbands).
+
+    Each state of spin s gets nelec_per_state_s[s] electrons, filling bands from the lowest up with occupation 1 and
+    a fractional last band, as in ElecInfo.cpp::ElecInfo::setup. States are spin-major, as everywhere in crawfish.
+    """
+    nstates, nbands = np.shape(e_tj)
+    nspin = len(nelec_per_state_s)
+    occ_tj = np.zeros((nstates, nbands), dtype=REAL_DTYPE)
+    for t in range(nstates):
+        order = np.argsort(e_tj[t], kind="stable")
+        remaining = nelec_per_state_s[t * nspin // nstates]
+        for j in order:
+            occ_tj[t, j] = min(1.0, max(0.0, remaining))
+            remaining -= occ_tj[t, j]
+    return occ_tj
 
 
 cache_dir_readme_lines = [

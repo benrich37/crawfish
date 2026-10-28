@@ -48,8 +48,8 @@ LEGACY_FLAGS = {
     "F5": "legacy_reduced_kmesh",
     "F6": "legacy_normalization",
 }
-# F8 (crashing/inverted occupation helpers) is a bug fix without a legacy switch (notes section 4.0), so its
-# notebook detects the fix from behaviour instead of a flag.
+# F8 (crashing/inverted occupation helpers) is a bug fix without a legacy switch (notes section 4.0); its notebook
+# section compares the helpers and the computed occupations directly against JDFTx.
 
 
 def fix_available(finding: str) -> bool:
