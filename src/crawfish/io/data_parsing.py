@@ -13,7 +13,47 @@ from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 import warnings
 from copy import copy
 
-spintype_nspin = {"no-spin": 1, "spin-orbit": 2, "vector-spin": 2, "z-spin": 2}
+spintype_nspin = {"no-spin": 1, "z-spin": 2}
+# Spinor modes: crawfish doesn't support them yet (notes/theory_audit.md, finding F9). They used to be mapped to
+# nspin = 2 here, which is wrong: JDFTx keeps one two-component spinor state per k-point.
+SPINOR_SPINTYPES = ("vector-spin", "spin-orbit")
+
+
+def check_spintype_supported(spintype: str) -> None:
+    """Raise NotImplementedError for JDFTx's spinor modes (vector-spin, spin-orbit), which crawfish can't analyse yet.
+
+    In these modes JDFTx stores one two-component spinor per band and k-point (ElecInfo.cpp::kpointsReduce), so
+    there is no spin index to split states by. Each spatial orbital comes as two projections: spin-up and spin-down
+    copies (SpeciesInfo_atomic.cpp, nSpinCopies = 2), or, for relativistic pseudopotentials, j = l -/+ 1/2 orbitals
+    (getYlmToSpinAngleMatrix). crawfish's orbital labels, state layout and pair matrices assume collinear spin, so
+    results would be silently wrong. See notes/theory_audit.md, finding F9.
+    """
+    if spintype in SPINOR_SPINTYPES:
+        raise NotImplementedError(
+            f"crawfish doesn't support 'spintype {spintype}' calculations yet. JDFTx stores spinor wavefunctions "
+            "there, with one state per k-point and two projections per spatial orbital (spin copies, or j-resolved "
+            "orbitals with spin-orbit coupling), while crawfish assumes collinear spin. Rerun with 'spintype z-spin' "
+            "or 'no-spin' if spin-orbit coupling and non-collinear magnetism aren't needed "
+            "(notes/theory_audit.md, finding F9)."
+        )
+    if spintype not in spintype_nspin:
+        raise ValueError(f"Unrecognized spintype {spintype}")
+
+
+def get_spintype_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> str:
+    r"""Return the spintype JDFTx echoed in the out file (e.g. "z-spin").
+
+    Parameters
+    ----------
+    outfile_filepath : str | Path
+        Path to output file.
+    slice_idx : int
+        Relevant slice of out file.
+    r"""
+    outfile = read_file(outfile_filepath)
+    start, end = get_outfile_slice_bounds(outfile, slice_idx=slice_idx)
+    text = get_text_with_key_in_bounds(outfile, "spintype", start, end)
+    return text.strip().split()[1]
 
 
 def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> int:
@@ -32,21 +72,15 @@ def get_nspin_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) 
     -------
     int
         Number of spins.
+
+    Raises
+    ------
+    NotImplementedError
+        For spinor calculations (vector-spin, spin-orbit), see check_spintype_supported.
     r"""
-    outfile = read_file(outfile_filepath)
-    key = "spintype"
-    rval = None
-    start, end = get_outfile_slice_bounds(outfile, slice_idx=slice_idx)
-    text = get_text_with_key_in_bounds(outfile, key, start, end)
-    tokens = text.strip().split()
-    val = tokens[1]
-    if val in spintype_nspin:
-        rval = spintype_nspin[val]
-    if rval is not None:
-        del outfile
-        return rval
-    else:
-        raise ValueError(f"Unrecognized spintype {val}")
+    spintype = get_spintype_from_outfile_filepath(outfile_filepath, slice_idx=slice_idx)
+    check_spintype_supported(spintype)
+    return spintype_nspin[spintype]
 
 
 def get_mu_from_outfile_filepath(outfile_filepath: str | Path, slice_idx=-1) -> REAL_DTYPE:

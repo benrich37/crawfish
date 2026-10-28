@@ -39,6 +39,8 @@ from crawfish.io.data_parsing import (
     get_nspecies_from_bandfile_filepath,
     get_norbsperatom_from_edata,
     save_bandfile_header,
+    check_spintype_supported,
+    get_spintype_from_outfile_filepath,
 )
 from crawfish.utils.caching import CachedFunction, validate_cache_dir
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
@@ -1423,6 +1425,8 @@ class ElecData:
             self.calc_dir = Path(calc_dir)
             if calc_dir is not None:
                 self._set_files_paths()
+                # Before the cache directory is made or pymatgen parses the outfile (finding F9)
+                check_spintype_supported(get_spintype_from_outfile_filepath(self.outfile_filepath))
                 self._set_backup_files_paths()
                 self.alloc_elec_data()
         else:
