@@ -1,0 +1,332 @@
+
+*************** JDFTx 1.7.0 (git hash 19647f2f) ***************
+
+Start date and time: Wed Oct 28 15:32:22 2026
+Executable /Users/richb/Desktop/jdftx_hold/build_master/wannier with command-line: -c 8 -i wproj_occ.in -o wproj_occ.out
+Running on hosts (process indices):  Bens-MacBook-Pro-4.local (0)
+Divided in process groups (process indices):  0 (0)
+Resource initialization completed at t[s]:      0.00
+Run totals: 1 processes, 8 threads, 0 GPUs
+
+
+Input parsed successfully to the following command list (including defaults):
+
+basis kpoint-dependent
+coords-type Cartesian
+core-overlap-check none
+coulomb-interaction Periodic
+davidson-band-ratio 1.1
+dump End State
+dump-name $INPUT.$VAR
+elec-cutoff 20 100
+elec-eigen-algo Davidson
+elec-ex-corr gga-PBE
+elec-n-bands 80 1
+elec-smearing Fermi 0.001
+electronic-minimize  \
+	dirUpdateScheme      FletcherReeves \
+	linminMethod         DirUpdateRecommended \
+	nIterations          100 \
+	history              15 \
+	knormThreshold       0 \
+	maxThreshold         no \
+	energyDiffThreshold  1e-08 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+exchange-regularization WignerSeitzTruncated
+fluid None
+fluid-ex-corr lda-TF lda-PZ
+fluid-gummel-loop 10 1.000000e-05
+fluid-minimize  \
+	dirUpdateScheme      PolakRibiere \
+	linminMethod         DirUpdateRecommended \
+	nIterations          100 \
+	history              15 \
+	knormThreshold       0 \
+	maxThreshold         no \
+	energyDiffThreshold  0 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+fluid-solvent H2O 55.338 ScalarEOS \
+	epsBulk 78.4 \
+	pMol 0.92466 \
+	epsInf 1.77 \
+	Pvap 1.06736e-10 \
+	sigmaBulk 4.62e-05 \
+	Rvdw 2.61727 \
+	Res 1.42 \
+	tauNuc 343133 \
+	poleEl 15 7 1
+forces-output-coords Positions
+ion N  13.895656000000004  12.992521000000002  11.400385000000002 0
+ion N  11.832075000000001  12.992521000000002  11.400385000000002 0
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/n_pbe_v1.2.uspp
+ion-width 0
+ionic-minimize  \
+	dirUpdateScheme      L-BFGS \
+	linminMethod         DirUpdateRecommended \
+	nIterations          0 \
+	history              15 \
+	knormThreshold       0.0001 \
+	maxThreshold         no \
+	energyDiffThreshold  1e-06 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+kpoint   0.000000000000   0.000000000000   0.000000000000  1.00000000000000
+kpoint-folding 1 1 1 
+latt-move-scale 1 1 1
+latt-scale 1 1 1 
+lattice  \
+	  24.588925000000000    0.000000000000000    0.000000000000000  \
+	   0.000000000000000   24.588925000000000    0.000000000000000  \
+	   0.000000000000000    0.000000000000000   24.588925000000000 
+lattice-minimize  \
+	dirUpdateScheme      L-BFGS \
+	linminMethod         DirUpdateRecommended \
+	nIterations          0 \
+	history              15 \
+	knormThreshold       0 \
+	maxThreshold         no \
+	energyDiffThreshold  1e-06 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+lcao-params -1 1e-06 0.001
+pcm-variant GLSSA13
+perturb-minimize  \
+	nIterations            0 \
+	algorithm              MINRES \
+	residualTol            0.0001 \
+	residualDiffThreshold  0.0001 \
+	CGBypass               no \
+	recomputeResidual      no
+spintype no-spin
+subspace-rotation-factor 1 yes
+symmetries none
+symmetry-threshold 0.0001
+wannier  \
+	addAtomicOrbitals yes \
+	pinAtomicOrbitals no \
+	ignoreSemiCore yes \
+	ignorePtillGroup 0 \
+	localizationMeasure FiniteDifference \
+	saveWfns no \
+	saveWfnsRealSpace no \
+	saveMomenta no \
+	saveSpin no \
+	saveR no \
+	saveRP no \
+	loadRotations no \
+	outerWindow -2 10 \
+	innerWindow -2 -0.09 \
+	rSmooth 1 \
+	spinMode All \
+	polar no
+wannier-dump-name wproj_occ.$VAR
+wannier-initial-state totalE.$VAR
+wannier-minimize  \
+	dirUpdateScheme      L-BFGS \
+	linminMethod         DirUpdateRecommended \
+	nIterations          0 \
+	history              15 \
+	knormThreshold       0 \
+	maxThreshold         no \
+	energyDiffThreshold  1e-08 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+
+
+Applied RMS atom displacement 0 bohrs to make symmetries exact.
+
+---------- Initializing the Grid ----------
+R = 
+[      24.5889            0            0  ]
+[            0      24.5889            0  ]
+[            0            0      24.5889  ]
+unit cell volume = 14866.8
+G =
+[   0.255529          0          0  ]
+[          0   0.255529          0  ]
+[          0          0   0.255529  ]
+Minimum fftbox size, Smin = [  112  112  112  ]
+Chosen fftbox size, S = [  112  112  112  ]
+
+---------- Initializing tighter grid for wavefunction operations ----------
+R = 
+[      24.5889            0            0  ]
+[            0      24.5889            0  ]
+[            0            0      24.5889  ]
+unit cell volume = 14866.8
+G =
+[   0.255529          0          0  ]
+[          0   0.255529          0  ]
+[          0          0   0.255529  ]
+Minimum fftbox size, Smin = [  100  100  100  ]
+Chosen fftbox size, S = [  100  100  100  ]
+
+---------- Exchange Correlation functional ----------
+Initalized PBE GGA exchange.
+Initalized PBE GGA correlation.
+
+---------- Setting up pseudopotentials ----------
+Width of ionic core gaussian charges (only for fluid interactions / plotting) set to 0
+
+Reading pseudopotential file '/Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/n_pbe_v1.2.uspp':
+  Title: N.  Created by USPP 7.3.6 on 3-2-2014
+  Reference state energy: -9.763716.  5 valence electrons in orbitals:
+    |200>  occupation: 2  eigenvalue: -0.681964
+    |210>  occupation: 3  eigenvalue: -0.260726
+  lMax: 1  lLocal: 2  QijEcut: 6
+  4 projectors sampled on a log grid with 491 points:
+    l: 0  eig: -0.681964  rCut: 1.15
+    l: 0  eig: 0.000000  rCut: 1.15
+    l: 1  eig: -0.260729  rCut: 1.2
+    l: 1  eig: 0.500000  rCut: 1.2
+  Partial core density with radius 0.8
+  Transforming core density to a uniform radial grid of dG=0.02 with 1245 points.
+  Transforming local potential to a uniform radial grid of dG=0.02 with 1245 points.
+  Transforming nonlocal projectors to a uniform radial grid of dG=0.02 with 432 points.
+  Transforming density augmentations to a uniform radial grid of dG=0.02 with 1245 points.
+  Transforming atomic orbitals to a uniform radial grid of dG=0.02 with 432 points.
+  Core radius for overlap checks: 1.20 bohrs.
+
+Initialized 1 species with 2 total atoms.
+
+Folded 1 k-points by 1x1x1 to 1 k-points.
+
+---------- Setting up k-points, bands, fillings ----------
+No reducable k-points. 
+Computing the number of bands and number of electrons
+Reading initial fillings from 'totalE.fillings'.
+nElectrons:  10.000000   nBands: 80   nStates: 1
+
+----- Setting up reduced wavefunction bases (one per k-point) -----
+average nbasis = 63461.000 , ideal nbasis = 63512.267
+
+---------- Setting up ewald sum ----------
+Optimum gaussian width for ewald sums = 8.739326 bohr.
+Real space sum over 1331 unit cells with max indices [  5  5  5  ]
+Reciprocal space sum over 2197 terms with max indices [  6  6  6  ]
+
+---------- Allocating electronic variables ----------
+Reading eigenvalues from 'totalE.eigenvals'.
+Initializing wave functions:  reading from 'totalE.wfns'
+
+
+----- Initializing Supercell corresponding to k-point mesh -----
+Lattice vector linear combinations in supercell:
+[   1   0   0  ]
+[   0   1   0  ]
+[   0   0   1  ]
+Supercell lattice vectors:
+[  24.5889  0  0  ]
+[  0  24.5889  0  ]
+[  0  0  24.5889  ]
+
+---------- Initializing Wannier Function solver ----------
+
+Adding atomic orbitals as trial orbitals (ignoring semicore orbitals):
+  Added 4 orbitals each for 2 N atoms.
+  Ignored 0 semicore bands overall.
+  Ignored 0 outer-p bands overall.
+
+
+---------- Initializing supercell grid for Wannier functions ----------
+Dumping 'wproj_occ.mlwfBandRanges' ... done.
+Setting up finite difference formula on k-mesh ... found a 6 neighbour formula.
+nbasis = 71591 for k = [   0.000   0.000   0.000  ]
+
+---- Citations for features of the code used in this run ----
+
+   Software package:
+      R. Sundararaman, K. Letchworth-Weaver, K.A. Schwarz, D. Gunceler, Y. Ozhabes and T.A. Arias, 'JDFTx: software for joint density-functional theory', SoftwareX 6, 278 (2017)
+
+   gga-PBE exchange-correlation functional:
+      J.P. Perdew, K. Burke and M. Ernzerhof, Phys. Rev. Lett. 77, 3865 (1996)
+
+   Pseudopotentials:
+      KF Garrity, JW Bennett, KM Rabe and D Vanderbilt, Comput. Mater. Sci. 81, 446 (2014)
+
+   Total energy minimization with Auxiliary Hamiltonian:
+      C. Freysoldt, S. Boeck, and J. Neugebauer, Phys. Rev. B 79, 241103(R) (2009)
+
+   Maximally-localized Wannier functions:
+      N. Marzari and D. Vanderbilt, Phys. Rev. B 56, 12847 (1997)
+
+This list may not be complete. Please suggest additional citations or
+report any other bugs at https://github.com/shankar1729/jdftx/issues
+
+
+Computing initial overlaps ... done.
+Dumping 'wproj_occ.mlwfM0' ... done.
+WannierMinimize: Iter:   0  Omega:  4.655420510346819e+01  |grad|_K:  1.574e+01  t[s]:      0.67
+WannierMinimize: None of the convergence criteria satisfied after 0 iterations.
+
+Optimum spread:
+	Omega:  4.655420510346819e+01
+	OmegaI: 3.495396919345750e+01
+
+Centers in cartesian coords:
+	[ 13.8668 12.9924 11.4004 ] spread: 8.13184 bohr^2
+	[ 13.9414 12.9925 11.4004 ] spread: 2.60668 bohr^2
+	[ 13.9414 12.9925 11.4004 ] spread: 2.60573 bohr^2
+	[ 14.0082 12.9924 11.4004 ] spread: 9.9326 bohr^2
+	[ 11.861 12.9924 11.4004 ] spread: 8.13208 bohr^2
+	[ 11.7863 12.9925 11.4004 ] spread: 2.60668 bohr^2
+	[ 11.7863 12.9925 11.4004 ] spread: 2.60574 bohr^2
+	[ 11.7197 12.9924 11.4004 ] spread: 9.93286 bohr^2
+Dumping 'wproj_occ.mlwfBandContrib' ... done.
+Dumping 'wproj_occ.mlwfCellMap' ... done.
+Dumping 'wproj_occ.mlwfCellWeights'... done.
+Dumping 'wproj_occ.mlwfH' ... done. Relative discarded imaginary part: 1.031323e-06
+End date and time: Wed Oct 28 15:32:23 2026  (Duration: 0-0:00:00.67)
+Done!

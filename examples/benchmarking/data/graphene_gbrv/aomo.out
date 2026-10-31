@@ -1,0 +1,266 @@
+
+*************** JDFTx 1.7.0 (git hash a37d055f) ***************
+
+Start date and time: Wed Oct 28 16:16:24 2026
+Executable /Users/richb/Desktop/jdftx_crawfish_edits/build/jdftx with command-line: -c 8 -i aomo.in -o aomo.out -d
+Running on hosts (process indices):  Bens-MacBook-Pro-4.local (0)
+Divided in process groups (process indices):  0 (0)
+Resource initialization completed at t[s]:      0.00
+Run totals: 1 processes, 8 threads, 0 GPUs
+
+
+Input parsed successfully to the following command list (including defaults):
+
+band-projection-params yes no no no yes
+basis kpoint-dependent
+coords-type Lattice
+core-overlap-check none
+coulomb-interaction Periodic
+davidson-band-ratio 1.1
+dump End BandProjections
+dump-name aomo.$VAR
+dump-only 
+elec-cutoff 20 100
+elec-eigen-algo Davidson
+elec-ex-corr gga-PBE
+elec-n-bands 48 1
+elec-smearing Fermi 0.005
+electronic-minimize  \
+	dirUpdateScheme      FletcherReeves \
+	linminMethod         DirUpdateRecommended \
+	nIterations          100 \
+	history              15 \
+	knormThreshold       0 \
+	maxThreshold         no \
+	energyDiffThreshold  1e-08 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+exchange-regularization WignerSeitzTruncated
+fluid None
+fluid-ex-corr lda-TF lda-PZ
+fluid-gummel-loop 10 1.000000e-05
+fluid-minimize  \
+	dirUpdateScheme      PolakRibiere \
+	linminMethod         DirUpdateRecommended \
+	nIterations          100 \
+	history              15 \
+	knormThreshold       0 \
+	maxThreshold         no \
+	energyDiffThreshold  0 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+fluid-solvent H2O 55.338 ScalarEOS \
+	epsBulk 78.4 \
+	pMol 0.92466 \
+	epsInf 1.77 \
+	Pvap 1.06736e-10 \
+	sigmaBulk 4.62e-05 \
+	Rvdw 2.61727 \
+	Res 1.42 \
+	tauNuc 343133 \
+	poleEl 15 7 1
+forces-output-coords Positions
+initial-state totalE.$VAR
+ion C   0.333333333333000   0.666666666667000   0.500000000000000 0
+ion C   0.666666666667000   0.333333333333000   0.500000000000000 0
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/c_pbe_v1.2.uspp
+ion-width 0
+ionic-minimize  \
+	dirUpdateScheme      L-BFGS \
+	linminMethod         DirUpdateRecommended \
+	nIterations          0 \
+	history              15 \
+	knormThreshold       0.0001 \
+	maxThreshold         no \
+	energyDiffThreshold  1e-06 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+kpoint   0.000000000000   0.000000000000   0.000000000000  1.00000000000000
+kpoint-folding 12 12 1 
+latt-move-scale 1 1 1
+latt-scale 1 1 1 
+lattice  \
+	   4.648700000000000   -2.324350000000000    0.000000000000000  \
+	   0.000000000000000    4.025892000000000    0.000000000000000  \
+	   0.000000000000000    0.000000000000000   20.000000000000000 
+lattice-minimize  \
+	dirUpdateScheme      L-BFGS \
+	linminMethod         DirUpdateRecommended \
+	nIterations          0 \
+	history              15 \
+	knormThreshold       0 \
+	maxThreshold         no \
+	energyDiffThreshold  1e-06 \
+	nEnergyDiff          2 \
+	convergeAll          no \
+	alphaTstart          1 \
+	alphaTmin            1e-10 \
+	updateTestStepSize   yes \
+	alphaTreduceFactor   0.1 \
+	alphaTincreaseFactor 3 \
+	nAlphaAdjustMax      3 \
+	wolfeEnergy          0.0001 \
+	wolfeGradient        0.9 \
+	abortOnFailedStep    no \
+	fdTest               no
+lcao-params -1 1e-06 0.005
+pcm-variant GLSSA13
+perturb-minimize  \
+	nIterations            0 \
+	algorithm              MINRES \
+	residualTol            0.0001 \
+	residualDiffThreshold  0.0001 \
+	CGBypass               no \
+	recomputeResidual      no
+spintype no-spin
+subspace-rotation-factor 1 yes
+symmetries none
+symmetry-threshold 0.0001
+
+
+Applied RMS atom displacement 0 bohrs to make symmetries exact.
+
+---------- Initializing the Grid ----------
+R = 
+[       4.6487     -2.32435            0  ]
+[            0      4.02589            0  ]
+[            0            0           20  ]
+unit cell volume = 374.303
+G =
+[     1.3516   0.780347         -0  ]
+[          0    1.56069          0  ]
+[          0         -0   0.314159  ]
+Minimum fftbox size, Smin = [  24  24  92  ]
+Chosen fftbox size, S = [  24  24  96  ]
+
+---------- Initializing tighter grid for wavefunction operations ----------
+R = 
+[       4.6487     -2.32435            0  ]
+[            0      4.02589            0  ]
+[            0            0           20  ]
+unit cell volume = 374.303
+G =
+[     1.3516   0.780347         -0  ]
+[          0    1.56069          0  ]
+[          0         -0   0.314159  ]
+Minimum fftbox size, Smin = [  20  20  84  ]
+Chosen fftbox size, S = [  20  20  84  ]
+
+---------- Exchange Correlation functional ----------
+Initalized PBE GGA exchange.
+Initalized PBE GGA correlation.
+
+---------- Setting up pseudopotentials ----------
+Width of ionic core gaussian charges (only for fluid interactions / plotting) set to 0
+
+Reading pseudopotential file '/Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/c_pbe_v1.2.uspp':
+  Title: C.  Created by USPP 7.3.6 on 3-2-2014
+  Reference state energy: -5.406344.  4 valence electrons in orbitals:
+    |200>  occupation: 2  eigenvalue: -0.504890
+    |210>  occupation: 2  eigenvalue: -0.194356
+  lMax: 1  lLocal: 2  QijEcut: 5
+  4 projectors sampled on a log grid with 503 points:
+    l: 0  eig: -0.504890  rCut: 1.3
+    l: 0  eig: 0.000000  rCut: 1.3
+    l: 1  eig: -0.194357  rCut: 1.3
+    l: 1  eig: 0.000000  rCut: 1.3
+  Partial core density with radius 1.1
+  Transforming core density to a uniform radial grid of dG=0.02 with 1794 points.
+  Transforming local potential to a uniform radial grid of dG=0.02 with 1794 points.
+  Transforming nonlocal projectors to a uniform radial grid of dG=0.02 with 432 points.
+  Transforming density augmentations to a uniform radial grid of dG=0.02 with 1794 points.
+  Transforming atomic orbitals to a uniform radial grid of dG=0.02 with 432 points.
+  Core radius for overlap checks: 1.30 bohrs.
+
+Initialized 1 species with 2 total atoms.
+
+Folded 1 k-points by 12x12x1 to 144 k-points.
+
+---------- Setting up k-points, bands, fillings ----------
+No reducable k-points. 
+Computing the number of bands and number of electrons
+Reading initial fillings from 'totalE.fillings'.
+nElectrons:   8.000000   nBands: 48   nStates: 144
+
+----- Setting up reduced wavefunction bases (one per k-point) -----
+average nbasis = 1598.868 , ideal nbasis = 1599.052
+
+---------- Setting up ewald sum ----------
+Optimum gaussian width for ewald sums = 2.561413 bohr.
+Real space sum over 2023 unit cells with max indices [  8  8  3  ]
+Reciprocal space sum over 2187 terms with max indices [  4  4  13  ]
+
+---------- Allocating electronic variables ----------
+Reading eigenvalues from 'totalE.eigenvals'.
+Initializing wave functions:  reading from 'totalE.wfns'
+
+
+---- Citations for features of the code used in this run ----
+
+   Software package:
+      R. Sundararaman, K. Letchworth-Weaver, K.A. Schwarz, D. Gunceler, Y. Ozhabes and T.A. Arias, 'JDFTx: software for joint density-functional theory', SoftwareX 6, 278 (2017)
+
+   gga-PBE exchange-correlation functional:
+      J.P. Perdew, K. Burke and M. Ernzerhof, Phys. Rev. Lett. 77, 3865 (1996)
+
+   Pseudopotentials:
+      KF Garrity, JW Bennett, KM Rabe and D Vanderbilt, Comput. Mater. Sci. 81, 446 (2014)
+
+   Total energy minimization with Auxiliary Hamiltonian:
+      C. Freysoldt, S. Boeck, and J. Neugebauer, Phys. Rev. B 79, 241103(R) (2009)
+
+This list may not be complete. Please suggest additional citations or
+report any other bugs at https://github.com/shankar1729/jdftx/issues
+
+Initialization completed successfully at t[s]:      0.87
+
+
+----------- Energy evaluation at fixed state -------------
+# Energy components:
+   Eewald =       16.0009767791939801
+       EH =       25.5690239218782658
+     Eloc =      -57.6259889964317722
+      Enl =        1.6171725016476672
+      Exc =       -3.6383368969995162
+ Exc_core =        0.0673520215401172
+       KE =        6.5869984750460855
+-------------------------------------
+     Etot =      -11.4228021941251736
+       TS =        0.0001936993530896
+-------------------------------------
+        F =      -11.4229958934782641
+
+
+Dumping 'aomo.bandProjections' ... done
+End date and time: Wed Oct 28 16:16:27 2026  (Duration: 0-0:00:02.81)
+Done!

@@ -1,0 +1,17 @@
+system    bands quantity                OpsiRadial      full O      diff
+N2           15 ICOOP all                 +0.48431    +0.57734  -0.09302
+N2           15 ICOHP all                 -0.28362    -0.33640  +0.05278
+N2           15 ICOOP s-s                 -0.22503    -0.18439  -0.04064
+N2           15 ICOHP s-s                 +0.23214    +0.19528  +0.03687
+N2           80 ICOOP all                 +0.52312    +0.60923  -0.08611
+N2           80 ICOHP all                 -0.32384    -0.37234  +0.04850
+N2           80 ICOOP s-s                 -0.19413    -0.15685  -0.03728
+N2           80 ICOHP s-s                 +0.20036    +0.16627  +0.03408
+graphene     20 ICOOP all                 +0.46505    +0.44455  +0.02050
+graphene     20 ICOHP all                 -0.23317    -0.22441  -0.00876
+graphene     20 ICOOP s-s                 +0.04002    +0.03882  +0.00121
+graphene     20 ICOHP s-s                 -0.02907    -0.02882  -0.00025
+graphene     48 ICOOP all                 +0.52674    +0.53370  -0.00695
+graphene     48 ICOHP all                 -0.27439    -0.27631  +0.00192
+graphene     48 ICOOP s-s                 +0.03864    +0.03721  +0.00143
+graphene     48 ICOHP s-s                 -0.02797    -0.02765  -0.00031

@@ -21,12 +21,26 @@ were added.
   record, and a **Status** line under its heading gives the commit. The answered question Q2 is at the end.
 - Section 4 is the implementation plan, with each step marked done or open, and the requirements every fix follows
   (4.0).
-- Section 5 holds everything still open: U1, the unimplemented diagnostics, follow-ups left by resolved
-  findings, and the open questions.
+- Section 5 holds everything still open: F13, F14, F15 and U1 (added 2026-10-28), the unimplemented diagnostics,
+  follow-ups left by resolved findings, and the open questions.
 - Sections 6 (reproducing the evidence) and 7 (references) are unchanged.
 
-Code, tests and notebooks cite sections 2.3, 4.0 and 6 by number, so those numbers are kept. Finding IDs (F1–F12, U1,
+Code, tests and notebooks cite sections 2.3, 4.0 and 6 by number, so those numbers are kept. Finding IDs (F1–F15, U1,
 Q1–Q5) never change.
+
+**Input from the Wannier/adaptive-basis session (added 2026-10-28).** A parallel session researched other bases in
+`notes/wannier_and_adaptive_basis.md` (its summary is section 0.0, its phase-2 details are section 10; prototypes in
+`~/Desktop/jdftx_hold/wannier_cohp/`). It used a patched JDFTx (`~/Desktop/jdftx_crawfish_edits/`, uncommitted)
+that dumps the exact AO matrices. What it changes here:
+- three new open findings: F13 (ultrasoft non-orthogonal projections use an approximate O), F14 (pCOHP is far
+  from its band-converged limit, which band sums can't reach) and F15 (pair spectra depend on `norm_eigs_for_h`
+  when the Löwdin step drops directions);
+- U1 is now prototyped (section 5.1);
+- dated caveats in section 2.1, section 2.2, F7 and F11;
+- updates to Q1 and Q4 (section 5.4).
+
+Numbers marked "(Wannier session)" come from that session's scripts and were not rerun here. The F13 effect on
+crawfish's own output was measured here (section 5.1, F13).
 
 ---------------------------------------------------------------------------------------------------------------
 
@@ -49,7 +63,14 @@ Q1–Q5) never change.
 | F11 | `8943d71` (too-few-bands diagnostic `orbital_span_t` and warning) | not needed: no numbers change |
 | F12 | uncommitted (2026-10-28): point-group unfolding from JDFTx's `sym` file | to add after the commit (stage "matrices") |
 
-**Still open (section 5):** U1 (upstream JDFTx options, not started); a
+**New open findings (2026-10-28, from the Wannier session's results):** F13 (P1, ultrasoft non-orthogonal
+projections use a single-centre O, which biases crawfish's pCOOP route) and F14 (P1, pCOHP is 20–25% short of
+its band-converged limit for N2; graphene −1.7% at 48 bands, 7% at 20). Neither is fixed. Section 5.1.
+A LOBSTER 6.0.0 cross-check on the same norm-conserving states (evening) confirms that LOBSTER equals crawfish's
+Löwdin basis on the lowest N_AO bands, so LOBSTER has F14's shortfall too (F14 record). Later the same day: F15
+(P2, pair spectra depend on `norm_eigs_for_h` in runs where the Löwdin step drops directions). Not fixed.
+
+**Still open (section 5):** F13, F14, F15, U1 (upstream JDFTx options, prototyped outside this audit); a
 charge-spilling property and a sum-rule residual from section 2.4 (not needed for F11); full spinor support, a
 separate project (F9 record); smaller follow-ups from F3, F10 and F11; and open questions Q1 (the default basis, the
 user's call), Q3, Q4 and Q5.
@@ -76,10 +97,13 @@ Details are in section 5.
 
 | #  | Pri | Finding | Evidence | Fix needs JDFTx? | Status |
 |----|-----|---------|----------|------------------|--------|
-| U1 | — | Optional upstream improvements: apply the i^l phase in `dumpProjections` (as the Wannier code does), dump the AO overlap S(k) = <phi\|O\|phi> (and optionally <phi\|H\|phi>), and use higher precision or binary projections. None of these is required for the crawfish-only fixes. | — | Yes | not started (section 5.1) |
+| F13 | P1 | With ultrasoft pseudopotentials, JDFTx's non-orthogonal projections (`band-projection-params no no`) use a single-centre O·φ (`OpsiRadial`: the atom's own augmentation only). They are not ⟨φ\|O\|ψ⟩. This is the route F7 recommends for pCOOP (`los_orbs=False`). Effect on crawfish (N2, Γ, 15 bands): ICOOP +0.484 vs +0.577 with the full O (−16%), ICOHP −0.284 vs −0.336. Graphene: 1–4%. Norm-conserving runs and ortho projections (the default route) are exact. | JDFTx `SpeciesInfo::setPsi`; patched `fullO` dump (Wannier session); `notes/theory_audit_checks/opsiradial_f13/` | Fix: yes (`fullO`). Warning: no | open (section 5.1) |
+| F15 | P2 | Pair spectra in the Löwdin basis depend on `norm_eigs_for_h` whenever the Löwdin cutoff (F10) drops orbital directions, i.e. exactly when F11's warning fires. With dropped directions Σ_j C C† is a rank-deficient projector, not I, so the shift ε → ε − μ adds −μ Σ_j C C† to off-diagonal H. The README ("Matrix modifications", item 2) and section 2.3 say it can't. `N2_nospin_10bands`: −0.8497 (default) vs −0.8622 (1.5%); converged runs agree exactly. | Wannier session 10.10; `notes/theory_audit_checks/norm_eigs_f15/` | No | open (section 5.1) |
+| F14 | P1 | pCOHP is not converged in the band count, and band sums cannot get close to the limit. Against the exact limit of crawfish's own Löwdin basis (from dumped ⟨φ\|O\|φ⟩ and ⟨φ\|H\|φ⟩), N2 bond ICOHP is −0.866 at 15 bands and −0.892 at 80, vs **−1.130** (23% and 21% short). Graphene: −0.501 (20 bands) and −0.529 (48) vs −0.538. F11's "N2 converges to 1% at 15 bands" was measured against 40 bands. LOBSTER, run on the same NC states, reproduces crawfish on 8 bands and is just as short (−25% / −31%). | Wannier session, sections 10.2, 10.4, 10.6.1 | Yes, for the exact limit (`aoMatrices`); a band-space fallback needs no | open (section 5.1) |
+| U1 | — | Optional upstream improvements: apply the i^l phase in `dumpProjections` (as the Wannier code does), dump the AO overlap S(k) = <phi\|O\|phi> (and optionally <phi\|H\|phi>), and use higher precision or binary projections. None of these is required for the crawfish-only fixes. Since 2026-10-28 the dumps are the fix for F14 (and one fix for F13). | — | Yes | **prototyped** by the Wannier session (patch `~/Desktop/jdftx_crawfish_edits/`, uncommitted, not upstream); crawfish doesn't read the dumps yet (section 5.1) |
 | Diagnostics | — | Charge spilling and the sum-rule residual are not reported (section 2.4, plan step 7). Orbital completeness (F7) and the per-state band span (F11) are done. | Section 2.4; Check 3 | No | not implemented (section 5.2) |
 | F9 follow-up | — | Full support for spinor runs (`vector-spin`, `spin-orbit`). Since F9 they are refused with a clear error. | F9 record | No | future, separate project (section 5.3) |
-| F11 follow-up | — | The too-few-bands warning misses slow band convergence with non-orthogonal projections when every orbital combination is spanned (N2, 15 bands: −6.9% vs. 40 bands, no warning). | F11 band-count series | No | known limitation, not addressed (section 5.3) |
+| F11 follow-up | — | The too-few-bands warning misses slow band convergence with non-orthogonal projections when every orbital combination is spanned (N2, 15 bands: −6.9% vs. 40 bands, no warning). 2026-10-28: a special case of F14. With ortho projections it is silent too, measured against the exact limit (−23%). | F11 band-count series; F14 | No | known limitation, not addressed (section 5.3) |
 | F3 follow-up | — | Lattice-image selection has no end-to-end check against a JDFTx re-run with wrapped coordinates; the tests use the Bloch-sum gauge change instead. | F3 record | No | not done (section 5.3) |
 | F10 follow-ups | — | `trim_excess_bands` is deprecated but not removed. graphene_1x1's flat bands near −3 Ha were not investigated. `ElecData.as_empty` is broken. | F10 record | No | open (section 5.3) |
 | 2.1 follow-up | — | The docstring example in `get_atom_orb_labels_dict` lists p (and d) orbitals in the wrong order; the code is right. | Section 2.1 | No | open (section 5.3) |
@@ -116,6 +140,10 @@ Answered question: Q2 (atom positions are not wrapped by pymatgen), at the end o
 - `jdftx/electronic/DumpExcitationsMoments.cpp::dumpProjections`
   - `ortho == false`: `proj = iInfo.getAtomicOrbitals(q, true) ^ eVars.C[q]`, i.e. `proj[u,j] = <phi_u | O | psi_j>`.
     `getAtomicOrbitals(q, applyO=true)` returns O·phi.
+    **Correction (2026-10-28, F13):** only approximately for ultrasoft pseudopotentials. `applyO=true` selects
+    `OpsiRadial`, which `SpeciesInfo::setPsi` builds on the radial grid from the atom's own same-l projectors,
+    φ + Σ Q_{p1p2} β_p1 ⟨β_p2|φ⟩. Neighbouring atoms' augmentation is missing, so `proj` is ⟨Õφ|ψ⟩ ≠ ⟨φ|O|ψ⟩.
+    It is exact for norm-conserving pseudopotentials (no Q).
   - `ortho == true`: `orthoMat = invsqrt(psi ^ Opsi)`, then `proj = orthoMat * (Opsi ^ C)`. This is the projection
     onto Löwdin-orthonormalized Bloch-sum AOs in the O metric, so the true overlap of the orbitals used is exactly I.
   - The header says `ortho-orbital-projections` when ortho is on, which crawfish can detect.
@@ -173,6 +201,13 @@ analogue of LOBSTER's PAW reconstruction (Maintz 2013), and it answers the READM
 "far from meaningless". The leftover error comes from truncating the band set and the orbital set. It is measurable
 (section 2.4) and should be reported, as LOBSTER reports "spilling".
 
+**Caveats (2026-10-28):**
+- **"Exact for a complete band set" is far from reached in practice (F14).** Measured against the dumped exact
+  matrices (Wannier session, section 10.2), the band sums are still off by max |S − Σ_j T T†| = 0.100 and
+  max |H − Σ_j T ε T†| = 0.069 Ha in N2 with 80 bands. Graphene with 48 bands: 0.006 and 0.013 Ha.
+- **"JDFTx already uses ⟨φ|O|ψ⟩ consistently" holds only for the ortho projections** (F13). The non-orthogonal
+  ultrasoft dump uses an approximate O.
+
 ### 2.3 Target equations (crawfish layout: P[t,j,u] = ⟨φ_u|O|ψ_tj⟩ = T_uj at state t)
 
 Step 0, phase fix (F1): `P[..., u] *= 1j**l_u`, where l_u comes from the bandProjections header. Apply it only to
@@ -209,7 +244,8 @@ Sum rules, to use as tests:
 - Σ_{all u,v} Σ_tj f_tj W^H_tj = Σ_tj w f (Π ε Π)_jj ≈ band energy Σ w f ε, where Π = T†S⁻¹T is the projector onto
   the orbital span. Check 2 gives −5.459 vs −5.476 Ha (99.7%).
 - Σ_{u,v} W^S_tj = w_t Π_jj (Mulliken normalization; 1 − Π_jj is the band spilling).
-- In the Löwdin basis, off-diagonal H is invariant to ε → ε + c, so `norm_eigs_for_h` is irrelevant there. In the
+- In the Löwdin basis, off-diagonal H is invariant to ε → ε + c, so `norm_eigs_for_h` is irrelevant there
+  (**2026-10-28, F15:** only while the Löwdin step keeps every direction; when it drops one, Σ_j C C† ≠ I). In the
   non-orthogonal basis, ICOHP shifts by −c·ICOOP (Glassey & Hoffmann 2000). Check 2: shifting by μ moves the A–B
   total from −0.833 to −0.786 Ha.
 
@@ -294,6 +330,19 @@ collected in sections 5.1 and 5.3.
   | py-py| −0.11463 → −0.11462   | +0.99778 → +0.99778   |
 
   px–px is still antibonding: that is F2, which F1 alone can't fix.
+- **Added 2026-10-29 (F1 notebook, ZnO section).** The legacy product is Re[i^(l_u−l_v) T*_u T_v], so s–d pairs
+  (Δl = 2, i^±2 = −1) had the wrong sign, not just odd-Δl pairs zeroed. On a full mesh, time reversal
+  (T(−k) = T(k)*, ε(−k) = ε(k)) also cancels the legacy odd-Δl products at every energy, not only at Γ, in solids
+  as well. `ZnO_wurtzite_full`, Zn1–O1 (axial) IpCOMO, legacy → fixed: dz2–s −0.00883 → +0.00883, Zn `1s` (4s)–pz
+  0 → +0.374, dz2–pz 0 → −0.034 (fixed equals the reference).
+- **Added 2026-10-30 (F1 notebook, ZnO pCOHP section).** The sign flip also shows in pCOHP with the legacy (F2)
+  matrices held: their element h_uv is a band sum of Re[T*_u T_v]², which the phase leaves alone, while the weight
+  Re[T*_u T_v] flips for Δl = 2. Zn1 dz2–O1 s (axial) legacy pCOHP = −1.05 × fixed at every energy (largest peak at the
+  O 2s band, −17.8 eV, smaller ones across the Zn 3d / O 2p bands; IpCOHP +0.00014 → −0.00014 Ha), and the basal Zn1 d–O2 s sum flips too (−0.00008 → +0.00008).
+  The ratio is not exactly −1 because the per-band `p_uu_consistent` normalization sums the squares of all pairs,
+  including the Δl = 1 ones (Im² in legacy). Zn 4p–O1 s (Δl = 1) is zero in legacy (IpCOHP 0 → +0.0217), the
+  s–p case of N2 in a solid; Zn 4s–O1 s (Δl = 0) changes only through the normalization (ratio 0.97). N2 itself
+  has no pair whose pCOHP changes sign (no d orbitals).
 
 ### F2: sign-blind H/S/P construction (P0)
 
@@ -902,6 +951,15 @@ or `result_changes.py` entry.
 - Notebook: `examples/fix_comparisons/F7_coop_basis.ipynb` (`figures/F7_completeness_overlap.png`,
   `figures/F7_coop_cohp_pairs.png`).
 
+**Caveat (2026-10-28, F13):**
+- The recommended pCOOP route (`band-projection-params no no`, `los_orbs=False`) is biased for ultrasoft
+  pseudopotentials. JDFTx's non-orthogonal projections use a single-centre O.
+- The F7 fixtures `N2_nospin_nonortho15` and `_nonortho40` are GBRV ultrasoft, so the numbers above carry that error.
+  Examples are the overlaps, the ICOOPs, and the s–s +0.215 used for Q1.
+- In a comparable Γ-only N2 run, the full O raises ICOOP (all) by 16–19%. It moves the non-orthogonal s–s ICOHP from
+  +0.232 to +0.195, so it stays net antibonding (section 5.1, F13). The qualitative conclusions of F7 stand.
+- The route is exact for norm-conserving pseudopotentials.
+
 ### F8: occupation helpers (P2)
 
 **Status:** fixed in `ca5793f`. Bug fix, so no legacy switch or `result_changes.py` entry.
@@ -1191,6 +1249,17 @@ known blind spot is open (section 5.3).
   no longer says 20 bands suffice.
 - No legacy switch or `result_changes.py` entry: no number changes.
 
+**Caveat (2026-10-28, F14):**
+- "Converged" and "vs. 40 bands" above are relative to the band series, not to the band-converged limit.
+- The Wannier session dumped the exact ⟨φ|O|φ⟩ and ⟨φ|H|φ⟩ and computed the limit of crawfish's own Löwdin basis
+  directly. N2 (Γ, GBRV) bond ICOHP is −0.866 at 15 bands and −0.892 at 80, against a limit of −1.130.
+  - The error is in the σ channel: σ* lies in the box continuum, which no finite band set covers.
+  - π is converged.
+- So the warning's threshold (fires at ≥ 3% off, quiet within 1.3%) holds against 40 bands only.
+- The span measure itself is fine. It detects missing combinations; F14 is slow convergence with every
+  combination present.
+- Graphene's limit is −0.538: the 30-band run that the threshold calls quiet is 3.5% short, and 40 bands is 2.6%.
+
 ### F12: k-meshes reduced by the point group (P2)
 
 **Status:** fixed on `theory_check` (uncommitted, 2026-10-28). The F5 behaviour is restored by
@@ -1416,7 +1485,248 @@ answered Q2 moved to the end of section 3.)
 
 F12 (point-group unfolding) was here until it was fixed on 2026-10-28; it is now in section 3.
 
-#### U1: upstream JDFTx options (not started)
+#### F13: ultrasoft non-orthogonal projections use an approximate O (P1, opened 2026-10-28)
+
+Found by the Wannier session (`notes/wannier_and_adaptive_basis.md`, sections 4.8 and 10.3). Checked here in the
+JDFTx source, and measured here on crawfish's output.
+
+- **What.** `dumpProjections`' non-orthogonal branch is `getAtomicOrbitals(q, true) ^ C`. With `applyO=true`,
+  `SpeciesInfo::setAtomicOrbitals` uses `OpsiRadial` (`SpeciesInfo.cpp::SpeciesInfo::setPsi`).
+  - `OpsiRadial` is φ + Σ_{p1p2} Q_{p1p2} β_p1 ⟨β_p2|φ⟩, built on the radial grid from the same atom's projectors of
+    the same l. It is then Bloch-summed.
+  - The true O·φ_a also has Σ_{b≠a} Σ Q^b |β_b⟩⟨β_b|φ_a⟩ from every neighbouring atom whose augmentation sphere the
+    orbital reaches.
+  - So for ultrasoft pseudopotentials T_n = ⟨Õφ|ψ⟩ ≠ ⟨φ|O|ψ⟩.
+  - The ortho branch (`invsqrt(psi^Opsi) * (Opsi^C)` with `Opsi = O(psi)`) uses the full operator and is exact.
+  - JDFTx's own orbital-resolved DOS (`DOS.cpp`, `Orbital` weights) uses the same `getAtomicOrbitals(iState, true)`.
+  - Other `applyO=true` call sites (listed by the Wannier session):
+    - `SpeciesInfo_energy.cpp`: DFT+U occupations, energy/gradient, forces and stress. There a single-centre
+      on-site projector is arguably the intended convention.
+    - `DumpBGW_dense.cpp`.
+  - For `bandProjections` and the `Orbital` DOS it is an inconsistency with the ortho branch, which applies the
+    full O, rather than a misuse.
+- **Evidence (Wannier session).**
+  - The patched dump option `fullO` replaces it with `O(psi)`. Then ortho = S^(-1/2) × non-ortho to 2.6e-15 (N2)
+    and 4.1e-14 (graphene).
+  - Without it, the occupied-band projections differ from the full-O ones by up to 0.020 (N2) and 0.031 (graphene).
+  - Norm-conserving (SG15): 6.6e-8, i.e. rounding.
+- **Effect on crawfish (measured here).** Non-orthogonal basis (`los_orbs=False`), N1–N2 or C1–C2 nearest image.
+  The same state re-dumped both ways (Wannier session's `N2`: Γ only, GBRV v1.2, no-spin; `graphene`: 12×12, GBRV;
+  lowest N bands kept). Script and output: `notes/theory_audit_checks/opsiradial_f13/`.
+
+  | system | bands | quantity | `OpsiRadial` (today) | full O | diff |
+  |---|---|---|---|---|---|
+  | N2 | 15 | ICOOP all | +0.4843 | +0.5773 | −16% |
+  | | 15 | ICOHP all | −0.2836 | −0.3364 | −16% |
+  | | 15 | ICOHP s–s | +0.2321 | +0.1953 | +19% |
+  | | 80 | ICOOP all | +0.5231 | +0.6092 | −14% |
+  | | 80 | ICOHP all | −0.3238 | −0.3723 | −13% |
+  | graphene | 20 | ICOOP all | +0.4651 | +0.4446 | +4.6% |
+  | | 20 | ICOHP all | −0.2332 | −0.2244 | +3.9% |
+  | | 48 | ICOOP all | +0.5267 | +0.5337 | −1.3% |
+  | | 48 | ICOHP all | −0.2744 | −0.2763 | −0.7% |
+
+  The `OpsiRadial` graphene 20-band ICOHP (−0.2332) equals F11's non-ortho series value, a cross-check that the
+  re-dump reproduces the fixture route. Signs and the qualitative N2 picture (s–s net antibonding) survive.
+  Magnitudes in molecules don't: in N2 the bonds are short, so each orbital reaches far into the other atom's
+  augmentation sphere.
+- **Who is affected.** The pCOOP recipe of F7 and the README (`band-projection-params no no`, `los_orbs=False`)
+  with ultrasoft pseudopotentials. Also `los_orbs=True` applied to non-ortho ultrasoft data. Not affected: the default
+  route (ortho projections, Löwdin basis), and any norm-conserving run.
+- **Fix options (none done; the user's call).**
+  1. Upstream: the Wannier session's `fullO` option (patch in `~/Desktop/jdftx_crawfish_edits/`, uncommitted).
+     Simplest real fix. Results change only for runs that use it, so crawfish would need no `result_changes` entry.
+     It might want a header marker to tell the two kinds of dump apart.
+  2. crawfish-only: warn when non-orthogonal projections come from an ultrasoft run. Detection: the outfile prints
+     `Transforming density augmentations` only for ultrasoft species (norm-conserving SG15 doesn't). No numbers
+     change, so no legacy switch.
+  3. Docs: recommend norm-conserving pseudopotentials for pCOOP. With NC, an ortho + non-ortho `dump-only` pair
+     also gives the exact S(k) without patching JDFTx (Wannier session, section 4.8).
+  4. With U1's `aoOverlap`: exact pCOOP from ortho projections and the exact S, independent of this issue and of
+     band truncation.
+- Also a reasonable upstream JDFTx bug report (the DOS `Orbital` weights inherit it).
+
+#### F15: pair spectra depend on `norm_eigs_for_h` when the Löwdin step drops directions (P2, opened 2026-10-28)
+
+Found by the Wannier session while it built `examples/benchmarking/01_ipcohp_band_convergence.ipynb`, a benchmark
+notebook the user asked for (its notes, section 10.10). Confirmed here on a repo fixture.
+
+- **Mechanism.**
+  - In the Löwdin basis H_μν = Σ_j C_μj (ε_j − c) C*_νj, with c = μ when `norm_eigs_for_h=True` (the default).
+  - The shift changes H by −c Σ_j C_μj C*_νj. That is −c δ_μν only if the coefficients are complete in the orbital
+    space.
+  - Since F10, `los_projs_for_orbs` drops directions whose S_t eigenvalue is below 1e-6 of the largest. Then Σ_j C C†
+    is a rank-deficient projector with off-diagonal elements, and pair values move with the energy zero.
+  - It is the same energy-zero dependence the non-orthogonal basis has (Glassey & Hoffmann), here restricted to
+    the states where directions were dropped.
+- **Numbers.**
+  - Measured here (`notes/theory_audit_checks/norm_eigs_f15/`; nearest bond, IpCOHP in Ha; `norm_eigs_for_h` True vs
+    False):
+    - `N2_nospin_10bands` (warns): −0.8497 vs −0.8622;
+    - `N2_nospin` (15 bands, quiet): −0.8668 vs −0.8668;
+    - `graphene_zspin_tr` (20 bands, 4 of 288 states warn): −0.50126 vs −0.50132.
+  - Wannier session, on band-truncated copies (a float64 reimplementation matches crawfish to 1e-5):
+    - N2 GBRV: −0.8088 vs −0.8588 (8 bands), −0.8064 vs −0.8562 (10).
+    - N2 SG15: −0.8111 vs −0.8611 (8), −0.8089 vs −0.8587 (10).
+    - Graphene: ≤ 0.005 Ha (8 bands: −0.3323 vs −0.3369).
+    - From 12 bands (N2) or 30 bands (graphene) up, Σ_j C C† = I to 1e-15 and the two settings agree.
+- **Scope.**
+  - It happens only in runs that F11 already flags as unreliable. It doesn't touch F14's numbers for converged band
+    counts.
+  - The README sentence ("Matrix modifications", item 2: "this changes only diagonal elements, so it has no effect
+    on pair spectra") and section 2.3 are wrong in that regime.
+- **Fix options (the user's call; none done).**
+  1. Document it in the README sentence. Also say in F11's warning message that pair values there also depend on
+     `norm_eigs_for_h`. No numbers change.
+  2. Skip the shift on states where directions were dropped. This changes numbers there, so it needs a
+     `result_changes.py` entry and a legacy switch (section 4.0).
+  3. The Wannier session also suggested applying the shift before the Löwdin step. The Löwdin step uses only the
+     projections, not ε, so as I read the code this gives the same H. It would need a different construction to
+     matter.
+  - Neither energy zero is "right" along a dropped direction: the value there is arbitrary (as in the LOBSTER
+    regularization range, F14). So option 1, plus pointing to more bands, matches F11's approach.
+
+#### F14: pCOHP is far from its band-converged limit (P1, opened 2026-10-28)
+
+Found by the Wannier session (`notes/wannier_and_adaptive_basis.md`, sections 0.0, 10.2, 10.4, 10.5). Its numbers
+are quoted here and were not rerun; the method is summarized so the claim can be checked.
+
+- **What.** crawfish builds S_t and H_t from band sums (section 2.3). These converge very slowly in `elec-n-bands`,
+  because the compact PAOs have high-kinetic-energy tails.
+  - With the exact matrices S(k) = ⟨φ|O|φ⟩ and H(k) = ⟨φ|H|φ⟩ (dumped by the patched JDFTx's `aoMatrices`;
+    H = local + augmentation + kinetic + nonlocal), the nb → ∞ limit of crawfish's own Löwdin basis ("exact-Löwdin")
+    can be computed directly: T_o from the ortho projections and H_o = S^(-1/2) H S^(-1/2).
+  - Self-check of the patched H: max |⟨ψ_b|H|ψ_b⟩ − ε_b| = 1e-9 to 3e-6 Ha.
+- **Numbers** (bond ICOHP in Ha, negative = bonding; crawfish at `8943d71`, defaults):
+
+  | | N2 USPP | N2 NC | graphene USPP | graphene NC |
+  |---|---|---|---|---|
+  | crawfish, N_AO = 8 bands | −0.859 | −0.861 | −0.337 | −0.336 |
+  | crawfish, 15 bands (N2 fixtures) / 20 bands (graphene fixtures) | −0.866 | −0.868 | −0.501 | −0.500 |
+  | crawfish, all bands (80 / 40 / 48 / 48) | −0.892 | −0.876 | −0.529 | −0.526 |
+  | exact-Löwdin limit | −1.130 | −1.142 | −0.538 | −0.546 |
+  | its spilling / band-energy sum-rule miss (Ha) | 2.07% / +0.300 | 2.01% / +0.297 | 1.08% / +0.127 | 1.09% / +0.139 |
+  | complete frozen-window basis (below) | −1.203 | −1.213 | −0.553 | −0.561 |
+
+- **Why.**
+  - The missing weight is in the σ channel. N2 crawfish 80 bands → limit: s–s −0.116 → −0.170, s–px −0.297 → −0.424,
+    px–px −0.125 → −0.185, while π stays at −0.354 → −0.351.
+  - **Hypothesis, not yet tested:** N2's σ* combination lies in the box continuum (every state there has
+    projectability < 0.03). So no band set contains it, and the band-space Löwdin orbitals lack the parts of s and
+    px that point into it.
+    - Graphene's σ* is a proper band, and its error is much smaller.
+    - Only one box size was run: 24.59 bohr = 13.0 Å, the fixture box. If the hypothesis holds, the shortfall should
+      grow with the box and be smaller in bulk solids. A larger N2 box and a bulk oxide or metal would test it
+      cheaply.
+    - Graphene isn't a clean bulk test either: it has vacuum along z.
+  - Underlying mechanism (Wannier session, section 5.1): bond ICOHP depends on the virtual (unoccupied) part of the
+    basis functions. That part cancels in the total but moves weight between on-site and inter-site pairs.
+    - So default pCOHP is not a band-converged quantity.
+    - Neither `orbital_span_t` nor `orbital_completeness_u` flags it: the N2 15-band run is quiet and 23% short.
+  - The exact limits converge in the plane-wave cutoff like the DFT itself (N2 NC, 25/30/40 Ha: −1.149/−1.142/−1.140).
+    crawfish at 15 bands stays at −0.868 at every cutoff.
+- **Relation to other findings.**
+  - F11's warning targets missing combinations (singular S_t), not this.
+  - F11's "N2 converges to 1% at 15 bands" was against 40 bands (dated caveat added there).
+  - The "F11 follow-up" row (non-ortho N2 15 bands −6.9%, no warning) is a special case.
+  - The norm-conserving vs ultrasoft choice doesn't matter (1–1.5%; Wannier session 10.7).
+- **Not known yet.**
+  - How large it is in periodic solids with no vacuum (ZnO, metals): the Wannier session's section 8.1 lists
+    them as next.
+- **LOBSTER shows the same gap: cross-check done** (Wannier session, 2026-10-28 evening, its section 10.6.1; data in
+  `~/Desktop/jdftx_hold/wannier_cohp/results/lobster_compare.txt`, runs in `.../lobster/`).
+  - **Route.** LOBSTER 6.0.0's generic JSON/HDF5 input is unusable: the macOS build lacks it, and in the Linux binary
+    it is dead code. Its constructor has no callers, and program detection only builds the VASP, ABINIT and QE readers.
+    Even the shipped Generic example fails (checked with a qemu strace trace and disassembly). Worth reporting to the
+    LOBSTER developers.
+    - So the SG15 norm-conserving JDFTx runs were exported in QE format (`qe_export.py`). The UPF is relabelled as
+      PAW with AE = PS and Q = 0, so the PAW correction is a no-op.
+    - They were read by the static Linux binary in Docker, 3–11 s per run. LOBSTER recovers 10.000 of 10 electrons
+      (N2) and 7.997 of 8 (graphene).
+    - Systems: `N2_nc` (Γ, 30 Ha, 40 bands) and `graphene_nc` (12×12×1, `symmetries none`, 30 Ha). Same geometry
+      as the ultrasoft runs.
+  - **Bond ICOHP, Ha:**
+
+    | | N2 NC | graphene NC |
+    |---|---|---|
+    | LOBSTER, custom STO fitted to the SG15 orbitals | −0.857 | −0.377 |
+    | LOBSTER, built-in pbeVaspFit2015 | −0.865 | −0.374 |
+    | crawfish-Löwdin, lowest 8 bands, crawfish's 1e-6 eigenvalue cutoff | −0.861 | −0.336 |
+    | same, no cutoff (pure polar factor) | −0.858 | −0.391 |
+    | crawfish 15 / 20 bands | −0.868 | −0.500 |
+    | crawfish all bands (40 / 48) | −0.876 | −0.526 |
+    | exact-Löwdin limit | −1.142 | −0.546 |
+    | complete frozen-window | −1.213 | −0.561 |
+
+  - **Same basis, same algebra.** This confirms the prediction that LOBSTER = crawfish-Löwdin on the lowest N_AO
+    ortho bands.
+    - LOBSTER's spillings match those predicted from JDFTx's ortho projections to 0.03%. N2: total 14.63% vs
+      14.61%, charge 2.03% vs 2.01%. Graphene: 32.67% vs 32.64%, charge 1.10% vs 1.09%.
+    - The N2 orbital terms match the polar factor: s–s −0.1127/−0.1129, π −0.1805/−0.1805, px–px −0.1102/−0.1107.
+    - Graphene's s–s, s–p and π terms match to 3–4 digits.
+    - As a check of crawfish's projection and band-space machinery, this is a clean pass.
+  - **But the truncated quantity is ill-conditioned.** The lowest 8 bands miss one AO combination. The smallest
+    singular value of the 8-band projection is 4e-6 in N2 (band 8 has projectability 0.002) and 6e-11 in graphene.
+    - Along that direction the result depends on the regularization. LOBSTER breaks N2's s–px/px–s symmetry
+      (−0.1287 vs −0.1442; polar factor −0.1270/−0.1463).
+    - Graphene's in-plane p–p σ terms depend on it most: bond ICOHP −0.330 / −0.336 / −0.337 / −0.369 / −0.391 for
+      singular-value cutoffs 1e-2 / 1e-4 / 1e-6 / 1e-8 / 0. LOBSTER lands inside that range, at −0.377.
+    - LOBSTER warns "144 of 144 k-points could not be orthonormalized" for graphene, but nothing for N2.
+    - This is F11's condition. crawfish's span warning fires on such runs; LOBSTER's warning is not reliable.
+  - **Other LOBSTER facts.**
+    - With `doNotIgnoreExcessiveBands` (all bands), LOBSTER silently skips COHP, so it can only give the N_AO-band
+      COHP.
+    - The all-electron vs pseudo basis changes ICOHP by ~1%, but ICOOP much more (N2 +0.807 vs +0.635).
+  - **Verdict for the audit.** LOBSTER is crawfish's old `trim_excess_bands` regime, implemented in another code.
+    - It is 25% (N2) and 31% (graphene) below exact-Löwdin, so it is no reference for bond strengths.
+    - Its 1–2% charge spilling doesn't certify the COHP: spilling measures the occupied coverage, while F14's error
+      sits in the virtual part.
+    - So agreeing with LOBSTER is not a correctness criterion for crawfish's pCOHP magnitudes.
+  - **For future cross-checks:** every crawfish fixture is GBRV ultrasoft, which LOBSTER can't read. A LOBSTER
+    comparison needs an SG15 rerun with no spin and `symmetries none`.
+  - **Custom `.sto` quirks:** Z must be the atomic number (with z_valence LOBSTER aborts). Each l block must start
+    at n = l + 1, or a lone 2s is silently dropped. The session's `fit_sto.py` handles both.
+- **Fix options (none done).**
+  1. **Exact AO matrices** (U1, patched JDFTx `aoMatrices`). crawfish would read `aoOverlap`/`aoHamiltonian` and
+     use h_t_uv = S^(-1/2) H S^(-1/2) with the ortho projections as coefficients. The pipeline after that is
+     unchanged. This gives the exact-Löwdin limit and reports exact spilling.
+  2. On top of 1, the Wannier session's recommended default: the **complete frozen-window basis**.
+     - It is the occupied (frozen) bands plus the trial-orbital directions orthogonal to them. The construction is
+       QO/IAO-like.
+     - Zero spilling and an exact sum rule. Atomic character 0.97–0.999. Insensitive to the trial choice (5e-4 Ha)
+       and the window (0.1% graphene, 1.2% N2).
+     - It needs no empty bands at all, so F11's demand for many bands goes away.
+  3. **Without the patch:** a band-space frozen-window projected-Wannier basis (Wannier session, section 7,
+     phase A) gives zero spilling and an error instead of silent numbers when combinations are missing. It doesn't
+     remove the band dependence.
+  4. If the matrices are dumped on a symmetry-reduced mesh, they need F12's transform:
+     S(k') = Φ† Mᵀ S(k) M Φ per operation, with the same Bloch phases, and complex conjugation for the
+     time-reversal partner k → −k.
+     - The patch writes one matrix per state in JDFTx's reduced state order, the same order as `bandProjections`.
+       So `kmesh_unfolding` would apply as is.
+     - Not implemented or tested: every Wannier-session run used `symmetries none`.
+  5. Mixing in other bases: projection-only (frozen-window) Wannier functions are fine for COHP. Spread-minimized
+     ones are not (Q1).
+  - Any default change here needs a `result_changes.py` entry and a legacy switch (section 4.0). The basis choice
+    is part of Q1.
+
+#### U1: upstream JDFTx options (prototyped by the Wannier session, 2026-10-28)
+
+**Update (2026-10-28).** The Wannier session wrote and tested a JDFTx patch that implements the second and third
+items below, plus a fix for F13:
+- Location: `~/Desktop/jdftx_crawfish_edits/`, branch `crawfish-edits` from `origin/efficiency_testing` at
+  `a37d055f`. The edits are uncommitted and not upstream; `crawfish_ao_dumps.patch` is the diff.
+- Syntax: `band-projection-params <ortho> <norm> [fullO] [aoMatrices] [precise]`, all defaulting to no, so it is
+  backward compatible.
+  - `aoMatrices` writes `aoOverlap` and `aoHamiltonian` per state (binary complex128, column-major, in JDFTx's
+    i^l orbital phase). H omits meta-GGA, DFT+U and EXX, and logs a warning. If crawfish reads it, it must refuse
+    such runs or warn on them.
+  - `precise` writes `%.15le` projections. crawfish's parser reads them (checked here for F13).
+- Validation is in the Wannier session's section 10.2.
+- Whether it goes upstream is the user's decision. Nothing has been proposed upstream yet.
+
+crawfish doesn't read these files yet. Doing so is the main fix for F14 and one fix for F13. The i^l phase item is
+not part of the patch.
 
 Optional. None of these is required for the crawfish-only fixes (summary row in section 1.1; plan in section 4):
 
@@ -1432,6 +1742,11 @@ Optional. None of these is required for the crawfish-only fixes (summary row in 
   `ElecData.charge_spilling`), with a warning above a threshold (e.g. 5%). The definition is in section 2.4; it is
   only meaningful for ortho-orbital projections, and Π_jj replaces it for non-orthogonal ones. Check 3 computes it
   (N2: 2.06%), but crawfish doesn't expose it.
+  - 2026-10-28 (Wannier session, sections 1 and 10.2): compute it from the raw ortho projections, as defined in
+    section 2.4. That is the PAO's own spilling, exact per band and independent of the band count (2.07% for
+    N2, 1.08% for graphene; it agrees with Check 3). Don't compute it from the Löwdin coefficients: that "spilling"
+    *grows* with the band count (N2: 0.06% at 8 bands, 1.0% at 80), as the basis drifts towards the exact PAOs.
+    With F14's exact matrices, the spilling of the basis actually used can be reported too.
 - **Sum-rule residual** (the sum rules in section 2.3; plan step 7's `sum_rule_residual`). The band-energy sum rule
   is tested (F2, `tests/core/test_signed_matrices.py`) but not reported to users.
 - Done from the same list: orbital completeness (`orbital_completeness_u`, F7) and the per-state band span
@@ -1447,6 +1762,9 @@ Optional. None of these is required for the crawfish-only fixes (summary row in 
   more off. With non-orthogonal projections, N2 at 15 bands is 6.9% off (vs. 40 bands) with no warning: every orbital
   combination is spanned there, and the slow convergence is a different effect. pCOOP has F7's completeness warning;
   pCOHP has nothing for this case. Not addressed.
+  - 2026-10-28: this is a special case of F14, which affects ortho projections too, against the exact limit.
+    The N2 non-ortho numbers are also ultrasoft (F13): with the full O, Γ-only N2 goes −0.336 (15 bands) →
+    −0.372 (80). That is still 10% band dependence.
 - **F3 end-to-end check.** The wrapping tests use the Bloch-sum gauge change T → e^{2πik·L}T instead of rerunning
   JDFTx with wrapped coordinates (F3 record, "Still missing"). JDFTx wasn't built when F3 was done; it runs locally
   now (F4 record), so the check is feasible.
@@ -1473,12 +1791,41 @@ Optional. None of these is required for the crawfish-only fixes (summary row in 
   - 2026-10-27 update: on N2 the non-orthogonal basis reproduces the textbook net-antibonding s–s interaction,
     while the Löwdin basis doesn't, and total ICOHP differs about 3×; see the F7 record.
   - Both bases are available: `los_orbs=True` (default, Löwdin) or `los_orbs=False` (F2 record, "Basis (Q1)").
+  - 2026-10-28 update (Wannier session):
+    - **"Non-orthogonal is closer to LOBSTER" looks wrong.** By the LOBSTER 6.0.0 manual, LOBSTER Löwdin-orthogonalizes
+      the basis by default (LSO; `doNotOrthogonalizeBasis` turns it off). It keeps only as many bands as basis
+      functions and re-orthonormalizes the projected bands. Algebraically that is crawfish's Löwdin basis on ortho
+      projections truncated to N_AO bands (Wannier session, section 10.6). **Confirmed** by running LOBSTER on the
+      same norm-conserving states (F14). Spillings agree to 0.03%. N2's bond ICOHP is −0.857 vs crawfish's −0.861
+      on 8 bands. Graphene's (−0.377) sits inside the range set by the ill-conditioned truncation.
+      - So the non-orthogonal basis is *not* the LOBSTER-like choice. LOBSTER's own numbers are also no target:
+        they are 25–31% short of the band-converged limit.
+    - The F7 non-orthogonal numbers quoted above (s–s +0.215, all −0.305) are ultrasoft and carry F13's
+      approximate O.
+    - Two more candidates, if crawfish reads U1's exact matrices (F14):
+      - **exact-Löwdin:** today's basis at its band-converged limit.
+      - **complete frozen-window basis:** zero spilling, needs no empty bands. The Wannier session recommends it as
+        the default once the matrices exist.
+    - Not recommended: spread-minimized (maximally localized) Wannier functions. For N2 they move the σ bond into
+      one atom's orbital, and N–N ICOHP drops from −0.92 to −0.36 (Wannier session, section 4.6).
 - **Q3.** COBI details (spin factor, sign convention, whether LOBSTER evaluates it in an orthonormalized basis): check
   Müller et al. 2021 before implementing M=D.
   - Status: F2 implemented pCOBI with M = D (section 2.3, `d_t_uv`). This check isn't recorded as done.
 - **Q4.** LOBSTER's exact requirements on VASP symmetry (ISYM) and its H(k) reconstruction formula for
   nbands > nAO: from memory, it reconstructs H from projected coefficients and eigenvalues, consistent with
   section 2.3. Re-read Deringer 2011 / Maintz 2013 to confirm.
+  - 2026-10-28, partly answered from the LOBSTER 6.0.0 user guide and FAQ (read by the Wannier session;
+    `~/Downloads/lobster-6.0.0/`):
+    - Inputs: PAW only. For VASP, "do not use ultrasoft pseudopotentials"; also ABINIT PAW-XML and QE PAW UPF. A
+      generic JSON + HDF5 input has existed since 5.0. Custom contracted-STO basis files since 6.0.
+    - Bands: "at least as many bands as there are orbitals ... excessive bands are ignored" (by default).
+    - Basis: projected bands are re-orthonormalized; the basis is Löwdin-orthogonalized by default.
+    - Still open: the H reconstruction formula (not re-read; the Maintz 2013 PDF is in `~/Downloads`), ISYM, and
+      which bands "excessive" removes (lowest N_AO per k is assumed).
+    - 2026-10-28, evening: the LOBSTER run (F14) matches crawfish-Löwdin on the lowest N_AO bands per k, orbital by
+      orbital. That supports "lowest N_AO per k" and the reconstruction consistent with section 2.3 in practice;
+      the formula itself still hasn't been re-read. With `doNotIgnoreExcessiveBands`, LOBSTER skips COHP. Its
+      generic input is dead code in 6.0.0. ISYM remains unchecked.
 - **Q5.** Whether JDFTx's `atpos` can be changed by symmetrization (`symmetries automatic` may snap positions). This
   is moot if `symmetries none` becomes required.
   - Since F5, the README asks for `symmetries none` (or `symmetries manual` with only the identity) for atom-,
@@ -1500,7 +1847,14 @@ python notes/theory_audit_checks/check_phase.py   tests/files/io/example_calc_di
 python notes/theory_audit_checks/compare_cohp.py  tests/files/io/example_calc_dirs/N2_bare_min   # Check 2 (F2, F7, sum rule, basis/energy-zero)
 python notes/theory_audit_checks/check_misc.py    tests/files/io/example_calc_dirs/N2_bare_min   # Check 3 (F6, F8, spilling)
 python notes/theory_audit_checks/check_image.py                                                  # Check 4 (F3)
+# F13 (2026-10-28): needs the Wannier session's re-dumps (patched JDFTx); writes copies into <work dir>
+PYTHONPATH=src python notes/theory_audit_checks/opsiradial_f13/opsiradial_effect.py ~/Desktop/jdftx_hold/wannier_cohp <work dir>
+# F15 (2026-10-28): runs on the repo fixtures
+E=tests/files/io/example_calc_dirs; PYTHONPATH=src python notes/theory_audit_checks/norm_eigs_f15/norm_eigs.py $E/N2_nospin_10bands $E/N2_nospin $E/graphene_zspin_tr
 ```
+
+The F14 numbers come from the Wannier session's scripts. Reproduce them per `notes/wannier_and_adaptive_basis.md`,
+section 10.9.
 
 Test system: N2 along x (atoms at x = 13.896 and 11.832 bohr, in a 24.6 bohr cubic box), GBRV v1.5 USPP, PBE,
 z-spin, 3×3×3 k (`symmetries none`, 27 k per spin), 15 bands, 8 ortho-orbital projections (s, py, pz, px per atom),
@@ -1535,6 +1889,9 @@ Check 4   tau_B=+0.2: crawfish IpCOMO 0.9771 (short bond);  tau_B=-0.8: 0.1517 (
 - JDFTx `jdftx/electronic/SpeciesInfo.cpp::SpeciesInfo::setPsi`: O·psi with USPP augmentation, normalization ⟨ψ|O|ψ⟩=1.
 - JDFTx `jdftx/electronic/SpeciesInfo_internal.h::Vnl_calc`: Bloch-sum phase, no i^l.
 - JDFTx `jdftx/core/RadialFunction.cpp::RadialFunctionR::transform`: real Bessel transform.
+- JDFTx `jdftx/electronic/SpeciesInfo.cpp::SpeciesInfo::setPsi` (builds `OpsiRadial` from the atom's own projectors)
+  and `SpeciesInfo_atomic.cpp::setAtomicOrbitals` (`applyO ? OpsiRadial : psiRadial`). These are the source of F13.
+  `jdftx/electronic/DOS.cpp` (`Orbital` weights) uses the same path.
 - JDFTx `jdftx/core/SphericalHarmonics.h` (`YlmInternal::Ylm<lm>`): real Ylm order and signs.
 - JDFTx `jdftx/wannier/WannierMinimizer.cpp` (atomic-orbital trial functions): `lPhase = cis(0.5*M_PI*l)`, i.e. JDFTx's own correction.
 - JDFTx `jdftx/electronic/ElecInfo.cpp::ElecInfo::setup`, `::kpointsReduce`, `::smear`, `::printFillings`: spinWeight, weights, smearing, fillings convention.
@@ -1565,4 +1922,8 @@ Check 4   tau_B=+0.2: crawfish IpCOMO 0.9771 (short bond);  tau_B=-0.8: 0.1517 (
 - W. Ku, H. Rosner, W. E. Pickett, R. T. Scalettar, Phys. Rev. Lett. 89, 167204 (2002). doi:10.1103/PhysRevLett.89.167204 (projected Wannier functions)
 - M. Kawamura, Y. Gohda, S. Tsuneyuki, Phys. Rev. B 89, 094515 (2014). doi:10.1103/PhysRevB.89.094515 (libtetrabz)
 - C. A. Coulson, Proc. R. Soc. Lond. A 169, 413 (1939). doi:10.1098/rspa.1939.0006 (mobile order; crawfish's comment cites p. 419)
+- The Wannier session's literature survey (`notes/wannier_and_adaptive_basis.md`, section 2) marks its own
+  verification status per item. Among them: Kundu et al., J. Chem. Phys. 154, 104111 (2021) (WOHP); Taylor & Morgan,
+  JOSS 10, 7890 (2025) (pengWann); Qiao, Pizzi, Marzari, npj Comput. Mater. 9, 208 (2023) (projectability
+  disentanglement); and the LOBSTER 6.0.0 user guide (read; F14, Q1, Q4).
 - R. Sundararaman et al., "JDFTx: software for joint density-functional theory", SoftwareX 6, 278 (2017). doi:10.1016/j.softx.2017.10.006

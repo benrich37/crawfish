@@ -1,0 +1,6 @@
+include common.in
+initial-state totalE.$VAR
+band-projection-params no no yes yes yes
+dump-name aom.$VAR
+dump End BandEigs BandProjections Gvectors
+dump-only

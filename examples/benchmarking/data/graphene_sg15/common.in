@@ -1,0 +1,17 @@
+# Graphene, SG15 ONCV norm-conserving, no-spin, full 12x12x1 mesh, 48 bands
+lattice \
+    4.6487 -2.32435 0.0 \
+    0.0 4.025892 0.0 \
+    0.0 0.0 20.0
+coords-type Lattice
+ion C  0.333333333333  0.666666666667  0.5 0
+ion C  0.666666666667  0.333333333333  0.5 0
+ion-species SG15/C_ONCV_PBE-1.0.upf
+core-overlap-check none
+elec-ex-corr gga-PBE
+elec-cutoff 30
+elec-n-bands 48
+elec-smearing Fermi 0.005
+spintype no-spin
+symmetries none
+kpoint-folding 12 12 1

@@ -1,0 +1,200 @@
+diff --git a/jdftx/commands/dump.cpp b/jdftx/commands/dump.cpp
+index 6cb34a2e..8b070e80 100644
+--- a/jdftx/commands/dump.cpp
++++ b/jdftx/commands/dump.cpp
+@@ -1148,21 +1148,32 @@ struct CommandBandProjectionParams : public Command
+ {
+ 	CommandBandProjectionParams() : Command("band-projection-params", "jdftx/Output")
+ 	{	
+-		format = "<ortho>=yes|no <norm>=yes|no";
++		format = "<ortho>=yes|no <norm>=yes|no [<fullO>=no] [<aoMatrices>=no] [<precise>=no]";
+ 		comments = "Control band-projections output:\n"
+ 			"\t<ortho>: whether to use ortho-orbitals.\n"
+-			"\t<norm>: whether to output only norm or complex amplitude.";
++			"\t<norm>: whether to output only norm or complex amplitude.\n"
++			"\t<fullO>: for non-ortho projections, apply the full overlap operator O (including\n"
++			"\t   augmentation from all atoms) instead of each species' single-atom O psi radial functions.\n"
++			"\t<aoMatrices>: also dump aoOverlap = <phi|O|phi> and aoHamiltonian = <phi|H|phi>\n"
++			"\t   for each state (binary complex doubles, nOrbitals^2 per state, column-major).\n"
++			"\t<precise>: write projections with %.15le instead of %9.7lf.";
+ 	}
+ 
+ 	void process(ParamList& pl, Everything& e)
+ 	{	pl.get(e.dump.bandProjectionOrtho, false, boolMap, "ortho", true);
+ 		pl.get(e.dump.bandProjectionNorm, true, boolMap, "norm", true);
++		pl.get(e.dump.bandProjectionFullO, false, boolMap, "fullO");
++		pl.get(e.dump.bandProjectionAOmatrices, false, boolMap, "aoMatrices");
++		pl.get(e.dump.bandProjectionPrecise, false, boolMap, "precise");
+ 	}
+ 
+ 	void printStatus(Everything& e, int iRep)
+-	{	logPrintf("%s %s",
++	{	logPrintf("%s %s %s %s %s",
+ 			boolMap.getString(e.dump.bandProjectionOrtho),
+-			boolMap.getString(e.dump.bandProjectionNorm));
++			boolMap.getString(e.dump.bandProjectionNorm),
++			boolMap.getString(e.dump.bandProjectionFullO),
++			boolMap.getString(e.dump.bandProjectionAOmatrices),
++			boolMap.getString(e.dump.bandProjectionPrecise));
+ 	}
+ }
+ commandBandProjectionParams;
+diff --git a/jdftx/electronic/Dump.cpp b/jdftx/electronic/Dump.cpp
+index 222479b7..05a656a2 100644
+--- a/jdftx/electronic/Dump.cpp
++++ b/jdftx/electronic/Dump.cpp
+@@ -33,7 +33,7 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
+ #include <ctime>
+ 
+ Dump::Dump()
+-: e(0), potentialSubtraction(true), bandProjectionOrtho(false), bandProjectionNorm(true), Munfold(1,1,1), curIter(0)
++: e(0), potentialSubtraction(true), bandProjectionOrtho(false), bandProjectionNorm(true), bandProjectionFullO(false), bandProjectionAOmatrices(false), bandProjectionPrecise(false), Munfold(1,1,1), curIter(0)
+ {
+ }
+ 
+@@ -275,8 +275,14 @@ void Dump::operator()(DumpFrequency freq, int iter)
+ 	
+ 	if(ShouldDump(BandProjections) && isCevec)
+ 	{	StartDump("bandProjections")
+-		dumpProjections(*e, fname.c_str(), bandProjectionOrtho, bandProjectionNorm);
++		dumpProjections(*e, fname.c_str(), bandProjectionOrtho, bandProjectionNorm, bandProjectionFullO, bandProjectionPrecise);
+ 		EndDump
++		if(bandProjectionAOmatrices)
++		{	string fnameS = getFilename("aoOverlap"), fnameH = getFilename("aoHamiltonian");
++			logPrintf("Dumping '%s' and '%s' ... ", fnameS.c_str(), fnameH.c_str()); logFlush();
++			dumpAOmatrices(*e, fnameS.c_str(), fnameH.c_str());
++			EndDump
++		}
+ 	}
+ 	
+ 	if(ShouldDump(EigStats))
+diff --git a/jdftx/electronic/Dump.h b/jdftx/electronic/Dump.h
+index 88ba8fd5..cd8b0bba 100644
+--- a/jdftx/electronic/Dump.h
++++ b/jdftx/electronic/Dump.h
+@@ -87,6 +87,9 @@ public:
+ 	std::shared_ptr<struct DumpCprime> dumpCprime; //!< dC/dk calculator, if needed
+ 	bool potentialSubtraction; //!< whether to subtract neutral-atom potentials in Dvac and Dtot output
+ 	bool bandProjectionOrtho, bandProjectionNorm; //!< whether band projections use ortho-orbitals and are complex/norm-only
++	bool bandProjectionFullO; //!< whether non-ortho band projections apply the full overlap operator (all atoms' augmentation) instead of the single-atom OpsiRadial
++	bool bandProjectionAOmatrices; //!< whether to also dump the atomic-orbital overlap <phi|O|phi> and Hamiltonian <phi|H|phi> per state
++	bool bandProjectionPrecise; //!< whether to write band projections with %.15le instead of %9.7lf
+ 	matrix3<int> Munfold; //!< transformation matrix for band structure unfolding
+ private:
+ 	const Everything* e;
+diff --git a/jdftx/electronic/DumpExcitationsMoments.cpp b/jdftx/electronic/DumpExcitationsMoments.cpp
+index 92b49810..4da7a8d3 100644
+--- a/jdftx/electronic/DumpExcitationsMoments.cpp
++++ b/jdftx/electronic/DumpExcitationsMoments.cpp
+@@ -643,7 +643,7 @@ void Dump::dumpUnfold()
+ }
+ 
+ 
+-void dumpProjections(const Everything& e, const char* filename, bool ortho, bool norm)
++void dumpProjections(const Everything& e, const char* filename, bool ortho, bool norm, bool fullO, bool precise)
+ {	const ElecVars& eVars = e.eVars;
+ 	const ElecInfo& eInfo = e.eInfo;
+ 	const IonInfo& iInfo = e.iInfo;
+@@ -674,6 +674,7 @@ void dumpProjections(const Everything& e, const char* filename, bool ortho, bool
+ 				matrix orthoMat = invsqrt(psi ^ Opsi); //orthonormalizing matrix
+ 				proj = orthoMat * (Opsi ^ eVars.C[q]);
+ 			}
++			else if(fullO) proj = O(iInfo.getAtomicOrbitals(q, false)) ^ eVars.C[q]; //full overlap operator (all atoms' augmentation)
+ 			else proj = iInfo.getAtomicOrbitals(q, true) ^ eVars.C[q]; //dagger(Opsi).Cq
+ 			if(not mpiWorld->isHead()) mpiWorld->sendData(proj, 0, q); //send to head for writing
+ 		}
+@@ -691,9 +692,9 @@ void dumpProjections(const Everything& e, const char* filename, bool ortho, bool
+ 			for(int b=0; b<proj.nCols(); b++) //bands
+ 			{	for(int a=0; a<proj.nRows(); a++) //orbitals
+ 				{	if(norm)
+-						fprintf(fp, "%9.7lf ", projData->norm()); //write |projection|^2
++						fprintf(fp, precise ? "%.15le " : "%9.7lf ", projData->norm()); //write |projection|^2
+ 					else
+-						fprintf(fp, "%9.7lf %9.7lf ", projData->real(), projData->imag()); //write complex projection
++						fprintf(fp, precise ? "%.15le %.15le " : "%9.7lf %9.7lf ", projData->real(), projData->imag()); //write complex projection
+ 					projData++;
+ 				}
+ 				fprintf(fp, "\n");
+@@ -702,3 +703,64 @@ void dumpProjections(const Everything& e, const char* filename, bool ortho, bool
+ 	}
+ 	if(mpiWorld->isHead()) fclose(fp);
+ }
++
++
++//Apply the Kohn-Sham Hamiltonian at the current state to an arbitrary ColumnBundle Y (same terms as
++//ElecVars::applyHamiltonian: local potential, ultrasoft augmentation, kinetic and nonlocal parts).
++//Meta-GGA, DFT+U and exact exchange contributions are not included (a warning is logged by the caller).
++static ColumnBundle applyKohnShamHamiltonian(const Everything& e, const ColumnBundle& Y)
++{	const IonInfo& iInfo = e.iInfo;
++	const QuantumNumber& qnum = *(Y.qnum);
++	std::vector<matrix> VdagY, HVdagY(iInfo.species.size());
++	iInfo.project(Y, VdagY);
++	ColumnBundle HY = Idag_DiagV_I(Y, e.eVars.Vscloc);
++	iInfo.augmentDensitySphericalGrad(qnum, VdagY, HVdagY);
++	HY += (-0.5) * L(Y);
++	iInfo.EnlAndGrad(qnum, diagMatrix(Y.nCols(), 0.), VdagY, HVdagY);
++	iInfo.projectGrad(HVdagY, Y, HY);
++	return HY;
++}
++
++void dumpAOmatrices(const Everything& e, const char* fnameS, const char* fnameH)
++{	const ElecVars& eVars = e.eVars;
++	const ElecInfo& eInfo = e.eInfo;
++	const IonInfo& iInfo = e.iInfo;
++	if(e.exCorr.needsKEdensity() or eInfo.hasU or e.exCorr.exxFactor())
++		logPrintf("\nWARNING: aoHamiltonian omits meta-GGA, DFT+U and exact-exchange terms.\n");
++	FILE *fpS = 0, *fpH = 0;
++	if(mpiWorld->isHead())
++	{	fpS = fopen(fnameS, "wb");
++		fpH = fopen(fnameH, "wb");
++		if(!fpS || !fpH) die_alone("Error opening AO matrix files for writing.\n");
++	}
++	int nOrbitals = iInfo.nAtomicOrbitals();
++	double errEigsMax = 0.; //self-check: same operator applied to the bands must reproduce the eigenvalues
++	for(int q=0; q<eInfo.nStates; q++)
++	{	matrix S, H;
++		if(eInfo.isMine(q))
++		{	ColumnBundle psi = iInfo.getAtomicOrbitals(q, false);
++			S = psi ^ O(psi);
++			H = psi ^ applyKohnShamHamiltonian(e, psi);
++			matrix CdagHC = eVars.C[q] ^ applyKohnShamHamiltonian(e, eVars.C[q]);
++			for(int b=0; b<eInfo.nBands; b++)
++				errEigsMax = std::max(errEigsMax, fabs(CdagHC(b,b).real() - eVars.Hsub_eigs[q][b]));
++			if(not mpiWorld->isHead())
++			{	mpiWorld->sendData(S, 0, 2*q);
++				mpiWorld->sendData(H, 0, 2*q+1);
++			}
++		}
++		if(mpiWorld->isHead())
++		{	if(not eInfo.isMine(q))
++			{	S.init(nOrbitals, nOrbitals);
++				H.init(nOrbitals, nOrbitals);
++				mpiWorld->recvData(S, eInfo.whose(q), 2*q);
++				mpiWorld->recvData(H, eInfo.whose(q), 2*q+1);
++			}
++			S.write(fpS);
++			H.write(fpH);
++		}
++	}
++	if(mpiWorld->isHead()) { fclose(fpS); fclose(fpH); }
++	mpiWorld->allReduce(errEigsMax, MPIUtil::ReduceMax);
++	logPrintf("(self-check: max |<psi_b|H|psi_b> - eig_b| = %.2le Eh) ", errEigsMax);
++}
+diff --git a/jdftx/electronic/Dump_internal.h b/jdftx/electronic/Dump_internal.h
+index 764b5552..b9eb1c68 100644
+--- a/jdftx/electronic/Dump_internal.h
++++ b/jdftx/electronic/Dump_internal.h
+@@ -65,7 +65,12 @@ namespace XC_Analysis
+ }
+ 
+ //! Dump band projections to atomic orbitals or ortho-orbitals depending on ortho, and complex or real based on norm
+-void dumpProjections(const Everything& e, const char* filename, bool ortho, bool norm);
++//! (fullO: non-ortho projections use the full overlap operator; precise: %.15le instead of %9.7lf)
++void dumpProjections(const Everything& e, const char* filename, bool ortho, bool norm, bool fullO=false, bool precise=false);
++
++//! Dump the atomic-orbital overlap <phi|O|phi> and Kohn-Sham Hamiltonian <phi|H|phi> for each state
++//! (binary complex doubles, nOrbitals x nOrbitals column-major per state, states in order)
++void dumpAOmatrices(const Everything& e, const char* fnameS, const char* fnameH);
+ 
+ //---------------- Implemented in DumpChargedDefects.cpp -----------------
+ 

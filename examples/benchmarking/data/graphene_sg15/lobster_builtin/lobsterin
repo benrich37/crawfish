@@ -1,0 +1,8 @@
+COHPstartEnergy  -30
+COHPendEnergy     15
+basisSet pbeVaspFit2015
+basisFunctions C 2s 2p
+cohpGenerator from 1.3 to 1.5 type C type C orbitalwise
+writeMatricesToFile
+printTotalSpilling
+gaussianSmearingWidth 0.05

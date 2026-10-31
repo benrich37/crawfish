@@ -1,0 +1,6 @@
+include common.in
+initial-state totalE.$VAR
+band-projection-params yes no no no yes
+dump-name aomo.$VAR
+dump End BandProjections
+dump-only

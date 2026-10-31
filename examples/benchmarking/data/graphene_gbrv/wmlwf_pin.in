@@ -1,0 +1,9 @@
+include common.in
+wannier \
+    addAtomicOrbitals yes \
+    innerWindow -2.0 0.026 \
+    outerWindow -2.0 10.0 \
+    pinAtomicOrbitals yes
+wannier-initial-state totalE.$VAR
+wannier-dump-name wmlwf_pin.$VAR
+wannier-minimize nIterations 1000
