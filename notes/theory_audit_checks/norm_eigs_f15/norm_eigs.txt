@@ -1,3 +1,0 @@
-N2_nospin_10bands norm_eigs_for_h=True -0.84970  False -0.86216
-N2_nospin norm_eigs_for_h=True -0.86680  False -0.86680
-graphene_zspin_tr norm_eigs_for_h=True -0.50126  False -0.50132
