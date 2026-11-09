@@ -62,4 +62,53 @@ RESULT_CHANGES: list[ResultChange] = [
         stage="parse",
         description="Initial commit (example entry)",
     ),
+    ResultChange(
+        commit="a22c558c9fb0616f5610d15522358b3c5faa4b59",
+        version="1.0.0",
+        stage="matrices",
+        description="Apply the i^l orbital phase to JDFTx band projections (notes/theory_audit.md F1; "
+        "legacy_orbital_phase restores the old behaviour)",
+    ),
+    ResultChange(
+        commit="3d9ab1b39456dbd322f104ee796bcc6490706f56",
+        version="1.0.0",
+        stage="matrices",
+        description="Signed projected H/S/D matrices for pair spectra (notes/theory_audit.md F2; "
+        "legacy_matrices restores the old behaviour)",
+    ),
+    ResultChange(
+        commit="ceffa108c91fd4acbe971d8818a7216b2a76a2c0",
+        version="1.0.0",
+        stage="matrices",
+        description="Pair spectra use the nearest lattice image per atom pair (notes/theory_audit.md F3; "
+        "legacy_lattice_image restores same-cell pairing)",
+    ),
+    ResultChange(
+        commit="756f9e04d601eee978726455b1ebefbc82a65457",
+        version="1.0.0",
+        stage="matrices",
+        description="Divide no-spin JDFTx fillings files by the spin weight (notes/theory_audit.md F4; "
+        "legacy_fillings restores the raw values)",
+    ),
+    ResultChange(
+        commit="cc5f71ec26a5d65f990351654000606eb3f2e570",
+        version="1.0.0",
+        stage="matrices",
+        description="JDFTx k-point weights on reduced meshes, reduced-mesh guards, time-reversal unfolding "
+        "(notes/theory_audit.md F5; legacy_reduced_kmesh / unfold_time_reversal)",
+    ),
+    ResultChange(
+        commit="44cf9081d9bcab99c2acfc478d789823ad261009",
+        version="1.0.0",
+        stage="spectra",
+        description="Normalized Gaussian kernel and single N_k in LTI spectra (notes/theory_audit.md F6; "
+        "legacy_normalization restores the old scales)",
+    ),
+    ResultChange(
+        commit="131fd7a689e220ee46cff85f4bd02d97bfc4bcc0",
+        version="1.0.0",
+        stage="matrices",
+        description="Löwdin step in float64 with a relative eigenvalue cutoff (notes/theory_audit.md F10; "
+        "legacy_lowdin_cutoff restores the old one)",
+    ),
 ]

@@ -10,7 +10,12 @@ def test_get_pcoop_1():
     # Bare minimum test for get_pcoop function - tests that it can run without error
     # and return a non-empty spectrum.
     edata = ElecData(EXAMPLE_CALC_DIRS_DIR / "N2_bare_min")
-    _, spectrum = get_pcoop(edata, idcs1=0, orbs1="s", idcs2=1, orbs2="s")
+    # pCOOP vanishes in the default orthonormal (Löwdin) basis, so use the non-orthogonal one. The test data has
+    # ortho-orbital projections, so crawfish warns that the result only reflects band truncation (finding F7).
+    edata.los_orbs = False
+    with pytest.warns(UserWarning, match="orthonormalized orbitals"):
+        _, spectrum = get_pcoop(edata, idcs1=0, orbs1="s", idcs2=1, orbs2="s",
+                                use_cached_spectrum=False, save_spectrum=False)
     assert not np.any(np.isnan(spectrum))
     assert not np.all(spectrum == 0)
 

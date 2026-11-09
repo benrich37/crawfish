@@ -1,0 +1,19 @@
+# Diamond Si, 4x4x4 mesh, no smearing (constant fillings): crawfish test fixture for occupation helpers (finding F8)
+lattice \
+    0.0 5.13 5.13 \
+    5.13 0.0 5.13 \
+    5.13 5.13 0.0
+coords-type Lattice
+ion Si 0 0 0 0
+ion Si 0.25 0.25 0.25 0
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/si_pbe_v1.uspp
+elec-ex-corr gga-PBE
+elec-cutoff 20 100
+elec-n-bands 8
+spintype no-spin
+kpoint-folding 4 4 4
+converge-empty-states yes
+electronic-minimize energyDiffThreshold 1e-8
+band-projection-params yes no
+dump-name $VAR
+dump End BandEigs BandProjections Fillings Kpoints EigStats

@@ -31,18 +31,28 @@ Spin and k-points are collapsed to a single index `t`, called a "state" (and `ns
 ### Units
 Unless otherwise indicated, all energies are in **Hartrees** and are not normalized to the Fermi level!!
 
+### Occupations and k-point weights
+crawfish follows JDFTx's convention.
+- **Occupations** $f_j(t)$ (`occ_tj`) are per state, in $[0, 1]$.
+- **k-point weights** $w_t$ (`wk_t`) carry the spin factor and sum to 2: each weight is $2/N_k$ for `spintype no-spin`, and $1/N_k$ per spin channel for `z-spin`.
+
+With these conventions the electron count is $\sum_{t,j} w_t f_j(t)$.
+
+JDFTx writes its `fillings` file in $[0, 2]$ for `no-spin` calculations, so crawfish divides it by 2 when reading it. It then warns if the electron count disagrees with the outfile. Before this was fixed, the raw file values were used, which doubled the electron count, the density matrix and pCOBI for unpolarized calculations. Integrated spectra hid this by dividing occupations by their maximum. Both old behaviours are still available through `edata.legacy_fillings = True`, which is part of the cache key (`notes/theory_audit.md`, finding F4).
+
 ### Projection modifications
-1. `trim_excess_bands` is a bool class variable of `ElecData` in which only `nproj` bands are included in analysis. By trimming excess bands, the projection vector `proj_tju` becomes square at each state. This has been primarily useful so far as means of allowing the projections at each state to be normalized for each band and each orbital. Theoretically, this also allows for projections to undergo a band-lowdin-orthogonalization, but the usefulness has not been investigated. Theoretically this also allows for using the dual space of the projections (allowing for less ad-hoc approaches to charge conservation), but this has yet to be implemented.
-2. `los_orbs` is a bool class variable of `ElecData` in which orbitals are made orthogonal to one another via the Lowdin-Orthogonalization technique. This may seem counterintuitive in a framework centered around how orbitals interact with each other, but remember that this orthogonality ($\langle\phi_\mu|\phi_\nu\rangle=\delta_{\mu,\nu}$) does not eliminate overlap between orbitals at individual bands and states ($\bra{\phi_\mu}\psi_j(t)\rangle\langle\psi_j(t)\ket{\phi_\nu}$), only over the sum of all bands and states ($\sum_{j,t}w_t\langle\phi_\mu|\psi_j(t)\rangle\langle\psi_j(t)|\phi_\nu\rangle)=\delta_{\mu,\nu}$). This is an incredibly useful technique when trying to reformulate our calculation in a LCAO picture, as it ensures that for all bonding interactions (bands `j` at state `t` where $c_{\mu,j}(t)^* c_{\nu,j}(t)>0$), there are enough antibonding interactions ($c_{\mu,j}(t)^* c_{\nu,j}(t)<0$) such that the sum over all bands at that state for any orbital pair $\mu,\nu$ sums to $\delta_{\mu,\nu}$. The Lowdin-Orthogonalization technique is the obvious choice for this orthogonalization, as it is a simple to employ (takes 5 lines of vectorized numpy processes here) and minimizes the deviation of each projection from the true value (JDFTx will orthogonalize the orbitals if given the argument `band-projection-params yes no` prior to evaluating and dumping the band projections. However, due to the incompleteness of the space spanned by the bands at each state, this orthogonality will be lost when evaluating total overlap with the dumped projections. The same can also be realized for the bands due to the incompleteness of the space spanned by the orbitals).
+0. **Orbital phase convention (always on for JDFTx data).** JDFTx builds its atomic orbitals without the $i^l$ factor of the plane-wave expansion, so each dumped projection onto an orbital of angular momentum $l$ is $(-i)^l$ times the projection onto the corresponding real orbital. `crawfish` multiplies JDFTx projections by $i^l$ when loading them, which puts every orbital in the real convention. Before this correction, $Re[T_{\mu,j}^*T_{\nu,j}]$ was essentially zero for orbital pairs whose $l$ differs by an odd number (s-p, p-d), so those interactions were missing from every pair spectrum (pDOS was unaffected). The previous behaviour is still available through `edata.legacy_orbital_phase = True`, which is part of the cache key, for comparing results. Projections set through `user_proj_tju` are never modified, so they should already use real orbitals. See `notes/theory_audit.md` (finding F1) for the derivation and evidence.
+1. `trim_excess_bands` is a bool class variable of `ElecData` in which only `nproj` bands are included in analysis. By trimming excess bands, the projection vector `proj_tju` becomes square at each state. This has been primarily useful so far as means of allowing the projections at each state to be normalized for each band and each orbital. Theoretically, this also allows for projections to undergo a band-lowdin-orthogonalization, but the usefulness has not been investigated. Theoretically this also allows for using the dual space of the projections (allowing for less ad-hoc approaches to charge conservation), but this has yet to be implemented. **Deprecated** (setting it warns): it keeps the same `nproj` bands at every k-point, ranked by the sum of $|T|$ over all k-points, and the rescaling of $|T|^2$ isn't a unitary change of the projections. Use enough `elec-n-bands` with `los_orbs` instead (`notes/theory_audit.md`, finding F10).
+2. `los_orbs` is a bool class variable of `ElecData` in which orbitals are made orthogonal to one another via the Lowdin-Orthogonalization technique. This may seem counterintuitive in a framework centered around how orbitals interact with each other, but remember that this orthogonality ($\langle\phi_\mu|\phi_\nu\rangle=\delta_{\mu,\nu}$) does not eliminate overlap between orbitals at individual bands and states ($\bra{\phi_\mu}\psi_j(t)\rangle\langle\psi_j(t)\ket{\phi_\nu}$), only over the sum of all bands and states ($\sum_{j,t}w_t\langle\phi_\mu|\psi_j(t)\rangle\langle\psi_j(t)|\phi_\nu\rangle)=\delta_{\mu,\nu}$). This is an incredibly useful technique when trying to reformulate our calculation in a LCAO picture, as it ensures that for all bonding interactions (bands `j` at state `t` where $c_{\mu,j}(t)^* c_{\nu,j}(t)>0$), there are enough antibonding interactions ($c_{\mu,j}(t)^* c_{\nu,j}(t)<0$) such that the sum over all bands at that state for any orbital pair $\mu,\nu$ sums to $\delta_{\mu,\nu}$. The Lowdin-Orthogonalization technique is the obvious choice for this orthogonalization, as it is a simple to employ (takes 5 lines of vectorized numpy processes here) and minimizes the deviation of each projection from the true value (JDFTx will orthogonalize the orbitals if given the argument `band-projection-params yes no` prior to evaluating and dumping the band projections. However, due to the incompleteness of the space spanned by the bands at each state, this orthogonality will be lost when evaluating total overlap with the dumped projections. The same can also be realized for the bands due to the incompleteness of the space spanned by the orbitals). Orbital combinations the bands don't span at a state (overlap eigenvalue below $10^{-6}$ of the largest) are dropped, with a warning, instead of being scaled up to unit weight. If you see that warning, check `edata.orbital_completeness_u` and add bands. Before this was fixed, the cutoff was an absolute $10^{-15}$ on float32 data, so such directions were kept or dropped depending on the sign of rounding noise; `edata.legacy_lowdin_cutoff = True` restores that (`notes/theory_audit.md`, finding F10).
 
 ### Matrix modifications
-1. `p_uu_consistent` is a bool class variable of `ElecData` ensuring charge conservation when building the orbital-overlap population matrix. When `True`, it will temporarily re-scale `proj` such that summing over `u` and `v` for `p_tj_uu[t,j,u,v]` equals `occ_tj[t,j]` ($$\sum_{\mu, \nu}P_{u, v}(t, j)=f_j(t)$$).
-2. `s_tj_uu_real` is a bool class variable of `ElecData` ensuring that orbital overlap is a real value. Since planewaves have a complex component, orbital/band projections `proj_tju` ($\bra{\phi_\mu}\psi_j(t)\rangle$) are typical complex.
-3. `s_tj_uu_pos` is a bool class variable of `ElecData` ensuring that orbital overlap is a positive value. This is done by subtracting out the smallest value from the entire tensor, and then rescaling the entire tensor such the sum over all indices `tjuv` matches the original sum.
+1. `legacy_matrices` (default `False`) selects how the pair spectra (pCOHP, pCOOP, pCOBI, and pCOMO in the non-orthogonal basis) are built. The default is the signed formalism described below. `True` restores the matrices crawfish used before this was fixed. Those were built from squares of $Re[T_{\mu,j}^*T_{\nu,j}]$, so they carry no sign, and the bonding/antibonding call was wrong whenever the true matrix element is positive (e.g. p–p σ bonds). The legacy formalism is documented at the end of this section, and kept for comparing results (`notes/theory_audit.md`, finding F2; `examples/fix_comparisons/F2_signed_matrices.ipynb`).
+2. `norm_eigs_for_h` (default `True`) measures eigenvalues from the Fermi level when building $H$. In the orthonormal basis (`los_orbs=True`) this changes only diagonal elements, so it has no effect on pair spectra. In the non-orthogonal basis, shifting the energy zero by $c$ shifts pCOHP by $-c\cdot$pCOOP (Glassey & Hoffmann, J. Chem. Phys. 113, 1698 (2000)).
+3. `p_uu_consistent` only affects the legacy matrices (`legacy_matrices=True`). It rescales each band's contribution so that $\sum_{\mu,\nu}P_{\mu,\nu}(t,j)=f_j(t)w_t$.
 
 ### Provided analysis techniques
 
-For the following equations, projections (`proj_tju[t,j,u]`) are short-handed as $T_{\mu,j}(t)=\bra{\phi_\mu}\psi_j(t)\rangle$. Eigenvalues (`e_tj[t,j]`) are notated as $\epsilon_j(t)$, and $\delta(x)$ signifies the delta function ($\delta(x)=\infty$ for $x=0$, $\delta(x)=0$ for $x\neq0$). The following equations are evaluated on an even-space energy array `erange`. By default, gaussian smearing is employed, by which $\delta(E-x)=e^{-\frac{(E-x)^2}{\sigma}}$, where $\sigma$ is an optional user parameter `sig`. If linear tetrahedron integration (`lti`) is requested, $\sum_{j,t}f(j,t)w_t\delta\left(E-\epsilon_j(t)\right)$ is replaced by $\sum_{s,j}f(j,s)\int d\vec{k}\delta\left(E-\epsilon_j(\vec{k})\right)$, where $\int_{BZ} d\vec{k}\delta\left(E-\epsilon_j(\vec{k})\right)$ signifies linear tetrahedral integration performed by the `libtetrabz` package, and $s$ signifies spin.
+For the following equations, projections (`proj_tju[t,j,u]`) are short-handed as $T_{\mu,j}(t)=\bra{\phi_\mu}\psi_j(t)\rangle$. Eigenvalues (`e_tj[t,j]`) are notated as $\epsilon_j(t)$, and $\delta(x)$ signifies the delta function ($\delta(x)=\infty$ for $x=0$, $\delta(x)=0$ for $x\neq0$). The following equations are evaluated on an even-space energy array `erange`. By default, gaussian smearing is employed, by which $\delta(E-x)=\frac{1}{\sqrt{\pi\sigma}}e^{-\frac{(E-x)^2}{\sigma}}$, where $\sigma$ is an optional user parameter `sig` (so the standard deviation is $\sqrt{\sigma/2}$). If linear tetrahedron integration (`lti`) is requested, $\sum_{t}w_t\,(\ldots)\,\delta\left(E-\epsilon_j(t)\right)$ is replaced by the Brillouin-zone integral computed by the `libtetrabz` package for each spin channel. Both are normalized, so spectra are densities per Hartree: the total DOS integrates to $\sum_t w_t\, n_\text{bands}$, and Gaussian and LTI spectra share one scale. Before this was fixed, the Gaussian lacked the $1/\sqrt{\pi\sigma}$, and LTI counted the $1/N_k$ of the zone average twice. Peak shapes, `norm_max` and `norm_intg` results are unaffected. `edata.legacy_normalization = True` restores the old scales (`notes/theory_audit.md`, finding F6).
 
 1. **pDOS**
 Projected density-of-states (pDOS) is primarily included in this package for sanity checks, and is evaluated as
@@ -51,49 +61,58 @@ $$
 pDOS(E,\mu)=\sum_{j,t}\left|T_{\mu,j}\right|^2w_t\delta(E-\epsilon_j(t))
 $$
 
-2. **pCOMO**
-The project Crystal Orbital Mobile Order (pCOMO) is a novel equation for an ancient concept - Coulson's "Mobile Order." This equation is most similar to pCOOP, sharing the same signage convention (bonding = positive, antibonding = negative, nonbonding = zero) but with a noticable lack of orbital overlap, $S_{\mu,\nu}$. This equation is an unquestionable step down from the familiar equations in the crystal orbital formalism family (pCOOP, pCOHP, and pCOBI). However, this equation provides an added convenience as the orbital overlap term $S_{\mu,\nu}$ may be harder to obtain than the KS projection coefficients used to evaluate $T_{\nu,j}$. While the disadvantages to this equation are obvious, the lack of orbital overlap does not influence the identification of a peak as bonding, antibonding, or non-bonding.
-As orbital overlap is only currently approximated as $\left|T_{\mu,j}^*T_{\nu,j}\right|$ for JDFTx, this is the only faithfully represented bonding equation in this package.
+Pair spectra use the band-projected orbitals $\chi_\mu = \sum_j \psi_j \langle\psi_j|\hat O|\phi_\mu\rangle$, where $\hat O$ is the ultrasoft overlap operator. JDFTx applies $\hat O$ when it writes the projections, and $\hat O = 1$ for norm-conserving pseudopotentials. Because $\hat H = \sum_j \hat O|\psi_j\rangle\epsilon_j\langle\psi_j|\hat O$ in the generalized (ultrasoft) eigenproblem, at each state $t$:
 
 $$
-pCOMO(E,\mu,\nu)=\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+S_{\mu\nu}(t) = \sum_j T_{\mu,j}T_{\nu,j}^*, \qquad H_{\mu\nu}(t) = \sum_j T_{\mu,j}\,\epsilon_j\,T_{\nu,j}^*, \qquad D_{\mu\nu}(t) = \sum_j f_j\, C_{\mu,j}C_{\nu,j}^*
 $$
 
-3. **pCOOP**
+(`edata.s_t_uv`, `edata.h_t_uv`, `edata.d_t_uv`, which are complex and Hermitian). $C_{\mu,j}(t)$ are the coefficients of $\psi_j$ in the $\chi_\mu$ (`edata.coef_tju`). With `los_orbs=True` (default) the orbitals are Löwdin-orthonormalized within the band space first, so $S=1$ and $C=T$. With `los_orbs=False`, $C = S^{-1}T$ (least squares). For a spectral mode with matrix $M$:
 
 $$
-pCOOP(E,\mu,\nu)=S_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+pX(E,\mu,\nu)=\sum_{j,t} w_t\, Re\left[C_{\mu,j}^*\, M_{\mu\nu}\, C_{\nu,j}\right]\delta(E-\epsilon_j(t))
 $$
 
-4. **pCOBI**
+where $M = H$ for **pCOHP** (negative = bonding), $M = S$ for **pCOOP**, $M = D$ for **pCOBI**, and $M = 1$ for **pCOMO** (Coulson's mobile order).
+
+**Which periodic image** of the second atom is meant is set by the `image` argument of every pair function. JDFTx's Bloch sums are $\phi_{\mu k} = \sum_R e^{ik\cdot R}\phi_\mu(r-\tau_\mu-R)$, with $\tau$ the atom positions exactly as JDFTx used them. The image of atom $b$ at $\tau_b+R$ (R in lattice vectors) therefore enters through
 
 $$
-pCOBI(E,\mu,\nu)=P_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+M_{\mu\nu}(t) \;\to\; M_{\mu\nu}(R)\,e^{2\pi i k_t\cdot R}, \qquad M_{\mu\nu}(R) = \frac{\sum_{t\in s} w_t\, e^{-2\pi i k_t\cdot R} M_{\mu\nu}(t)}{\sum_{t\in s} w_t}
 $$
 
-5. **pCOHP**
+for each spin channel $s$.
+- `image="nearest"` (default) uses, for each atom pair, the image nearest to the first atom. `get_pair_images(edata, idcs1=..., idcs2=...)` reports the $R$ and bond length used, and crawfish warns when several images are equally near.
+- `image=(n1, n2, n3)` uses that lattice vector for every pair.
+- `image="all"`, or the older `state_sep=True`, uses $M(t)$ directly, summing the interaction over every image.
+
+Images other than the same cell need the full k-mesh (run JDFTx with `symmetries none`). An $N_1\times N_2\times N_3$ mesh can't separate $R$ from $R + (N_1n_1, N_2n_2, N_3n_3)$, so $M(R)$ also contains those far images. Before this was fixed, crawfish always used the same-cell copy ($R=0$) whatever its distance. That is still available through `edata.legacy_lattice_image = True` (`notes/theory_audit.md`, finding F3; `examples/fix_comparisons/F3_lattice_images.ipynb`).
+
+Notes:
+- Summing the integrated pCOHP over all orbital pairs, including on-site ones, reproduces the band energy $\sum w f\epsilon$, up to the charge spilling of the projection.
+- **pCOOP vanishes between different orbitals in an orthonormal basis.** For meaningful pCOOP:
+  - run JDFTx with `band-projection-params no no` (non-orthogonal atomic orbitals);
+  - set `edata.los_orbs = False`;
+  - use enough bands that the orbitals are spanned.
+
+  crawfish builds the overlap from the bands ($S = TT^\dagger$), which approaches $\langle\phi_\mu|\hat O|\phi_\nu\rangle$ as `edata.orbital_completeness_u` approaches 1. crawfish warns when pCOOP is zero (Löwdin basis), when it is only a band-truncation artifact (orthonormalized-orbital projections), and when the selected orbitals' completeness is below 0.85. For gas-phase N2 with non-orthogonal projections, completeness is 0.90–0.99 with 15 bands. The overlaps have the textbook signs (σ between parallel p negative, π positive), and ICOOP changes by less than 0.03 from 15 to 40 bands (`examples/fix_comparisons/F7_coop_basis.ipynb`).
+- **Basis dependence.** pCOHP depends on the orbital basis, and in the non-orthogonal basis also on the energy zero (`norm_eigs_for_h`). For N2, the non-orthogonal basis gives the textbook net-antibonding s–s interaction, while the Löwdin basis gives a bonding one and about 3× the total ICOHP. Compare results within one basis.
+- **pCOMO** has no matrix factor, so its sign depends on how the two orbitals are oriented. For example, a p–p σ bonding combination of parallel p orbitals has $C_{\mu}^*C_{\nu} < 0$. Read it as a bond-order density, not as a bonding indicator.
+- The spin factor and sign convention of pCOBI still need to be checked against Müller et al., J. Phys. Chem. C 125, 7959 (2021).
+
+#### Legacy formalism (`legacy_matrices=True`)
+
+Kept for reference. These definitions give wrong signs (see above).
 
 $$
-pCOHP(E,\mu,\nu)=H_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t))
+pX_{legacy}(E,\mu,\nu)=M_{\mu,\nu}\sum_{j,t}Re\left[T_{\mu,j}^*T_{\nu,j}\right]w_t\delta(E-\epsilon_j(t)),\qquad M \in \{H, S, P, 1\}
 $$
 
-where
-
 $$
-H_{\mu,\nu} = \sum_{j,t} P_{j,t,\mu,\nu} \epsilon_{j,t}
+H_{\mu,\nu} = \sum_{j,t} P_{j,t,\mu,\nu} \epsilon_{j,t}, \qquad P_{j,t,\mu,\nu} = S_{j,t,\mu,\nu} f_j(t) w_t, \qquad S_{j,t,\mu,\nu} = \left(Re\left[\langle \mu | \psi_j(t) \rangle \langle \psi_j(t) | \nu \rangle\right]\right)^2
 $$
 
-and
-
-$$
-P_{j,t,\mu,\nu} = S_{j,t,\mu,\nu} f_j(t) w_t
-$$
-
-and
-
-$$
-S_{j,t,\mu,\nu} = \left|\langle \mu | \psi_j(t) \rangle \langle \psi_j(t) | \nu \rangle\right|^2
-$$
+(with $P$ renormalized per band when `p_uu_consistent=True`, and $\epsilon$ shifted by $\mu$ when `norm_eigs_for_h=True`).
 
 
 ## Why and when should I use `crawfish`?
@@ -103,10 +122,31 @@ $$
 
 ## How to use `crawfish`
 
-1. **Create an `ElecData` object** `ElecData` is the class used to house all electronic data and derived tensors for a given calculation. Provided the JDFTx calculation has been run with the required settings (`band-projection-params yes no`, `dump End BandProjections` and `dump End BandEigs`), this can be done in one line as `edata = ElecData.from_calc_dir(calc_dir)`, where `ElecData` has been imported from `crawfish.core.elecdata`, and `calc_dir` is either `str` or `Path` giving the full path to your directory containing the calculation output data.
+1. **Create an `ElecData` object** `ElecData` is the class used to house all electronic data and derived tensors for a given calculation. Provided the JDFTx calculation has been run with the required settings (see "JDFTx settings" below), this can be done in one line as `edata = ElecData.from_calc_dir(calc_dir)`, where `ElecData` has been imported from `crawfish.core.elecdata`, and `calc_dir` is either `str` or `Path` giving the full path to your directory containing the calculation output data.
 2. **Change desired settings** If there are any parameters you wish to change that effect the computed tensors required for pCOHP analysis (ie `edata.los_orbs`), you can change these values in the typical fashion (`edata.los_orbs = False`) triggering a re-evaluation of the affected tensors with this change in mind. If you have multiple settings you want to change, you can avoid repeated re-evaluations by changing the setting's private value (`edata._los_orbs = False`) and either remembering to change the final setting through the public value or by running `edata.alloc_elec_data()`.
 3. **Import function(s) for desired analysis** All spectrum-generating functions for a given analysis technique "<mode>" can be imported from `crawfish.funcs.<mode>`, which will contain a dos-like spectrum-generating function `get_<mode>` and a spectrum integrating function `get_i<mode>`.
 4. **Generate spectra and plot** Dos-like generating functions and spectrum integrating function will both return a length-2 tuple `erange, spectrum`, corresponding to the spectrum values and their corresponding energy-axis values. If you are unfamiliar with plotting in python, this can be easily done with `matplotlib` (the installation of this library ensures your python environment has this package) by importing `import matplotlib.pyplot as plt` and running `plt.plot(erange, spectrum)`. The arguments for these functions can all be checked in the docustrings for the function definitions.
+
+### JDFTx settings
+
+| setting | why |
+|---|---|
+| `dump End BandProjections BandEigs Fillings Kpoints Symmetries` | Projections, eigenvalues, occupations, k-point weights and JDFTx's symmetry operations. `Fillings` and `Kpoints` are optional but recommended. Without them, occupations are computed from the smearing and mu (or, without smearing, JDFTx's constant fillings), and weights are read from the `bandProjections` header. `Symmetries` writes the `sym` file, which lets crawfish unfold a symmetry-reduced k-mesh (see below). |
+| `band-projection-params yes no` | Complex projections onto orthonormalized orbitals, for pCOHP/pCOBI/pCOMO. Use `no no` for pCOOP, which is identically zero in an orthonormal basis. |
+| `symmetries automatic` (the default) with `dump End ... Symmetries`, or `symmetries none` | Results resolved by atom, bond or m-orbital need every k-point of the mesh. crawfish rebuilds the ones JDFTx skipped from its `sym` file (see below), which is the cheapest option. Without the `sym` file, use `symmetries none`, or `symmetries manual` with only the identity `symmetry-matrix 1 0 0  0 1 0  0 0 1  0 0 0` (JDFTx then reduces only k ↔ −k, which crawfish unfolds without operations). |
+| `spintype no-spin` or `z-spin` | Spinor calculations (`vector-spin`, `spin-orbit`) aren't supported yet: `ElecData` refuses them with an error (`notes/theory_audit.md`, finding F9). |
+| `elec-n-bands` well above the number of orbitals | The bands must span the atomic orbitals at every k-point, including antibonding (σ*) states. With too few bands (e.g. as many bands as orbitals), the orbital basis is ill-conditioned at some k-points and pair spectra are not converged in the number of bands. `ElecData` warns on load when an orbital combination is almost missing from the bands at any k-point (`edata.orbital_span_t`, the smallest eigenvalue of the band-space orbital overlap over its largest, below $10^{-4}$), and names the orbitals. In graphene, 20 bands still left the C–C IpCOHP 4% weaker than 40 bands and triggered the warning; 30 bands were within 1% and didn't (`notes/theory_audit.md`, finding F11). |
+
+**Time-reversal-reduced k-meshes are unfolded.** With `kpoint-reduce-inversion yes` (the JDFTx default) and no other symmetry, JDFTx keeps one of each k/−k pair. For collinear calculations (`no-spin`, `z-spin`) the Hamiltonian of each spin channel is real, so T(−k) = T(k)* and ε(−k) = ε(k). crawfish detects such a mesh and unfolds it onto the full Monkhorst–Pack mesh, splitting each pair's weight. All results, including single bonds and m-resolved ones, are then the same as for `symmetries none`: within about 1e-4 in the graphene test. This is on by default and controlled by `edata.unfold_time_reversal`, which is part of the cache key. `edata.time_reversal_unfolded` reports whether it was applied.
+
+**Point-group-reduced k-meshes are unfolded when JDFTx's operations are available.** With `symmetries automatic`, JDFTx computes one k-point per star. If the run also wrote the `sym` file (`dump End Symmetries`), or used `symmetries manual` with several matrices, crawfish rebuilds every other k-point of the mesh: an operation g = (rot, a), x → rot·x + a in lattice coordinates, maps the state at k onto one at rot^−T·k, and its projections onto JDFTx's Bloch-sum orbitals follow as T_{b,m'}(k') = e^{−2πi k'·L_a} Σ_m M_{mm'} T_{a,m}(k). Here g takes atom a to atom b in the cell L_a, and M rotates the real spherical harmonics of each shell (JDFTx's convention); time reversal (complex conjugation) is added where JDFTx used it. Eigenvalues and occupations are those of the computed state, and each computed k-point's weight is split over its images. In tests on graphene and wurtzite ZnO (screw axes, no inversion, Zn d orbitals), single bonds and m-resolved pDOS match full-mesh calculations to about 1e-5. This is on by default and controlled by `edata.unfold_point_group`, which is part of the cache key; `edata.point_group_unfolded` reports whether it was applied (`notes/theory_audit.md`, finding F12).
+
+**Symmetry-reduced k-meshes that can't be unfolded.** Without the operations, only irreducible k-points are available. Each one stands in for its symmetry-equivalent k-points, so a quantity for one atom, bond or m-orbital is averaged over its symmetry-equivalent copies. On such a mesh crawfish:
+- uses JDFTx's symmetry weights;
+- raises an error for pair spectra of a single lattice image, including the default `image="nearest"`;
+- warns for `image="all"` pair spectra and for pDOS of a subset of orbitals.
+
+Results remain exact only for selections the point group maps onto themselves: the sum over all images, complete orbital shells, and complete sets of equivalent atoms. In a graphene test, the all-image C1–C2 pCOHP and atom-total pDOS match the full-mesh values, while a single bond came out 2.2× too strong, and px–px 2× too strong. `edata.legacy_reduced_kmesh = True` restores the old behaviour, which used uniform weights for spin-polarized reduced meshes and had no guard (`notes/theory_audit.md`, finding F5).
 
 ## Creating your own `ElecData`
 
@@ -115,17 +155,17 @@ $$
 - A pymatgen `Structure` of your system. It is critical that the species in this structure are ordered by their atomic number.
 - The band eigenvalues in shape `tj` as a numpy array.
 - The k-point folding and the corresponding k-points. (if you are unsure but know the total number of k-points, the kfolding can be set arbitrarily and the k-points can be left as None)
-- The k-point weights (if you are unsure but know there was no symmetry reduction (ie every k-point on your MK grid was evaluated) then all your k-point weights are equal to nspin/nkpts. If there was symmetry reduction of your k-mesh but know how many k-points were reduced into each of the output k-pts, multiply the weights by the number of k-points each output k-point "represents")
+- The k-point weights, including the spin factor, so that they sum to 2 (see "Occupations and k-point weights"). If you are unsure but know there was no symmetry reduction (ie every k-point on your MK grid was evaluated), every weight is 2/nkpts for spin-unpolarized data and 1/nkpts per spin channel for spin-polarized data. If there was symmetry reduction of your k-mesh but know how many k-points were reduced into each of the output k-pts, multiply the weights by the number of k-points each output k-point "represents")
 - The number of projections (orbitals) gathered for each atom type and their corresponding quantum numbers (exact principal quantum number n matters less, as long as you known the ordering of them for multiple shells of a given angular momentum)
-- The projection coefficients for each band+state on each orbital in shape `tju`. It is critical that you have the actual projections and not their absolute values (the latter typically dumped as it is all that is needed for pDOS analysis) as taking the absolute value removes all information about the phase of the orbital at that band+state (bonding vs antibonding interaction is determined solely by the matching of phases between two orbitals). The ordering of the projections must match the ordering of the atoms as given in the Structure (ie for an all-electron calculation of an Li2 structure, projections 0-3 should correspond to Li #1's 1s, Li #1's 2s, Li #2's 1s, and Li #2's 2s)
+- The projection coefficients for each band+state on each orbital in shape `tju`. They should be projections onto real orbitals (`crawfish` applies no phase correction to user projections). It is critical that you have the actual projections and not their absolute values (the latter typically dumped as it is all that is needed for pDOS analysis) as taking the absolute value removes all information about the phase of the orbital at that band+state (bonding vs antibonding interaction is determined solely by the matching of phases between two orbitals). The ordering of the projections must match the ordering of the atoms as given in the Structure (ie for an all-electron calculation of an Li2 structure, projections 0-3 should correspond to Li #1's 1s, Li #1's 2s, Li #2's 1s, and Li #2's 2s)
 2. Initialize an empty `ElecData` object with the class method `edata = ElecData.as_empty()` to circumvent initialization procedures for JDFTx calculations.
 3. Set `user_proj_tju` (ie `edata.user_proj_tju = np.random([10,5,4])`). This will not be touched, and all projection manipulations will be performed on a copy of this array. This will automatically define `nstates`, `nbands`, and `nproj`
 4. Set the `atom_orb_labels_dict` property for the class as a dictionary mapping each element in your calculation to a string representing of all the quantum numbers for the projections gathered for that element (ie for a calculation of C2H4O, set `edata.atom_orb_labels_dict = {"H": ["s"], "C": ["s", "px", "py", "pz], "O": ["s", "px", "py", "pz"]}`. If you do not wish to perform orbital resolution on your analysis, it does not matter what you put here, as long as all the elements of each list are unique and the list length matches the number of projections for that element. The ordering of the projections must match the ordering as they are listed in your `user_proj_tju`. If you have multiple projections for a given angular momentum, include the principal quantum number as well (ie `["1s", "2s"]` - they do not need to be the true principal quantum number.
 5. Set `kfolding` (ie `edata.kfolding = [3,3,3]`). If you are unsure but know `nspin`, set as `[int(edata.nstates/nspin), 1, 1]`
-6. Set `wk_t` (ie `edata.wk_t = np.ones(edata.nstates)*edata.nspin/np.prod(edata.kfolding)`). If you are unsure, just make sure they sum to `nspin`.
+6. Set `wk_t` (ie `edata.wk_t = np.ones(edata.nstates)*(2/edata.nspin)/np.prod(edata.kfolding)`). If you are unsure, just make sure they sum to 2.
 8. Set the fermi level as `edata.mu` (if you are going to set `occ_tj` explicitly, this step becomes optional but is still useful for plotting)
 ### Optional
-9. If you have the state/band occupation, set it as `edata.occ_tj`. Otherwise, it will be calculated for your using `edata.broadening` and `edata.broadening_type`.
+9. If you have the state/band occupation, set it as `edata.occ_tj`, per state in [0, 1]. Otherwise, it will be calculated for your using `edata.broadening` and `edata.broadening_type`.
 
 ## Installation
 

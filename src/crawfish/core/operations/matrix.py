@@ -210,6 +210,10 @@ def get_h_p_s_t_uu_and_uu(
 ):
     r"""Get the state-resolved and total Hamiltonian, Population, and Overlap matrices in one pass.
 
+    Legacy (pre-F2) construction, used only when ElecData.legacy_matrices is True. These matrices are built from
+    squares of Re[T*_u T_v], so they carry no sign (notes/theory_audit.md, finding F2). The signed replacements are
+    `get_coef_tju` and `get_h_s_d_t_uv`.
+
     Equivalent to summing the output of `get_h_tj_uu_p_tj_uu_s_tj_uu` over j (for the *_t_uu matrices)
     and over t and j (for the *_uu matrices), but without ever building the (t, j, u, u) tensors.
     Peak memory is the three (t, u, u) outputs plus O(u^2) scratch.
@@ -295,6 +299,8 @@ def _get_gen_tj_coef_uu(
 ) -> np.ndarray:
     r"""Get gen_{t,j} = Sum_{u!=v} coef_{u,v} w_{t} Re(T_{t,j,u}^* T_{t,j,v}).
 
+    Legacy (pre-F2) weight kernel, used only when ElecData.legacy_matrices is True. See `_get_gen_tj_coef_tuv`.
+
     Computes only the requested (u, v) overlaps directly from the projections, so the
     (t, j, u, u) weighted overlap tensor is never built.
     r"""
@@ -370,6 +376,8 @@ def _get_gen_tj_coef_tuu(
 ) -> np.ndarray:
     r"""Get gen_{t,j} = Sum_{u!=v} coef_{t,u,v} Re(T_{t,j,u}^* T_{t,j,v}).
 
+    Legacy (pre-F2) weight kernel, used only when ElecData.legacy_matrices is True. See `_get_gen_tj_coef_tuv`.
+
     No k-point weight is applied, so coef_tuu should already carry it (as h_t_uu, p_t_uu and s_t_uu do).
     r"""
     t, j, _ = np.shape(proj_tju)
@@ -391,6 +399,239 @@ def _get_gen_tj_coef_tuu_jit(gen_tj, coef_tuu, proj_tju, orbs_u, orbs_v):
                     if not u == v:
                         val += REAL_DTYPE(coef_tuu[t, u, v]) * REAL_DTYPE((np.conj(proj_tju[t, j, u]) * proj_tju[t, j, v]).real)
             gen_tj[t, j] += val
+
+
+# ---- Signed projected matrices (notes/theory_audit.md, finding F2 and section 2.3) ----
+#
+# With P[t,j,u] = <phi_u|O|psi_tj> (O = the USPP overlap operator, which JDFTx applies), the band-projected
+# orbitals chi_u = sum_j psi_j <psi_j|O|phi_u> have overlap S_t = P^T conj(P) and Hamiltonian
+# H_t = P^T e conj(P), because H = sum_j O|psi_j> e_j <psi_j|O| in the generalized (USPP) eigenproblem.
+# Bands expand as psi_tj = sum_u C[t,j,u] chi_u, and the pair weights are w_t Re[conj(C_u) M_uv C_v].
+
+
+def get_coef_tju(proj_tju: np.ndarray[COMPLEX_DTYPE], orthonormal: bool) -> np.ndarray[COMPLEX_DTYPE]:
+    r"""Get the expansion coefficients C[t,j,u] of each band in the band-projected orbitals.
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray
+        The projection tensor P[t,j,u] = <phi_u|O|psi_tj>
+    orthonormal : bool
+        True if proj_tju has already been Löwdin-orthonormalized (`los_projs_for_orbs`). The orbitals are then
+        orthonormal and C = proj_tju. Otherwise C_t = P_t pinv(P_t^dag P_t), i.e. C = S^-1 T in the
+        band-projected (non-orthogonal) basis, as a least-squares fit.
+    r"""
+    if orthonormal:
+        return proj_tju
+    coef_tju = np.zeros_like(proj_tju, dtype=COMPLEX_DTYPE)
+    for t in range(np.shape(proj_tju)[0]):
+        p_ju = np.asarray(proj_tju[t], dtype=np.complex128)
+        # Relative cutoff suited to complex64 input: orbitals the bands barely represent are dropped, not amplified
+        coef_tju[t] = p_ju @ np.linalg.pinv(p_ju.conj().T @ p_ju, rtol=1e-6, hermitian=True)
+    return coef_tju
+
+
+def get_h_s_d_t_uv(
+    proj_tju: np.ndarray[COMPLEX_DTYPE],
+    coef_tju: np.ndarray[COMPLEX_DTYPE],
+    e_tj: np.ndarray[REAL_DTYPE],
+    occ_tj: np.ndarray[REAL_DTYPE],
+) -> tuple[np.ndarray[COMPLEX_DTYPE], np.ndarray[COMPLEX_DTYPE], np.ndarray[COMPLEX_DTYPE]]:
+    r"""Get the signed, state-resolved Hamiltonian, overlap and density matrices of the band-projected orbitals.
+
+    H_t[u,v] = sum_j P[t,j,u] e[t,j] conj(P[t,j,v])     (= <chi_u|H|chi_v>)
+    S_t[u,v] = sum_j P[t,j,u] conj(P[t,j,v])            (= <chi_u|O|chi_v>; identity after Löwdin)
+    D_t[u,v] = sum_j f[t,j] C[t,j,u] conj(C[t,j,v])     (density matrix at state t)
+
+    All three are complex Hermitian, in shape (nstates, nproj, nproj). No k-point weight is applied.
+    Peak memory is the three outputs plus O(nproj^2) scratch.
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray
+        The projection tensor P[t,j,u] = <phi_u|O|psi_tj> (Löwdin-orthonormalized or not)
+    coef_tju : np.ndarray
+        The expansion coefficients from `get_coef_tju`
+    e_tj : np.ndarray
+        The eigenvalues (already shifted, if a different energy zero is wanted)
+    occ_tj : np.ndarray
+        The occupations
+    r"""
+    t, _, u = np.shape(proj_tju)
+    h_t_uv = np.zeros([t, u, u], dtype=COMPLEX_DTYPE)
+    s_t_uv = np.zeros([t, u, u], dtype=COMPLEX_DTYPE)
+    d_t_uv = np.zeros([t, u, u], dtype=COMPLEX_DTYPE)
+    _get_h_s_d_t_uv_jit(h_t_uv, s_t_uv, d_t_uv, proj_tju, coef_tju, e_tj, occ_tj)
+    return h_t_uv, s_t_uv, d_t_uv
+
+
+@jit(nopython=True)
+def _get_h_s_d_t_uv_jit(h_t_uv, s_t_uv, d_t_uv, proj_tju, coef_tju, e_tj, occ_tj):
+    _t, _j, _u = np.shape(proj_tju)
+    # Accumulate in double precision; only the upper triangle is accumulated (the matrices are Hermitian)
+    h_acc_uv = np.zeros((_u, _u), dtype=np.complex128)
+    s_acc_uv = np.zeros((_u, _u), dtype=np.complex128)
+    d_acc_uv = np.zeros((_u, _u), dtype=np.complex128)
+    for t in range(_t):
+        h_acc_uv[:, :] = 0.0
+        s_acc_uv[:, :] = 0.0
+        d_acc_uv[:, :] = 0.0
+        for j in range(_j):
+            e = np.float64(e_tj[t, j])
+            f = np.float64(occ_tj[t, j])
+            for u in range(_u):
+                for v in range(u, _u):
+                    x = proj_tju[t, j, u] * np.conj(proj_tju[t, j, v])
+                    s_acc_uv[u, v] += x
+                    h_acc_uv[u, v] += e * x
+                    d_acc_uv[u, v] += f * (coef_tju[t, j, u] * np.conj(coef_tju[t, j, v]))
+        for u in range(_u):
+            for v in range(u, _u):
+                h_t_uv[t, u, v] = h_acc_uv[u, v]
+                h_t_uv[t, v, u] = np.conj(h_acc_uv[u, v])
+                s_t_uv[t, u, v] = s_acc_uv[u, v]
+                s_t_uv[t, v, u] = np.conj(s_acc_uv[u, v])
+                d_t_uv[t, u, v] = d_acc_uv[u, v]
+                d_t_uv[t, v, u] = np.conj(d_acc_uv[u, v])
+
+
+def get_r0_suv(mat_t_uv: np.ndarray[COMPLEX_DTYPE], wk_t: np.ndarray[REAL_DTYPE], nspin: int) -> np.ndarray[COMPLEX_DTYPE]:
+    r"""Get the R=0 (same-cell) real-space element of a state-resolved matrix, per spin channel.
+
+    M_s(R=0) = sum_{t in s} w_t M_t / sum_{t in s} w_t, with states ordered spin-major. This is the interaction
+    between orbital u and the copy of orbital v in the same cell, as placed by the atom positions JDFTx used.
+    It assumes the k-points cover the full mesh (see notes/theory_audit.md, findings F3 and F5).
+
+    Returns
+    -------
+    np.ndarray
+        Shape (nspin, nproj, nproj)
+    r"""
+    t, u, _ = np.shape(mat_t_uv)
+    nk = t // nspin
+    mat_suv = np.zeros([nspin, u, u], dtype=COMPLEX_DTYPE)
+    for s in range(nspin):
+        w_k = np.asarray(wk_t[s * nk : (s + 1) * nk], dtype=np.float64)
+        mat_suv[s] = np.tensordot(w_k, mat_t_uv[s * nk : (s + 1) * nk], axes=1) / np.sum(w_k)
+    return mat_suv
+
+
+def get_mat_r_suv(
+    mat_t_uv: np.ndarray[COMPLEX_DTYPE],
+    wk_t: np.ndarray[REAL_DTYPE],
+    ks_t: np.ndarray[REAL_DTYPE],
+    nspin: int,
+    R,
+) -> np.ndarray[COMPLEX_DTYPE]:
+    r"""Get the real-space element M_uv(R) = <chi_u,0|M|chi_v,R> of a state-resolved matrix, per spin channel.
+
+    M_s(R) = sum_{t in s} w_t M_t exp(-2 pi i k_t.R) / sum_{t in s} w_t, the inverse of the Bloch sum
+    M(k) = sum_R e^{2 pi i k.R} M(R) (JDFTx convention, see crawfish.utils.lattice). k_t is in reciprocal-lattice
+    coordinates and R in lattice vectors. The k-points must cover the full mesh. An N1 x N2 x N3 mesh cannot
+    separate R from R + (N1 n1, N2 n2, N3 n3), so M(R) includes those far images too (aliasing).
+
+    Returns
+    -------
+    np.ndarray
+        Shape (nspin, nproj, nproj)
+    r"""
+    t, u, _ = np.shape(mat_t_uv)
+    nk = t // nspin
+    phase_t = np.exp(-2j * np.pi * (np.asarray(ks_t, dtype=np.float64) @ np.asarray(R, dtype=np.float64)))
+    mat_suv = np.zeros([nspin, u, u], dtype=COMPLEX_DTYPE)
+    for s in range(nspin):
+        sl = slice(s * nk, (s + 1) * nk)
+        w_k = np.asarray(wk_t[sl], dtype=np.float64)
+        mat_suv[s] = np.tensordot(w_k * phase_t[sl], mat_t_uv[sl], axes=1) / np.sum(w_k)
+    return mat_suv
+
+
+def _get_gen_tj_block(
+    coef_tju: np.ndarray[COMPLEX_DTYPE],
+    mat_t_ab: np.ndarray[COMPLEX_DTYPE],
+    wk_t: np.ndarray[REAL_DTYPE],
+    orbs_u: list[int],
+    orbs_v: list[int],
+) -> np.ndarray[REAL_DTYPE]:
+    r"""Get gen_{t,j} = w_t Sum_{a,b; orbs_u[a]!=orbs_v[b]} Re[conj(C[t,j,orbs_u[a]]) M[t,a,b] C[t,j,orbs_v[b]]].
+
+    `mat_t_ab` is the effective matrix restricted to the requested orbitals, shape (nstates, len(orbs_u),
+    len(orbs_v)). It is either the state-resolved block (all lattice images) or M_ab(R_ab) e^{2 pi i k_t.R_ab}
+    for one chosen image per atom pair.
+    r"""
+    t, j, _ = np.shape(coef_tju)
+    gen_tj = np.zeros([t, j], dtype=REAL_DTYPE)
+    _get_gen_tj_block_jit(
+        gen_tj,
+        coef_tju,
+        np.asarray(mat_t_ab, dtype=COMPLEX_DTYPE),
+        wk_t,
+        np.asarray(orbs_u, dtype=np.int64),
+        np.asarray(orbs_v, dtype=np.int64),
+    )
+    return gen_tj
+
+
+@jit(nopython=True)
+def _get_gen_tj_block_jit(gen_tj, coef_tju, mat_t_ab, wk_t, orbs_u, orbs_v):
+    _t, _j, _ = np.shape(coef_tju)
+    for t in range(_t):
+        for j in range(_j):
+            val = 0.0
+            for a in range(len(orbs_u)):
+                cu = np.conj(coef_tju[t, j, orbs_u[a]])
+                for b in range(len(orbs_v)):
+                    if not orbs_u[a] == orbs_v[b]:
+                        val += (cu * mat_t_ab[t, a, b] * coef_tju[t, j, orbs_v[b]]).real
+            gen_tj[t, j] = REAL_DTYPE(val * wk_t[t])
+
+
+def get_spin_idx_t(nstates: int, nspin: int) -> np.ndarray[int]:
+    """Spin channel of each state (states are ordered spin-major)."""
+    return np.arange(nstates, dtype=np.int64) // (nstates // nspin)
+
+
+def _get_gen_tj_coef_tuv(
+    coef_tju: np.ndarray[COMPLEX_DTYPE],
+    mat_muv: np.ndarray[COMPLEX_DTYPE],
+    m_t: np.ndarray[int],
+    wk_t: np.ndarray[REAL_DTYPE],
+    orbs_u: list[int],
+    orbs_v: list[int],
+) -> np.ndarray[REAL_DTYPE]:
+    r"""Get gen_{t,j} = w_t Sum_{u in orbs_u, v in orbs_v, u!=v} Re[conj(C[t,j,u]) M[m_t[t],u,v] C[t,j,v]].
+
+    `mat_muv` holds one matrix per index m, and m_t picks the matrix used at state t. Use the state-resolved
+    M_t with m_t = arange(nstates) (interaction summed over all lattice images), or the per-spin R=0 matrices
+    from `get_r0_suv` with m_t = `get_spin_idx_t(...)`.
+    r"""
+    t, j, _ = np.shape(coef_tju)
+    gen_tj = np.zeros([t, j], dtype=REAL_DTYPE)
+    _get_gen_tj_coef_tuv_jit(
+        gen_tj,
+        coef_tju,
+        np.asarray(mat_muv, dtype=COMPLEX_DTYPE),
+        np.asarray(m_t, dtype=np.int64),
+        wk_t,
+        np.asarray(orbs_u, dtype=np.int64),
+        np.asarray(orbs_v, dtype=np.int64),
+    )
+    return gen_tj
+
+
+@jit(nopython=True)
+def _get_gen_tj_coef_tuv_jit(gen_tj, coef_tju, mat_muv, m_t, wk_t, orbs_u, orbs_v):
+    _t, _j, _ = np.shape(coef_tju)
+    for t in range(_t):
+        m = m_t[t]
+        for j in range(_j):
+            val = 0.0
+            for u in orbs_u:
+                cu = np.conj(coef_tju[t, j, u])
+                for v in orbs_v:
+                    if not u == v:
+                        val += (cu * mat_muv[m, u, v] * coef_tju[t, j, v]).real
+            gen_tj[t, j] = REAL_DTYPE(val * wk_t[t])
 
 
 def mod_weights_for_ebounds(
@@ -522,16 +763,77 @@ def _add_kweights(weights_sabcj: np.ndarray[REAL_DTYPE], wk_sabc: np.ndarray[REA
     return weights_sabcj * wk_sabcj
 
 
-def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:
-    """Perform LOS on projections for projection orthogonality.
+def apply_jdftx_orbital_phase(proj_tju: np.ndarray[COMPLEX_DTYPE], l_u: np.ndarray[int]) -> np.ndarray[COMPLEX_DTYPE]:
+    r"""Convert JDFTx band projections to the real-orbital convention by multiplying orbital u by i^{l_u}.
 
-    Perform Lowdin symmetric orthogonalization on projections for orbital projection orthogonality.
+    JDFTx builds atomic orbitals in reciprocal space as Ylm(k+G) f_l(|k+G|) (SpeciesInfo_internal.h::Vnl_calc)
+    with no i^l factor. By the plane-wave expansion e^{iG.r} = 4pi sum_l i^l j_l(Gr) sum_m Ylm(G)Ylm(r), the
+    real-space orbital is then i^l times the real orbital, so the dumped projections are
+    T_raw = <i^l phi_real|O|psi> = (-i)^l T_real, and T_real = i^l T_raw. JDFTx's own Wannier code applies
+    the same phase (`lPhase = cis(0.5*M_PI*l)` in wannier/WannierMinimizer.cpp), but dumpProjections does not.
+
+    Without this, Re[T*_u T_v] is ~0 for orbital pairs with odd l_u - l_v (s-p, p-d), so those interactions
+    vanish from pCOMO/pCOOP/pCOHP/pCOBI. |T|^2 (pDOS) is unaffected. See notes/theory_audit.md, finding F1.
 
     Parameters
     ----------
-    proj_sabcju : np.ndarray[COMPLEX_DTYPE]
-        Projections in shape (nstates, nbands, nproj).
+    proj_tju : np.ndarray[COMPLEX_DTYPE]
+        Projections in shape (nstates, nbands, nproj), as dumped by JDFTx.
+    l_u : np.ndarray[int]
+        Angular momentum of each orbital, in shape (nproj,).
     """
+    # Exact powers of i (avoids floating-point noise from 1j**l)
+    phase_u = np.array([1, 1j, -1, -1j], dtype=COMPLEX_DTYPE)[np.asarray(l_u) % 4]
+    return np.asarray(proj_tju * phase_u[np.newaxis, np.newaxis, :], dtype=COMPLEX_DTYPE)
+
+
+# Overlap eigenvalues below this fraction of the largest are dropped by the Löwdin step (as in get_coef_tju)
+LOWDIN_RTOL = 1e-6
+
+
+def los_projs_for_orbs(
+    proj_tju: np.ndarray[COMPLEX_DTYPE], legacy: bool = False, return_ndropped: bool = False
+) -> np.ndarray[COMPLEX_DTYPE] | tuple[np.ndarray[COMPLEX_DTYPE], np.ndarray[int]]:
+    """Perform LOS on projections for projection orthogonality.
+
+    Perform Lowdin symmetric orthogonalization on projections for orbital projection orthogonality:
+    P'_t = P_t S_t^{-1/2}, with S_t = P_t^dag P_t the overlap of the band-projected orbitals at state t.
+
+    Directions of S_t with an eigenvalue below LOWDIN_RTOL times the largest are orbital combinations the bands
+    don't span. They are dropped (their projections become zero), because 1/sqrt(eigenvalue) would otherwise blow
+    float32 noise up to unit weight. This is done in float64. Before finding F10 (notes/theory_audit.md), the
+    cutoff was an absolute 1e-15 in float32, so whether such a direction was dropped or amplified depended on
+    the sign of the noise in its eigenvalue; legacy=True restores that.
+
+    Parameters
+    ----------
+    proj_tju : np.ndarray[COMPLEX_DTYPE]
+        Projections in shape (nstates, nbands, nproj).
+    legacy : bool
+        Use the pre-F10 float32 version with the absolute cutoff.
+    return_ndropped : bool
+        Also return the number of dropped directions per state, in shape (nstates,).
+    """
+    if legacy:
+        low_proj_tju, ndropped_t = _los_projs_for_orbs_legacy(proj_tju)
+    else:
+        nstates = np.shape(proj_tju)[0]
+        low_proj_tju = np.zeros_like(proj_tju)
+        ndropped_t = np.zeros(nstates, dtype=int)
+        for t in range(nstates):
+            p_ju = np.asarray(proj_tju[t], dtype=np.complex128)
+            eigs, low_u = np.linalg.eigh(p_ju.conj().T @ p_ju)
+            idx = eigs > LOWDIN_RTOL * eigs.max()
+            ndropped_t[t] = np.sum(~idx)
+            low_proj_tju[t] = p_ju @ (low_u[:, idx] / np.sqrt(eigs[idx])) @ low_u[:, idx].conj().T
+    if return_ndropped:
+        return low_proj_tju, ndropped_t
+    return low_proj_tju
+
+
+def _los_projs_for_orbs_legacy(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> tuple[np.ndarray[COMPLEX_DTYPE], np.ndarray[int]]:
+    """Pre-F10 Löwdin step (float32, absolute eigenvalue cutoff 1e-15). See `los_projs_for_orbs`."""
+    ndropped_t = np.zeros(np.shape(proj_tju)[0], dtype=int)
     low_proj_tju = np.zeros_like(proj_tju)
     nstates = np.shape(proj_tju)[0]
     for t in range(nstates):
@@ -540,9 +842,10 @@ def los_projs_for_orbs(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLE
         # TODO: The following two lines were stolen from pyscf. Figure out if pyscf should just be a dependency,
         # and dispatch orthogonalization to it.
         idx = eigs > 1e-15
+        ndropped_t[t] = np.sum(~idx)
         low_s_uu = np.dot(low_u[:,idx]/np.sqrt(eigs[idx]), low_u[:,idx].conj().T)
         low_proj_tju[t, :, :] += np.tensordot(proj_tju[t], low_s_uu, axes=([1], [0]))
-    return low_proj_tju
+    return low_proj_tju, ndropped_t
 
 
 # def los_projs_for_bands(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[COMPLEX_DTYPE]:

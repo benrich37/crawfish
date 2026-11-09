@@ -1,0 +1,6 @@
+include common.in
+converge-empty-states yes
+electronic-minimize energyDiffThreshold 1e-9
+band-projection-params yes no
+dump-name totalE.$VAR
+dump End State BandEigs BandProjections Fillings Kpoints EigStats Gvectors

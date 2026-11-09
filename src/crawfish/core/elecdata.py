@@ -6,13 +6,32 @@ electronic data from JDFTx calculations.
 
 from __future__ import annotations
 import numpy as np
-from crawfish.core.operations.matrix import get_h_p_s_t_uu_and_uu, normalize_square_proj_tju, los_projs_for_orbs, get_weighted_overlap_tjuv
+from crawfish.core.operations.matrix import (
+    get_h_p_s_t_uu_and_uu,
+    normalize_square_proj_tju,
+    los_projs_for_orbs,
+    LOWDIN_RTOL,
+    get_weighted_overlap_tjuv,
+    apply_jdftx_orbital_phase,
+    get_coef_tju,
+    get_h_s_d_t_uv,
+    get_r0_suv,
+    get_mat_r_suv,
+)
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
     get_nstates_from_bandfile_filepath,
     get_nbands_from_bandfile_filepath,
     get_nproj_from_bandfile_filepath,
     get_norbsperatom_from_bandfile_filepath,
+    get_orb_l_u_from_bandfile_filepath,
+    get_orb_shell_u_from_bandfile_filepath,
+    parse_kptsfrom_bandfile_header,
+    get_kpoint_offset_from_outfile_filepath,
+    get_kmesh_unfolding,
+    get_symmetries_from_outfile_filepath,
+    parse_symfile,
+    get_kfolding_from_outfile_filepath,
     get_e_tj_helper,
     get_proj_tju_from_file,
     is_complex_bandfile_filepath,
@@ -23,33 +42,50 @@ from crawfish.io.data_parsing import (
     get_nspecies_from_bandfile_filepath,
     get_norbsperatom_from_edata,
     save_bandfile_header,
+    check_spintype_supported,
+    get_spintype_from_outfile_filepath,
 )
 from crawfish.utils.caching import CachedFunction, validate_cache_dir
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 from crawfish.utils.indexing import get_kmap_from_edata, get_atom_orb_labels_dict
+from crawfish.utils.lattice import get_orb_atom_idx_u
+from crawfish.utils.symmetry import get_orbital_transform, apply_orbital_transform
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.io.jdftx.inputs import JDFTXInfile
 from pymatgen.io.jdftx.outputs import JDFTXOutfile
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.visualize import view
 from pymatgen.core.structure import Structure
-from pymatgen.core.units import Ha_to_eV
 from pathlib import Path
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
-from math import erf
-from crawfish.io.general import safe_load
+from scipy.special import erfc
+from crawfish.io.general import safe_load, read_file
 import shutil
 
 warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
 warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
 
+# ElecData warns when the band-space overlap S_t has an eigenvalue below this fraction of its largest at any state:
+# an orbital combination is then essentially missing from the bands (notes/theory_audit.md, finding F11)
+SPAN_WARN_RTOL = 1e-4
+# Signed (F2) state-resolved matrices, cached as <name>.npy in the settings sub-directory
+signed_mat_names = ["h_t_uv", "s_t_uv", "d_t_uv"]
 cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
 # Output files read during analysis - changes to any of these invalidate the cache (Gvectors/wfns are located but never read)
-source_filetypes = ["band", "eig", "out", "kpts", "fillings"]
+source_filetypes = ["band", "eig", "out", "kpts", "fillings", "sym"]
 
 edata_setting_key_shorthand_dict = {
+    "legacy_orbital_phase": "lgph",
+    "legacy_matrices": "lgmt",
+    "legacy_lattice_image": "lgri",
+    "legacy_fillings": "lgfl",
+    "legacy_reduced_kmesh": "lgkm",
+    "unfold_time_reversal": "utr",
+    "unfold_point_group": "upg",
+    "legacy_normalization": "lgnm",
+    "legacy_lowdin_cutoff": "lglw",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -63,6 +99,15 @@ def get_edata_settings_str(edata: ElecData) -> str:
     parts of the ElecData settings that would effect the character of the spectra.
     """
     parts_dict = {
+        "legacy_orbital_phase": edata.legacy_orbital_phase,
+        "legacy_matrices": edata.legacy_matrices,
+        "legacy_lattice_image": edata.legacy_lattice_image,
+        "legacy_fillings": edata.legacy_fillings,
+        "legacy_reduced_kmesh": edata.legacy_reduced_kmesh,
+        "unfold_time_reversal": edata.unfold_time_reversal,
+        "unfold_point_group": edata.unfold_point_group,
+        "legacy_normalization": edata.legacy_normalization,
+        "legacy_lowdin_cutoff": edata.legacy_lowdin_cutoff,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -93,6 +138,7 @@ class ElecData:
     outfile_suffix: str = "out"
     gvecfile_suffix: str = "Gvectors"
     wfnfile_suffix: str = "wfns"
+    symfile_suffix: str = "sym"
     #
     bandfile_filepath: Path | None = None
     kptsfile_filepath: Path | None = None
@@ -101,6 +147,7 @@ class ElecData:
     outfile_filepath: Path | None = None
     gvecfile_filepath: Path | None = None
     wfnfile_filepath: Path | None = None
+    symfile_filepath: Path | None = None
     ##
     proj_tju_filename: str = "proj_tju.npy"
     bandfile_header_filename: str = "bandProjections_header"
@@ -124,9 +171,14 @@ class ElecData:
     _p_t_uu: np.ndarray[REAL_DTYPE] | None = None
     _s_t_uu: np.ndarray[REAL_DTYPE] | None = None
     _h_t_uu: np.ndarray[REAL_DTYPE] | None = None
+    _coef_tju: np.ndarray[COMPLEX_DTYPE] | None = None
+    _h_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _s_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _d_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _occ_tj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
+    _orb_l_u: np.ndarray[int] | None = None
     _orbs_idx_dict: dict | None = None
     _kmap: list[str] | None = None
     _complex_bandprojs: bool | None = None
@@ -163,6 +215,8 @@ class ElecData:
     for both bands and orbitals.
     Making the projection vector at each state square also enables techniques requiring
     dual spaces of bands and orbitals (not yet implemented)
+    Deprecated (notes/theory_audit.md, finding F10): the bands are ranked by the sum of |T| over all k-points, so
+    every k keeps the same band indices, and the Sinkhorn rescaling of |T|^2 isn't unitary. Setting it warns.
     """
 
     def view_structure(self, **kwargs):
@@ -173,6 +227,374 @@ class ElecData:
         atoms = AseAtomsAdaptor.get_atoms(self.structure)
         view(atoms, **kwargs)
 
+    """
+    legacy_orbital_phase: If False (default), JDFTx band projections are multiplied by i^l for each orbital of
+    angular momentum l on load, converting them from JDFTx's convention (real-space orbitals are i^l times a
+    real orbital, as JDFTx omits the i^l of the plane-wave expansion) to real orbitals. If True, the raw dumped
+    projections are used, which reproduces crawfish results from before this fix: Re[T*_u T_v] is then ~0 for
+    orbital pairs with odd l_u - l_v (s-p, p-d), so those interactions are missing from every pair spectrum.
+    Kept so the effect of the fix can be measured without checking out old code.
+    Only applies to complex JDFTx projections (never to user_proj_tju). pDOS is unaffected either way.
+    See notes/theory_audit.md, finding F1.
+    """
+
+    @property
+    def legacy_orbital_phase(self) -> bool:
+        return self._legacy_orbital_phase
+
+    @legacy_orbital_phase.setter
+    def legacy_orbital_phase(self, value: bool):
+        if value != self._legacy_orbital_phase:
+            self._legacy_orbital_phase = value
+            # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_orbital_phase: bool = False
+
+    """
+    legacy_matrices: If False (default), pair spectra use signed matrices of the band-projected orbitals
+    (H_t = P^T e conj(P), S_t = P^T conj(P), density matrix D_t; see h_t_uv/s_t_uv/d_t_uv) and weights
+    w_t Re[conj(C_u) M_uv C_v], with C the expansion coefficients (coef_tju). If True, the pre-fix matrices are used
+    (h_uu/p_uu/s_uu and their _t_ versions). Those are built from squares of Re[T*_u T_v], so they carry no sign,
+    and the bonding/antibonding call is wrong whenever the true matrix element is positive (e.g. p-p sigma).
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F2.
+    """
+
+    @property
+    def legacy_matrices(self) -> bool:
+        return self._legacy_matrices
+
+    @legacy_matrices.setter
+    def legacy_matrices(self, value: bool):
+        if value != self._legacy_matrices:
+            self._legacy_matrices = value
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_matrices: bool = False
+
+    """
+    legacy_lattice_image: If False (default), pair spectra with image="nearest" (the default) use, for each atom
+    pair, the periodic image of the second atom nearest to the first: M_uv(R) e^{2 pi i k.R}, with R chosen by
+    distance from the positions JDFTx used. If True, "nearest" means R = (0,0,0) for every pair (the copy of the
+    second atom in the same cell, whatever its distance), which is what crawfish did before. That depends on how
+    the input happened to wrap the atoms into the cell. Explicit lattice vectors and image="all" behave the same
+    either way. Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F3.
+    """
+
+    @property
+    def legacy_lattice_image(self) -> bool:
+        return self._legacy_lattice_image
+
+    @legacy_lattice_image.setter
+    def legacy_lattice_image(self, value: bool):
+        if value != self._legacy_lattice_image:
+            self._legacy_lattice_image = value
+            # Only the choice of image changes (no matrices), but the weight and spectrum caches are per setting
+            self._init_caches()
+
+    _legacy_lattice_image: bool = False
+
+    """
+    legacy_fillings: If False (default), occupations read from a JDFTx `fillings` file are divided by JDFTx's spin
+    weight (2 for spintype no-spin, 1 otherwise). JDFTx writes fillings in [0, 2] for no-spin calculations
+    (Dump.cpp multiplies its internal [0, 1] fillings by 2 before writing), while the k-point weights already carry
+    the factor 2, so the raw file double-counts electrons. Occupations computed from mu and the smearing are
+    already in [0, 1]. Integrated spectra (get_i*) then weight states by these occupations directly. If True, the
+    raw file values are used, and integrated spectra divide occupations by their maximum (the pre-fix behaviour,
+    which hid the factor 2 for integrated spectra but not for the density matrix).
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F4.
+    """
+
+    @property
+    def legacy_fillings(self) -> bool:
+        return self._legacy_fillings
+
+    @legacy_fillings.setter
+    def legacy_fillings(self, value: bool):
+        if value != self._legacy_fillings:
+            self._legacy_fillings = value
+            # Reload occupations (and the band-dependent arrays trimming may have cut) before re-processing
+            self._occ_tj = None
+            self._e_tj = None
+            self._nbands = None
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_fillings: bool = False
+
+    """
+    legacy_reduced_kmesh: If False (default), k-point weights are JDFTx's own (from kPts, or from the
+    bandProjections header when kPts is missing), and calculations whose k-points were reduced by symmetry
+    (JDFTx 'symmetries automatic', the default) are guarded. On such a mesh, a single atom, bond or m-orbital is
+    averaged over its symmetry-equivalent copies: pair spectra for one lattice image (image="nearest" or a lattice
+    vector, including (0,0,0)) raise, and image="all" pair spectra and atom/orbital-subset pDOS warn. Those are
+    exact only for selections the point group maps onto themselves (complete orbital shells, complete sets of
+    equivalent atoms). If True, the pre-fix behaviour is restored: for spin-polarized reduced meshes the kPts
+    weights were discarded for uniform ones (a length check compared nspin*nk weights with nk), and nothing was
+    guarded. Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F5.
+    """
+
+    @property
+    def legacy_reduced_kmesh(self) -> bool:
+        return self._legacy_reduced_kmesh
+
+    @legacy_reduced_kmesh.setter
+    def legacy_reduced_kmesh(self, value: bool):
+        if value != self._legacy_reduced_kmesh:
+            self._legacy_reduced_kmesh = value
+            self._reset_kpoint_arrays()
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_reduced_kmesh: bool = False
+
+    """
+    unfold_time_reversal: If True (default), a k-mesh that JDFTx reduced only by time reversal (k <-> -k: JDFTx's
+    default `kpoint-reduce-inversion yes` with no other symmetry, e.g. `symmetries manual` with only the identity
+    matrix) is unfolded onto the full Monkhorst-Pack mesh. Each -k partner gets the conjugated projections,
+    T(-k) = T(k)*, and the eigenvalues and occupations of k. Each pair's JDFTx weight is split between k and -k.
+    This is exact for collinear calculations (no-spin, z-spin), whose Hamiltonian is real in each spin channel.
+    Single bonds, chosen lattice images, m-resolved results and LTI then all work as on a full mesh. Meshes
+    reduced by a point group also need unfold_point_group (and JDFTx's operations); otherwise they stay guarded.
+    Not applied when legacy_reduced_kmesh is True. See notes/theory_audit.md, finding F5.
+    """
+
+    @property
+    def unfold_time_reversal(self) -> bool:
+        return self._unfold_time_reversal
+
+    @unfold_time_reversal.setter
+    def unfold_time_reversal(self, value: bool):
+        if value != self._unfold_time_reversal:
+            self._unfold_time_reversal = value
+            self._reset_kpoint_arrays()
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _unfold_time_reversal: bool = True
+
+    """
+    unfold_point_group: If True (default), a k-mesh that JDFTx reduced by its space group (`symmetries
+    automatic`, or `symmetries manual` with several matrices) is unfolded onto the full Monkhorst-Pack mesh, using
+    JDFTx's own operations: the `sym` file written by `dump End Symmetries`, or the matrices echoed for `symmetries
+    manual`. Each full-mesh state is rebuilt from the computed state its k-point is a symmetry image of: the
+    operation permutes the atoms, rotates each orbital shell (real spherical harmonics in JDFTx's convention), and
+    multiplies by the Bloch phase of the lattice vector a mapped atom moves by; time reversal (unfold_time_reversal)
+    conjugates where needed. Eigenvalues and occupations are those of the source state. Single bonds, chosen
+    lattice images, m-resolved results and LTI then work as on a full mesh. Without the operations (a reduced run
+    without `dump End Symmetries`) the mesh stays reduced and guarded, as when this is False. Only for complex
+    projections of collinear calculations; not applied when legacy_reduced_kmesh is True.
+    See notes/theory_audit.md, finding F12.
+    """
+
+    @property
+    def unfold_point_group(self) -> bool:
+        return self._unfold_point_group
+
+    @unfold_point_group.setter
+    def unfold_point_group(self, value: bool):
+        if value != self._unfold_point_group:
+            self._unfold_point_group = value
+            self._reset_kpoint_arrays()
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _unfold_point_group: bool = True
+
+    """
+    legacy_normalization: If False (default), smeared spectra are densities that integrate to the state count:
+    the Gaussian kernel exp(-(E - e)^2 / sig) is divided by sqrt(pi * sig), and LTI weights are multiplied by
+    N_k, because libtetrabz weights already include the 1/N_k of the Brillouin-zone average. Gaussian and LTI
+    spectra are then on the same scale, in states (or weight units) per Hartree. If True, the pre-fix scales
+    are restored: the Gaussian integrated to sqrt(pi * sig) per state, and LTI to 1/N_k per state, so the two
+    methods disagreed. Peak shapes, `sig` and norm_max/norm_intg results are unchanged.
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F6.
+    """
+
+    @property
+    def legacy_normalization(self) -> bool:
+        return self._legacy_normalization
+
+    @legacy_normalization.setter
+    def legacy_normalization(self, value: bool):
+        if value != self._legacy_normalization:
+            self._legacy_normalization = value
+            # Only smeared spectra change; their caches live in the settings sub-directory
+            self._init_caches()
+
+    _legacy_normalization: bool = False
+
+    """
+    legacy_lowdin_cutoff: If False (default), the Löwdin step (los_orbs) runs in float64 and drops overlap
+    eigen-directions below LOWDIN_RTOL (1e-6) times the largest eigenvalue at that state, warning when it does. Such
+    directions are orbital combinations the bands don't span. If True, the pre-fix step is used: float32 with an
+    absolute cutoff of 1e-15, which kept eigenvalues of order 1e-8 (float32 noise) and scaled them up to unit
+    weight, or dropped them when the noise happened to be negative. Results only differ where the bands
+    leave orbitals unspanned (e.g. graphene with 8 bands), apart from float32 rounding.
+    Kept so the effect of the fix can be measured without checking out old code.
+    See notes/theory_audit.md, finding F10.
+    """
+
+    @property
+    def legacy_lowdin_cutoff(self) -> bool:
+        return self._legacy_lowdin_cutoff
+
+    @legacy_lowdin_cutoff.setter
+    def legacy_lowdin_cutoff(self, value: bool):
+        if value != self._legacy_lowdin_cutoff:
+            self._legacy_lowdin_cutoff = value
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_lowdin_cutoff: bool = False
+    _kmesh_unfolding: dict | bool | None = None
+    # (e_tj, occ_tj, nbands) from before trim_excess_bands cut them, so a later alloc_elec_data can restore them
+    _untrimmed_bands: tuple | None = None
+
+    def _reset_kpoint_arrays(self) -> None:
+        """Drop every array indexed by state, so they are rebuilt for the current k-point settings."""
+        for name in ["_proj_tju", "_e_tj", "_occ_tj", "_wk_t", "_ks_t", "_kfolding", "_lti_allowed", "_nstates",
+                     "_nbands", "_kmesh_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t"]:
+            setattr(self, name, None)
+
+    def _get_unfolding_ops(self) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Return the operations the k-mesh may be unfolded with, as (rot, a) pairs (see kmesh_unfolding)."""
+        identity = [(np.eye(3, dtype=np.int64), np.zeros(3))]
+        if not self.unfold_point_group or not self.bandprojfile_is_complex:
+            return identity  # |T|^2 projections can't be rotated
+        if self.symfile_filepath is not None:
+            return parse_symfile(self.symfile_filepath)
+        _, ops = get_symmetries_from_outfile_filepath(self.outfile_filepath)
+        return ops if ops else identity
+
+    @property
+    def kmesh_unfolding(self) -> dict | None:
+        """Return the map from the computed states onto the full k-mesh, or None if the mesh isn't unfolded.
+
+        The dict from get_kmesh_unfolding ("src_t", "op_t", "conj_t", "ks_t", "wfactor_t"), plus "w_raw" (JDFTx's
+        weights) and "ops" (the operations as (rot, a) pairs, indexed by "op_t"). The operations are JDFTx's own
+        (see unfold_point_group), or the identity alone when there are none, which unfolds a mesh reduced by time
+        reversal only (unfold_time_reversal). See notes/theory_audit.md, findings F5 and F12.
+        """
+        if self._kmesh_unfolding is None:
+            self._kmesh_unfolding = False
+            if (self.jdftx and not self.legacy_reduced_kmesh and self.outfile.spintype in ("no-spin", "z-spin")
+                    and (self.unfold_time_reversal or self.unfold_point_group)):
+                ops = self._get_unfolding_ops()
+                wk, ks, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
+                unfolding = get_kmesh_unfolding(
+                    ks, wk, self.nspin, get_kfolding_from_outfile_filepath(self.outfile_filepath),
+                    get_kpoint_offset_from_outfile_filepath(self.outfile_filepath),
+                    rots=[rot for rot, _ in ops], time_reversal=self.unfold_time_reversal,
+                )
+                if unfolding is not None:
+                    unfolding["w_raw"] = np.asarray(wk, dtype=np.float64)
+                    unfolding["ops"] = ops
+                    self._kmesh_unfolding = unfolding
+        return self._kmesh_unfolding or None
+
+    @property
+    def tr_unfolding(self) -> dict | None:
+        """Return kmesh_unfolding (the name from finding F5, when only time reversal was unfolded)."""
+        return self.kmesh_unfolding
+
+    @property
+    def kmesh_unfolded(self) -> bool:
+        """Return True if JDFTx reduced the k-mesh by symmetry and it has been unfolded to the full mesh."""
+        return self.kmesh_unfolding is not None
+
+    @property
+    def time_reversal_unfolded(self) -> bool:
+        """Return True if the k-mesh was reduced by time reversal only and has been unfolded to the full mesh."""
+        unfolding = self.kmesh_unfolding
+        if unfolding is None:
+            return False
+        return all(self._is_identity_op(unfolding["ops"][int(op)]) for op in np.unique(unfolding["op_t"]))
+
+    @property
+    def point_group_unfolded(self) -> bool:
+        """Return True if the k-mesh was unfolded with space-group operations other than the identity (F12)."""
+        return self.kmesh_unfolded and not self.time_reversal_unfolded
+
+    @staticmethod
+    def _is_identity_op(op: tuple[np.ndarray, np.ndarray]) -> bool:
+        rot, a = op
+        return bool(np.array_equal(rot, np.eye(3)) and np.allclose(a, 0.0))
+
+    @property
+    def nstates_file(self) -> int:
+        """Return the number of states JDFTx computed (before any unfolding of a reduced k-mesh)."""
+        return get_nstates_from_bandfile_filepath(self.bandfile_header_filepath)
+
+    def _unfold_states(self, arr: np.ndarray) -> np.ndarray:
+        """Index a per-state array (states first) onto the unfolded full mesh. Identity if not unfolded."""
+        unfolding = self.kmesh_unfolding
+        return arr if unfolding is None else arr[unfolding["src_t"]]
+
+    def _get_orbital_transforms(self) -> dict[int, dict | None]:
+        """Return, per operation used by kmesh_unfolding, how it maps the projections (None for the identity)."""
+        unfolding = self.kmesh_unfolding
+        if "transforms" not in unfolding:
+            st = self.structure
+            atom_u = get_orb_atom_idx_u(self)
+            species = [str(sp) for sp in st.species]
+            transforms = {}
+            for op in np.unique(unfolding["op_t"]):
+                rot, a = unfolding["ops"][int(op)]
+                transforms[int(op)] = None if self._is_identity_op((rot, a)) else get_orbital_transform(
+                    rot, a, st.lattice.matrix, st.frac_coords, species, atom_u, self.orb_l_u, self.orb_shell_u
+                )
+            unfolding["transforms"] = transforms
+        return unfolding["transforms"]
+
+    def _unfold_proj(self, proj_tju: np.ndarray, raw_phase: bool) -> np.ndarray:
+        """Return the projections of every full-mesh state from those JDFTx computed (see kmesh_unfolding).
+
+        raw_phase: whether proj_tju is in JDFTx's raw orbital convention (i^l times real orbitals; F1), where time
+        reversal gives T(-k) = (-1)^l T(k)* instead of T(k)*. Rotations act within an l shell, so they don't care.
+        """
+        unfolding = self.kmesh_unfolding
+        if unfolding is None:
+            return proj_tju
+        transforms = self._get_orbital_transforms() if np.iscomplexobj(proj_tju) else {}
+        tr_factor_u = ((-1.0) ** self.orb_l_u)[None, :] if raw_phase and np.iscomplexobj(proj_tju) else None
+        out = np.empty((len(unfolding["src_t"]),) + np.shape(proj_tju)[1:], dtype=np.asarray(proj_tju).dtype)
+        for t, (src, op, conj) in enumerate(zip(unfolding["src_t"], unfolding["op_t"], unfolding["conj_t"])):
+            p_ju = proj_tju[src]
+            if conj:
+                p_ju = np.conj(p_ju) if tr_factor_u is None else np.conj(p_ju) * tr_factor_u
+            transform = transforms.get(int(op))
+            if transform is not None:
+                p_ju = apply_orbital_transform(p_ju, transform, unfolding["ks_t"][t])
+            out[t] = p_ju
+        return out
+
+    @property
+    def kmesh_is_reduced(self) -> bool:
+        """Return True if JDFTx reduced the k-point mesh by symmetry (fewer states than nspin * prod(kpoint-folding))."""
+        return bool(self.jdftx and not self.lti_allowed)
+
+    @property
+    def orb_shell_u(self) -> np.ndarray[int]:
+        """Return a shell index per orbital (same atom, l and shell n share an index), in shape (nproj,)."""
+        if self.jdftx:
+            return get_orb_shell_u_from_bandfile_filepath(self.bandfile_header_filepath)
+        raise RuntimeError("orb_shell_u is only available for JDFTx calculations")
+
+    @property
+    def spin_weight(self) -> int:
+        """Return JDFTx's spinWeight: 2 for spintype no-spin (states hold both spins), 1 otherwise."""
+        if self.jdftx:
+            return 2 if self.outfile.spintype == "no-spin" else 1
+        return 2 if self.nspin == 1 else 1
+
     @property
     def trim_excess_bands(self) -> bool:
         return self._trim_excess_bands
@@ -180,9 +602,19 @@ class ElecData:
     @trim_excess_bands.setter
     def trim_excess_bands(self, value: bool):
         if value != self._trim_excess_bands:
+            if value:
+                warnings.warn(
+                    "trim_excess_bands is deprecated. It keeps the same nproj bands at every k-point, ranked by the "
+                    "sum of |T| over all k-points, and then rescales |T|^2 to be doubly stochastic, which isn't a "
+                    "unitary change of the projections. Use enough elec-n-bands and los_orbs instead "
+                    "(notes/theory_audit.md, finding F10).",
+                    FutureWarning,
+                    stacklevel=2,
+                )
             self._trim_excess_bands = value
-            self.alloc_elec_data()
+            # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
+            self.alloc_elec_data()
 
     _trim_excess_bands: bool = False
 
@@ -203,8 +635,9 @@ class ElecData:
     def los_orbs(self, value: bool):
         if value != self._los_orbs:
             self._los_orbs = value
-            self.alloc_elec_data()
+            # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
+            self.alloc_elec_data()
 
     _los_orbs: bool = True
 
@@ -214,6 +647,8 @@ class ElecData:
     (ie the sum of all orbital populations at each band/state is equal to the filling at that state/band).
     This also coincidentally makes the LCAO hamiltonian matrix preserve energy conservation, as it will ensure
     sum_{u,v} h_tj_uv = e_tj * f_tj (as h_tj_uu = p_tj_uu * e_tj).
+    Only used by the legacy matrices (legacy_matrices=True). The signed matrices need no such rescaling: their band
+    energy sum rule holds by construction (notes/theory_audit.md, findings F2 and F10).
     """
 
     @property
@@ -320,7 +755,8 @@ class ElecData:
         """
         if self._nstates is None:
             if self.jdftx:
-                self._nstates = get_nstates_from_bandfile_filepath(self.bandfile_header_filepath)
+                unfolding = self.kmesh_unfolding
+                self._nstates = self.nstates_file if unfolding is None else len(unfolding["src_t"])
         return self._nstates
 
     @property
@@ -359,6 +795,16 @@ class ElecData:
         return self._norbsperatom
 
     @property
+    def orb_l_u(self) -> np.ndarray[int]:
+        """Return the angular momentum l of each orbital projection, in shape (nproj,)."""
+        if self._orb_l_u is None:
+            if self.jdftx:
+                self._orb_l_u = get_orb_l_u_from_bandfile_filepath(self.bandfile_header_filepath)
+            else:
+                raise RuntimeError("orb_l_u is only available for JDFTx calculations")
+        return self._orb_l_u
+
+    @property
     def nspecies(self) -> list[int]:
         """Return number of unique elements in calculation.
 
@@ -389,7 +835,16 @@ class ElecData:
         """
         if self._mu is None:
             if self.jdftx:
-                self._mu = self.outfile.mu / Ha_to_eV
+                # Read in Hartree from the outfile, not pymatgen's outfile.mu, whose fallback is in Hartree while its
+                # main value is in eV (finding F10)
+                mu = get_mu_from_outfile_filepath(self.outfile_filepath)
+                if mu is None:
+                    # JDFTx prints mu (FillingsUpdate) only with smearing; occupations don't need it (F8)
+                    raise ValueError(
+                        "No chemical potential in the outfile (calculation without elec-smearing). "
+                        "Set edata.mu by hand, e.g. from the eigStats dump."
+                    )
+                self._mu = mu
             else:
                 raise ValueError("mu (Fermi level) must be set by user for non-JDFTx calculations")
         return self._mu
@@ -411,7 +866,8 @@ class ElecData:
         """
         if self._e_tj is None:
             if self.jdftx:
-                self._e_tj = get_e_tj_helper(self.eigfile_filepath, self.nstates, self.nbands)
+                e_tj = get_e_tj_helper(self.eigfile_filepath, self.nstates_file, self.nbands)
+                self._e_tj = self._unfold_states(e_tj)
         return self._e_tj
 
     @e_tj.setter
@@ -455,7 +911,8 @@ class ElecData:
 
         Set the _proj_tju variable. Loads from a precompiled binary file if available.
         Else, loads from the dumped text file and backs it up as a binary file, along
-        with a stripped text file only containing the header.
+        with a stripped text file only containing the header. The backup always holds the raw
+        dumped projections; the orbital phase convention (see legacy_orbital_phase) is applied after.
         """
         loaded_from_bandfile = False
         proj_tju = safe_load(self.proj_tju_filepath, allow_pickle=False)
@@ -465,6 +922,15 @@ class ElecData:
         self._proj_tju = proj_tju
         if loaded_from_bandfile:
             self._cache_proj_tju()
+        if self.jdftx and not self.legacy_orbital_phase and self.bandprojfile_is_complex:
+            self._proj_tju = apply_jdftx_orbital_phase(self._proj_tju, self.orb_l_u)
+        if self.jdftx:
+            # Rebuild every full-mesh state of a reduced k-mesh (findings F5 and F12). T(-k) = T(k)* for real
+            # orbitals; in JDFTx's raw convention (legacy_orbital_phase) they are i^l times real ones, which gives
+            # T(-k) = (-1)^l T(k)*.
+            self._proj_tju = self._unfold_proj(
+                self._proj_tju, raw_phase=self.legacy_orbital_phase and self.bandprojfile_is_complex
+            )
 
     def _cache_proj_tju(self) -> None:
         """ Back up bandprojections file in easier to load pieces.
@@ -526,8 +992,9 @@ class ElecData:
             return self._broadening_type
 
     @broadening_type.setter
-    def broadening_type(self, value: str):
-        if value not in ["Fermi", "Gauss", "MP1", "cold"]:
+    def broadening_type(self, value: str | None):
+        # JDFTx spells these Fermi, Gauss, MP1 and Cold (commands/elec_fillings.cpp); None means no smearing
+        if value is not None and value.lower() not in SMEARING_FUNCS and value.lower() != "none":
             raise ValueError(f"Unknown broadening type {value}")
         self._broadening_type = value
 
@@ -539,44 +1006,75 @@ class ElecData:
         """
         if self._occ_tj is None:
             if self.fillingsfile_filepath is None:
-                if self.jdftx:
-                    btype = self.outfile.broadening_type
-                    broad = self.outfile.broadening
-                else:
-                    btype = self._broadening_type
-                    broad = self._broadening
-                def bfunc(eig):
-                    return calculate_filling_nobroad(0.0, eig, self.mu)
-                if isinstance(btype, str):
-                    if btype == "Fermi":
-
-                        def bfunc(eig):
-                            return calculate_filling_fermi(broad, eig, self.mu)
-                    elif btype == "Gauss":
-
-                        def bfunc(eig):
-                            return calculate_filling_gauss(broad, eig, self.mu)
-                    elif btype == "MP1":
-
-                        def bfunc(eig):
-                            return calculate_filling_mp1(broad, eig, self.mu)
-                    elif btype == "cold":
-
-                        def bfunc(eig):
-                            return calculate_filling_cold(broad, eig, self.mu)
-                    elif btype.lower() == "none":
-
-                        def bfunc(eig):
-                            return calculate_filling_nobroad(0.0, eig, self.mu)
-                    else:
-                        raise ValueError(f"Unknown broadening type {btype}")
-                self._occ_tj = bfunc(self.e_tj)
+                self._occ_tj = self._calculate_occ_tj()
             else:
                 fillings = np.fromfile(self.fillingsfile_filepath)
                 fillings = np.array(fillings, dtype=REAL_DTYPE)
-                fillings = fillings.reshape(self.nstates, self.nbands)
+                fillings = self._unfold_states(fillings.reshape(self.nstates_file, self.nbands))
+                if not self.legacy_fillings:
+                    # JDFTx writes no-spin fillings in [0, 2] (Dump.cpp), but wk_t already carries the factor 2
+                    fillings = np.array(fillings / self.spin_weight, dtype=REAL_DTYPE)
+                    self._check_electron_count(fillings)
                 self._occ_tj = fillings
         return self._occ_tj
+
+    def _calculate_occ_tj(self) -> np.ndarray[REAL_DTYPE]:
+        """Compute occupations in [0, 1] from the eigenvalues when there is no `fillings` file (finding F8).
+
+        With smearing this is ElecInfo.cpp::ElecInfo::smear at the outfile's mu. Without smearing, JDFTx uses
+        constant fillings (FillingsConst), which don't depend on mu, and prints no mu: ElecInfo.cpp::ElecInfo::setup
+        fills the lowest bands of each state with N/2 electrons for no-spin, or (N +/- M)/2 for spin up/down in
+        z-spin, M being the `elec-initial-magnetization`. For non-JDFTx data without smearing, states below mu are
+        filled.
+        """
+        if self.jdftx:
+            btype, broad = self.outfile.broadening_type, self.outfile.broadening
+        else:
+            btype, broad = self._broadening_type, self._broadening
+        e_tj = np.asarray(self.e_tj, dtype=np.float64)
+        if btype is not None and btype.lower() in SMEARING_FUNCS:
+            occ_tj = SMEARING_FUNCS[btype.lower()](broad, e_tj, self.mu)
+        elif btype is None or btype.lower() == "none":
+            if self.jdftx:
+                occ_tj = calculate_fillings_constant(e_tj, self._constant_fillings_per_spin())
+            else:
+                occ_tj = calculate_filling_nobroad(0.0, e_tj, self.mu)
+        else:
+            raise ValueError(f"Unknown broadening type {btype}")
+        occ_tj = np.array(occ_tj, dtype=REAL_DTYPE)
+        self._check_electron_count(occ_tj)
+        return occ_tj
+
+    def _constant_fillings_per_spin(self) -> list[float]:
+        """Return the electrons per state in each spin channel for JDFTx constant fillings (ElecInfo::setup)."""
+        n_electrons = self.outfile.total_electrons
+        infile = self.outfile.infile
+        if "elec-initial-fillings" in infile:
+            warnings.warn(
+                "This calculation read its initial fillings from a file, which crawfish can't reproduce without "
+                "the `fillings` dump. The occupations assume the lowest bands are filled.",
+                stacklevel=4,
+            )
+        if self.nspin == 1:
+            return [n_electrons / 2]
+        mag = infile.get("elec-initial-magnetization")
+        m = float(mag["M"]) if isinstance(mag, dict) else 0.0
+        return [(n_electrons + m) / 2, (n_electrons - m) / 2]
+
+    def _check_electron_count(self, occ_tj: np.ndarray[REAL_DTYPE]) -> None:
+        """Warn if sum_t w_t sum_j f_tj differs from the electron count JDFTx reports (notes/theory_audit.md, F4)."""
+        if not self.jdftx:
+            return
+        n_expected = getattr(self.outfile, "total_electrons", None)
+        if n_expected is None:
+            return
+        n_found = float(np.sum(np.asarray(self.wk_t, dtype=np.float64)[:, None] * occ_tj))
+        if abs(n_found - n_expected) > 1e-2 * max(1.0, abs(n_expected)):
+            warnings.warn(
+                f"Occupations and k-point weights give {n_found:.4f} electrons, but the outfile reports "
+                f"{n_expected:.4f}. Check the spin type and k-point weights of this calculation.",
+                stacklevel=3,
+            )
 
     @occ_tj.setter
     def occ_tj(self, value: np.ndarray[REAL_DTYPE]):
@@ -604,6 +1102,69 @@ class ElecData:
             if val is not None:
                 self.set_mat_uu()
                 break
+        # Signed matrices (F2): coefficients depend on the projections, so they are always reset
+        self._coef_tju = None
+        if any(getattr(self, f"_{name}") is not None for name in signed_mat_names):
+            self.set_mat_uv()
+
+    def set_mat_uv(self) -> None:
+        """Load the signed matrices h_t_uv, s_t_uv, d_t_uv from the cache, or compute and cache them."""
+        arrs = {name: safe_load(self.cache_sub_dir / f"{name}.npy", allow_pickle=False) for name in signed_mat_names}
+        if any(arr is None for arr in arrs.values()):
+            e_tj = self.e_tj - self.mu if self.norm_eigs_for_h else self.e_tj
+            h_t_uv, s_t_uv, d_t_uv = get_h_s_d_t_uv(self.proj_tju, self.coef_tju, e_tj, self.occ_tj)
+            arrs = {"h_t_uv": h_t_uv, "s_t_uv": s_t_uv, "d_t_uv": d_t_uv}
+            for name, arr in arrs.items():
+                np.save(self.cache_sub_dir / f"{name}.npy", arr)
+        for name, arr in arrs.items():
+            setattr(self, f"_{name}", arr)
+
+    @property
+    def coef_tju(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the expansion coefficients of each band in the band-projected orbitals, in shape (nstates, nbands, nproj).
+
+        Equal to proj_tju when los_orbs is True (orthonormal orbitals). Otherwise C_t = P_t pinv(P_t^dag P_t).
+        See `crawfish.core.operations.matrix.get_coef_tju`.
+        """
+        if self._coef_tju is None:
+            self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs)
+        return self._coef_tju
+
+    @property
+    def h_t_uv(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the signed state-resolved Hamiltonian <chi_u|H|chi_v> of the band-projected orbitals, (nstates, nproj, nproj).
+
+        Eigenvalues are shifted by -mu when norm_eigs_for_h is True. That only changes the diagonal when los_orbs is
+        True, but in the non-orthogonal basis it shifts the COHP by -mu * COOP.
+        """
+        if self._h_t_uv is None:
+            self.set_mat_uv()
+        return self._h_t_uv
+
+    @property
+    def s_t_uv(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the signed state-resolved overlap <chi_u|O|chi_v> of the band-projected orbitals (identity if los_orbs)."""
+        if self._s_t_uv is None:
+            self.set_mat_uv()
+        return self._s_t_uv
+
+    @property
+    def d_t_uv(self) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the state-resolved density matrix sum_j f_tj C_tju conj(C_tjv), (nstates, nproj, nproj)."""
+        if self._d_t_uv is None:
+            self.set_mat_uv()
+        return self._d_t_uv
+
+    def get_mat_r0_suv(self, name: str) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the R=0 (same-cell) element of signed matrix `name` ("h", "s" or "d") per spin, (nspin, nproj, nproj)."""
+        return get_r0_suv(getattr(self, f"{name}_t_uv"), self.wk_t, self.nspin)
+
+    def get_mat_r_suv(self, name: str, R) -> np.ndarray[COMPLEX_DTYPE]:
+        """Return the real-space element <chi_u,0|M|chi_v,R> of signed matrix `name` ("h", "s" or "d") per spin.
+
+        R is a lattice vector (3 ints). Needs the full k-mesh; see `crawfish.core.operations.matrix.get_mat_r_suv`.
+        """
+        return get_mat_r_suv(getattr(self, f"{name}_t_uv"), self.wk_t, self.ks_t, self.nspin, R)
 
     def set_mat_uu(self) -> None:
         missing = False
@@ -647,7 +1208,7 @@ class ElecData:
 
     @property
     def h_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return state-resolved hamiltonian matrix of calculation.
+        """Return legacy (pre-F2, unsigned) state-resolved hamiltonian matrix of calculation (used when legacy_matrices is True).
 
         Return state-resolved hamiltonian matrix of calculation in shape (nstate, nproj, nproj).
         """
@@ -657,7 +1218,7 @@ class ElecData:
 
     @property
     def p_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return state-resolved projection matrix of calculation.
+        """Return legacy (pre-F2, unsigned) state-resolved projection matrix of calculation (used when legacy_matrices is True).
 
         Return state-resolved projection matrix of calculation in shape (nstate, nproj, nproj).
         """
@@ -667,7 +1228,7 @@ class ElecData:
 
     @property
     def s_t_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return state-resolved overlap matrix of calculation.
+        """Return legacy (pre-F2, unsigned) state-resolved overlap matrix of calculation (used when legacy_matrices is True).
 
         Return state-resolved overlap matrix of calculation in shape (nstate, nproj, nproj).
         """
@@ -677,7 +1238,7 @@ class ElecData:
 
     @property
     def h_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return hamiltonian matrix of calculation.
+        """Return legacy (pre-F2, unsigned) hamiltonian matrix of calculation (used when legacy_matrices is True).
 
         Return hamiltonian matrix of calculation in shape (nproj, nproj).
         """
@@ -687,7 +1248,7 @@ class ElecData:
 
     @property
     def p_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return projection matrix of calculation.
+        """Return legacy (pre-F2, unsigned) projection matrix of calculation (used when legacy_matrices is True).
 
         Return projection matrix of calculation in shape (nproj, nproj).
         """
@@ -697,7 +1258,7 @@ class ElecData:
 
     @property
     def s_uu(self) -> np.ndarray[REAL_DTYPE] | None:
-        """Return overlap matrix of calculation.
+        """Return legacy (pre-F2, unsigned) overlap matrix of calculation (used when legacy_matrices is True).
 
         Return overlap matrix of calculation in shape (nproj, nproj).
         """
@@ -770,7 +1331,19 @@ class ElecData:
         """
         if self._wk_t is None:
             if self.jdftx:
-                self._wk_t = get_wk_t(self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed)
+                unfolding = self.kmesh_unfolding
+                if unfolding is not None:
+                    # Each computed k-point's weight is split evenly over the full-mesh points it stands for
+                    self._wk_t = np.array(unfolding["w_raw"][unfolding["src_t"]] * unfolding["wfactor_t"], dtype=REAL_DTYPE)
+                elif self.kptsfile_filepath is None and not self.legacy_reduced_kmesh:
+                    # The bandProjections header lists every state's k-point and weight, like kPts
+                    wk, _, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
+                    self._wk_t = np.array(wk, dtype=REAL_DTYPE)
+                else:
+                    self._wk_t = get_wk_t(
+                        self.kptsfile_filepath, self.nspin, self.kfolding, self.lti_allowed,
+                        legacy=self.legacy_reduced_kmesh,
+                    )
         return self._wk_t
 
     @wk_t.setter
@@ -792,7 +1365,11 @@ class ElecData:
         """
         if self._ks_t is None:
             if self.jdftx:
-                self._ks_t = get_ks_t(self.kptsfile_filepath, self.bandfile_header_filepath)
+                unfolding = self.kmesh_unfolding
+                if unfolding is not None:
+                    self._ks_t = np.array(unfolding["ks_t"], dtype=REAL_DTYPE)
+                else:
+                    self._ks_t = get_ks_t(self.kptsfile_filepath, self.bandfile_header_filepath)
         return self._ks_t
     
     @ks_t.setter
@@ -810,7 +1387,10 @@ class ElecData:
         Return kpoint folding as a list of 3 integers.
         """
         if self._kfolding is None:
-            self._kfolding = get_kfolding(self.lti_allowed, self.outfile_filepath, self.nspin, self.nstates)
+            if self.jdftx and self.kmesh_unfolded:
+                self._kfolding = get_kfolding_from_outfile_filepath(self.outfile_filepath)
+            else:
+                self._kfolding = get_kfolding(self.lti_allowed, self.outfile_filepath, self.nspin, self.nstates)
         return self._kfolding
 
     @kfolding.setter
@@ -834,6 +1414,109 @@ class ElecData:
         return self._complex_bandprojs
 
     @property
+    def orbital_completeness_u(self) -> np.ndarray[REAL_DTYPE]:
+        """Return how much of each orbital lies in the span of the computed bands, in shape (nproj,).
+
+        The k-point-weighted average over states of sum_j |<phi_u|O|psi_j>|^2, from the projections JDFTx wrote.
+        That is the diagonal of the band-space overlap before any Löwdin step. JDFTx normalizes each orbital so
+        that <phi|O|phi> = 1, so values near 1 mean the bands represent the orbital fully, while low values mean
+        too few bands (`elec-n-bands`). It is independent of crawfish's settings: |T| doesn't depend on the orbital
+        phase. On a k-mesh reduced by symmetry it is taken over the unfolded mesh (kmesh_unfolding), since the point
+        group mixes the m of a shell and permutes equivalent atoms. See notes/theory_audit.md, findings F7 and F11.
+        """
+        if self.jdftx:
+            proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
+            if proj is None:
+                proj = get_proj_tju_from_file(self.bandfile_filepath)
+            if self.kmesh_unfolded:
+                proj, wk = self._unfold_proj(proj, raw_phase=True), self.wk_t
+            else:
+                wk, _, _ = parse_kptsfrom_bandfile_header(self.bandfile_header_filepath)
+        else:
+            proj, wk = self.user_proj_tju, self.wk_t
+        wk = np.asarray(wk, dtype=np.float64)
+        per_state = np.sum(np.abs(np.asarray(proj)) ** 2, axis=1)  # (t, u)
+        return np.array(np.tensordot(wk, per_state, axes=1) / np.sum(wk), dtype=REAL_DTYPE)
+
+    @property
+    def orbital_span_t(self) -> np.ndarray[REAL_DTYPE]:
+        """Return, per state, how well the computed bands span the orbitals, in shape (nstates,).
+
+        The smallest eigenvalue of S_t = P_t^dag P_t over its largest, from the projections JDFTx wrote. S_t is the
+        overlap of the orbitals' band-space parts at state t, which the Löwdin step (los_orbs) and the
+        non-orthogonal coefficients (S^-1 T) both invert. With ortho-orbital projections ('band-projection-params
+        yes ...') the true orbital overlap is the identity, so this is the fraction of the worst-represented
+        orbital combination that the bands hold. With non-orthogonal projections it also includes the
+        conditioning of the true orbital overlap, which isn't dumped (about 2e-3 for N2's s/p orbitals). Values
+        far below that mean an orbital combination is missing from the bands at that state: crawfish then
+        rebuilds it from bands that barely contain it, or drops it (see legacy_lowdin_cutoff). Independent of
+        crawfish's settings, like orbital_completeness_u. See notes/theory_audit.md, finding F11.
+        """
+        if self._orbital_span_t is None:
+            if self.jdftx:
+                proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
+                if proj is None:
+                    proj = get_proj_tju_from_file(self.bandfile_filepath)
+                # Every full-mesh state of a reduced k-mesh (the span is invariant, but which orbitals are weak isn't)
+                proj = self._unfold_proj(proj, raw_phase=True)
+            else:
+                proj = self.user_proj_tju
+            span_t = np.zeros(len(proj))
+            weakest_tu = np.zeros(np.shape(proj)[::2])
+            for t, p_ju in enumerate(np.asarray(proj, dtype=np.complex128)):
+                eigs, vecs = np.linalg.eigh(p_ju.conj().T @ p_ju)
+                span_t[t] = eigs[0] / eigs[-1]
+                weakest_tu[t] = np.abs(vecs[:, 0]) ** 2
+            self._orbital_span_t = np.array(span_t, dtype=REAL_DTYPE)
+            self._weakest_orbital_tu = weakest_tu
+        return self._orbital_span_t
+
+    _orbital_span_t: np.ndarray | None = None
+    # |eigenvector|^2 of the smallest eigenvalue behind orbital_span_t, per state, for naming the orbitals in warnings
+    _weakest_orbital_tu: np.ndarray | None = None
+
+    def _warn_if_bands_too_few(self, ndropped_t: np.ndarray | None = None) -> None:
+        """Warn when the bands leave an orbital combination (nearly) unspanned at some states (finding F11).
+
+        ndropped_t: directions the Löwdin step dropped per state (finding F10), reported in the same warning.
+        """
+        span_t = self.orbital_span_t
+        bad_t = span_t < SPAN_WARN_RTOL
+        if ndropped_t is not None and np.any(ndropped_t):
+            bad_t = bad_t | (ndropped_t > 0)
+        if not np.any(bad_t):
+            return
+        wk_t = np.asarray(self.wk_t, dtype=np.float64)
+        frac = wk_t[bad_t].sum() / wk_t.sum()
+        # Which orbitals the missing combinations are made of, summed over atoms of the same element
+        share = {}
+        for atom, idcs in self.orbs_idx_dict.items():
+            labels = self.atom_orb_labels_dict[atom.split(" #")[0]]
+            for label, u in zip(labels, idcs):
+                key = f"{atom.split(' #')[0]} {label}"
+                share[key] = share.get(key, 0.0) + float(np.sum(wk_t[bad_t] * self._weakest_orbital_tu[bad_t, u]))
+        total = sum(share.values())
+        names = ", ".join(k for k, v in sorted(share.items(), key=lambda kv: -kv[1]) if v >= 0.15 * total)
+        dropped = ""
+        if ndropped_t is not None and np.any(ndropped_t):
+            dropped = (f" The Löwdin step (los_orbs) dropped {int(np.sum(ndropped_t))} of these combination(s), "
+                       f"below {LOWDIN_RTOL:g}, so they get no weight there.")
+        warnings.warn(
+            f"Too few bands: at {int(np.count_nonzero(bad_t))} of {len(bad_t)} states ({100 * frac:.1f}% of the "
+            f"k-point weight), an orbital combination is almost missing from the bands (band-space overlap "
+            f"eigenvalue below {SPAN_WARN_RTOL:g} of the largest; smallest {float(span_t.min()):.1e}), mostly "
+            f"{names}.{dropped} Pair spectra (and pDOS with los_orbs) rebuild the orbitals from these bands, so they "
+            "aren't converged in the number of bands, often by several percent. Increase elec-n-bands until "
+            "edata.orbital_span_t has no small values (notes/theory_audit.md, findings F10 and F11).",
+            stacklevel=3,
+        )
+
+    @property
+    def bandprojfile_is_ortho(self) -> bool:
+        """Return True if JDFTx orthonormalized the orbitals before projecting (band-projection-params yes ...)."""
+        return "ortho-orbital-projections" in read_file(self.bandfile_header_filepath)[0]
+
+    @property
     def lti_allowed(self) -> bool:
         """Return if LTI is allowed.
 
@@ -841,8 +1524,15 @@ class ElecData:
         automatically reduced the k-point mesh to a non-MK pack grid, and the existence of a kpts file
         to refer to).
         """
+        if self._lti_allowed is None and self.jdftx and self.kmesh_unfolded:
+            self._lti_allowed = True  # the unfolded states are the full mesh
         if self._lti_allowed is None:
-            self._lti_allowed = _get_lti_allowed(self.bandfile_header_filepath, self.outfile_filepath)
+            with warnings.catch_warnings():
+                if not self.legacy_reduced_kmesh:
+                    # Reduced meshes are handled (and guarded where it matters) since F5, so the generic
+                    # "internal inconsistency" warning is only kept for the legacy behaviour
+                    warnings.filterwarnings("ignore", message=".*Internal inconsistency.*")
+                self._lti_allowed = _get_lti_allowed(self.bandfile_header_filepath, self.outfile_filepath)
         return self._lti_allowed
 
     @classmethod
@@ -971,6 +1661,8 @@ class ElecData:
             self.calc_dir = Path(calc_dir)
             if calc_dir is not None:
                 self._set_files_paths()
+                # Before the cache directory is made or pymatgen parses the outfile (finding F9)
+                check_spintype_supported(get_spintype_from_outfile_filepath(self.outfile_filepath))
                 self._set_backup_files_paths()
                 self.alloc_elec_data()
         else:
@@ -1008,10 +1700,10 @@ class ElecData:
     
         
 
-    def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings"]):
+    def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings", "sym"]):
         if self.fprefix is None:
             raise RuntimeError("File prefix (fprefix) must be set before setting file paths")
-        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn"]:
+        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn", "sym"]:
             suffix = getattr(self, f"{filetype}file_suffix")
             filepath = self._get_filepath_generic(suffix)
             if filepath is None and filetype not in optional_sufficies:
@@ -1079,6 +1771,13 @@ class ElecData:
 
     def alloc_elec_data(self):
         self._set_proj_tju()
+        if self._untrimmed_bands is not None:
+            # _set_proj_tju reloaded every band, so undo an earlier trim_excess_bands. Arrays a setter reset to None
+            # are re-derived instead. Before finding F10, the trimmed arrays were indexed with untrimmed band indices.
+            for name, arr in zip(["_e_tj", "_occ_tj", "_nbands"], self._untrimmed_bands):
+                if getattr(self, name) is not None:
+                    setattr(self, name, arr)
+            self._untrimmed_bands = None
         #_ = self.proj_tju
         _ = self.occ_tj
         _ = self.e_tj
@@ -1087,6 +1786,7 @@ class ElecData:
             self._trim_excess_bands = False
             self._los_orbs = False
         if self.trim_excess_bands:
+            self._untrimmed_bands = (self.e_tj, self.occ_tj, self.nbands)
             bestj = get_best_bands(self.proj_tju)
             _e_tj = self.e_tj[:, bestj]
             _proj_tju = self.proj_tju[:, bestj, :]
@@ -1096,8 +1796,13 @@ class ElecData:
             self._proj_tju = _proj_tju
             self._occ_tj = _occ_tj
             self._nbands = self.nproj
+        ndropped_t = None
         if self.los_orbs:
-            self._proj_tju = los_projs_for_orbs(self.proj_tju)
+            self._proj_tju, ndropped_t = los_projs_for_orbs(
+                self.proj_tju, legacy=self.legacy_lowdin_cutoff, return_ndropped=True
+            )
+        # One warning for unspanned orbitals (F11) and the directions Löwdin dropped (F10; not counted on the legacy path)
+        self._warn_if_bands_too_few(None if self.legacy_lowdin_cutoff else ndropped_t)
         self.reval_mat_uu()
 
     #################
@@ -1108,6 +1813,7 @@ class ElecData:
         Remove normalization from projections.
         """
         self._proj_tju = None
+        self._coef_tju = None
         _ = self.proj_tju
         self.norm_idx = None
         return None
@@ -1237,37 +1943,63 @@ def get_best_bands(unnorm_proj_tju):
     return idcs_return
 
 
-# @jit(nopython=True)
-def calculate_filling_fermi(broadening: float, eig: float, efermi: float) -> float:
+# Occupations in [0, 1] as in ElecInfo.cpp::ElecInfo::smear, with x = (eig - mu) / (2 * broadening). They take
+# scalars or arrays (the old math.erf versions raised TypeError on arrays, finding F8)
+def calculate_filling_fermi(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
     filling = 0.5 * (1 - np.tanh(x))
     return filling
 
 
-# @jit(nopython=True)
-def calculate_filling_gauss(broadening: float, eig: float, efermi: float) -> float:
+def calculate_filling_gauss(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - erf(x))
+    filling = 0.5 * erfc(x)
     return filling
 
 
-# @jit(nopython=True)
-def calculate_filling_mp1(broadening: float, eig: float, efermi: float) -> float:
+def calculate_filling_mp1(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - erf(x)) - x * np.exp(-1 * x**2) / (2 * np.pi**0.5)
+    filling = 0.5 * erfc(x) - x * np.exp(-1 * x**2) / (2 * np.pi**0.5)
     return filling
 
 
-# @jit(nopython=True)
-def calculate_filling_cold(broadening: float, eig: float, efermi: float) -> float:
+def calculate_filling_cold(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
     x = (eig - efermi) / (2.0 * broadening)
-    filling = 0.5 * (1 - erf(x + 0.5**0.5)) + np.exp(-1 * (x + 0.5**0.5) ** 2) / (2 * np.pi) ** 0.5
+    filling = 0.5 * erfc(x + 0.5**0.5) + np.exp(-1 * (x + 0.5**0.5) ** 2) / (2 * np.pi) ** 0.5
     return filling
 
-# @jit(nopython=True)
-def calculate_filling_nobroad(broadening: float, eig: float, efermi: float) -> float:
-    filling = np.heaviside(eig, efermi)
+
+def calculate_filling_nobroad(broadening: float, eig: float | np.ndarray, efermi: float) -> float | np.ndarray:
+    # Step function: 1 below mu, 0 above, 1/2 at mu. It was np.heaviside(eig, efermi), which filled every state
+    # above 0 Ha regardless of mu (F8)
+    filling = np.heaviside(efermi - eig, 0.5)
     return filling
+
+
+SMEARING_FUNCS = {
+    "fermi": calculate_filling_fermi,
+    "gauss": calculate_filling_gauss,
+    "mp1": calculate_filling_mp1,
+    "cold": calculate_filling_cold,
+}
+
+
+def calculate_fillings_constant(e_tj: np.ndarray, nelec_per_state_s: list[float]) -> np.ndarray:
+    """Return JDFTx's constant fillings (no smearing) in shape (nstates, nbands).
+
+    Each state of spin s gets nelec_per_state_s[s] electrons, filling bands from the lowest up with occupation 1 and
+    a fractional last band, as in ElecInfo.cpp::ElecInfo::setup. States are spin-major, as everywhere in crawfish.
+    """
+    nstates, nbands = np.shape(e_tj)
+    nspin = len(nelec_per_state_s)
+    occ_tj = np.zeros((nstates, nbands), dtype=REAL_DTYPE)
+    for t in range(nstates):
+        order = np.argsort(e_tj[t], kind="stable")
+        remaining = nelec_per_state_s[t * nspin // nstates]
+        for j in order:
+            occ_tj[t, j] = min(1.0, max(0.0, remaining))
+            remaining -= occ_tj[t, j]
+    return occ_tj
 
 
 cache_dir_readme_lines = [

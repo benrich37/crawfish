@@ -1,0 +1,6 @@
+include common.in
+initial-state totalE.$VAR
+band-projection-params no no
+dump-name nonortho.$VAR
+dump End BandEigs BandProjections
+dump-only

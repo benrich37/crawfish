@@ -1,0 +1,25 @@
+# Graphene, z-spin, 12x12x1 k-mesh, symmetries none: crawfish test fixture for symmetry-reduced k-meshes (finding F5)
+lattice \
+    4.6487 -2.32435 0.0 \
+    0.0 4.025892 0.0 \
+    0.0 0.0 20.0
+coords-type Lattice
+ion C  0.333333333333  0.666666666667  0.5 0
+ion C  0.666666666667  0.333333333333  0.5 0
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/GBRV/c_pbe_v1.2.uspp
+core-overlap-check none
+
+elec-ex-corr gga-PBE
+elec-cutoff 20 100
+elec-n-bands 20
+elec-smearing Fermi 0.005
+spintype z-spin
+elec-initial-magnetization 0.0 no
+symmetries none
+kpoint-folding 12 12 1
+converge-empty-states yes
+electronic-minimize energyDiffThreshold 1e-8
+
+band-projection-params yes no
+dump-name $VAR
+dump End BandEigs BandProjections Fillings Kpoints EigStats

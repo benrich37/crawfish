@@ -16,7 +16,8 @@ def test_outfile_parsing():
 
     outfile_filepath = exfdir / "out"
     assert get_nspin_from_outfile_filepath(outfile_filepath) == 2
-    assert get_mu_from_outfile_filepath(outfile_filepath) == pytest.approx(-0.247047099)
+    # The last FillingsUpdate line; -0.247047099 is the first one, printed during LCAO (finding F10)
+    assert get_mu_from_outfile_filepath(outfile_filepath) == pytest.approx(-0.095776193)
     kfold_known = [3, 3, 3]
     for i in range(3):
         assert get_kfolding_from_outfile_filepath(outfile_filepath)[i] == kfold_known[i]

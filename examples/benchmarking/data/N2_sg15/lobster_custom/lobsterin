@@ -1,0 +1,9 @@
+COHPstartEnergy  -30
+COHPendEnergy     15
+useBasisSet Custom
+customSTOforAtom N N.sto
+basisFunctions N 2s 2p
+cohpbetween atom 1 and atom 2 orbitalwise
+writeMatricesToFile
+printTotalSpilling
+gaussianSmearingWidth 0.05
