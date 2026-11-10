@@ -10,14 +10,15 @@ from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 
 def get_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[REAL_DTYPE]:
-    r"""Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
+    r"""Get the legacy (pre-F2, unsigned) overlap tensor S_{t,j,u,v} = (Re[T_{t,j,u}^* T_{t,j,v}])^2.
 
-    Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
+    The real part of the projection product is taken first and then squared, so the tensor carries no sign
+    (README, "Legacy formalism"). Kept as a test reference for `get_h_p_s_t_uu_and_uu`.
 
     Parameters
     ----------
     proj_tju : np.ndarray
-        The projection tensor T_{t,j,u} = <\phi_{t,j} | u>
+        The projection tensor T_{t,j,u} = <u | O | \psi_{t,j}>
     r"""
     t, j, u = np.shape(proj_tju)
     s_tj_uu = np.zeros([t, j, u, u], dtype=COMPLEX_DTYPE)
@@ -33,17 +34,17 @@ def get_p_tj_uu(
     wk_t: np.ndarray[REAL_DTYPE],
     sys_consistent: bool = True,
 ) -> np.ndarray[REAL_DTYPE]:
-    r"""Get the projected density of states tensor P_{t,j,u,u} = Sum_{u} |T_{t,j,u}|^2 w_{t}.
+    r"""Get the legacy (pre-F2, unsigned) population tensor P_{t,j,u,v} = S_{t,j,u,v} occ_{t,j} w_{t}.
 
-    Get the projected density of states tensor P_{t,j,u,u} = Sum_{u} |T_{t,j,u}|^2 w_{t}.
-    Creates with restriction of electron conservation (sum_{u,v}P_{t,j,u,v} = occ_{t,j}*wk_{t}).
+    With sys_consistent=True (ElecData.p_uu_consistent), each band's S is first divided by sum_{u,v} S_{t,j,u,v},
+    so that sum_{u,v} P_{t,j,u,v} = occ_{t,j} * wk_{t}. Kept as a test reference (README, "Legacy formalism").
 
     Parameters
     ----------
     s_tj_uu : np.ndarray
-        The overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*)
+        The legacy overlap tensor S_{t,j,u,v} = (Re[T_{t,j,u}^* T_{t,j,v}])^2 from `get_s_tj_uu`
     occ_tj : np.ndarray
-        The occupation tensor occ_{t,j} = <\phi_{t,j} | \phi_{t,j}>
+        The occupations f_{t,j}
     wk_t : np.ndarray
         The k-point weights w_{t}
     r"""

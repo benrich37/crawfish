@@ -231,8 +231,11 @@ class ElecData:
     legacy_orbital_phase: If False (default), JDFTx band projections are multiplied by i^l for each orbital of
     angular momentum l on load, converting them from JDFTx's convention (real-space orbitals are i^l times a
     real orbital, as JDFTx omits the i^l of the plane-wave expansion) to real orbitals. If True, the raw dumped
-    projections are used, which reproduces crawfish results from before this fix: Re[T*_u T_v] is then ~0 for
-    orbital pairs with odd l_u - l_v (s-p, p-d), so those interactions are missing from every pair spectrum.
+    projections are used: Re[T*_u T_v] is then ~0 for orbital pairs with odd l_u - l_v (s-p, p-d) and has the
+    wrong sign for l_u - l_v = +/-2 (s-d). With the signed matrices (legacy_matrices False, the default), pCOHP,
+    pCOOP and pCOBI don't depend on a phase per orbital, so this setting alone only changes pCOMO. Together with
+    legacy_matrices=True it reproduces crawfish results from before this fix, where those interactions were
+    missing from (or had the wrong sign in) every pair spectrum.
     Kept so the effect of the fix can be measured without checking out old code.
     Only applies to complex JDFTx projections (never to user_proj_tju). pDOS is unaffected either way.
     See notes/theory_audit.md, finding F1.
@@ -666,7 +669,13 @@ class ElecData:
     _p_uu_consistent: bool = True
 
     """
-    norm_eigs_for_h: WRITE ME
+    norm_eigs_for_h: If True (default), eigenvalues are measured from the Fermi level (e - mu) when the Hamiltonian
+    matrices are built (h_t_uv, and the legacy h_uu/h_t_uu). For the signed matrices this is H -> H - mu S. In the
+    orthonormal basis (los_orbs True) S is the identity, so only diagonal elements change and pair spectra don't,
+    except at states where the Löwdin step dropped an orbital direction (S is then a projector, and pair values
+    depend on the energy zero). In the non-orthogonal basis (los_orbs False) it shifts pCOHP by -mu * pCOOP
+    (Glassey & Hoffmann, J. Chem. Phys. 113, 1698 (2000)). Needs mu, which JDFTx only prints with elec-smearing:
+    for a calculation without smearing, set edata.mu by hand or set this to False.
     """
 
     @property
@@ -888,7 +897,7 @@ class ElecData:
     def e_sabcj(self) -> np.ndarray[REAL_DTYPE]:
         """Return eigenvalues of calculation.
 
-        Return eigenvalues of calculation in shape (nstate, nbands).
+        Return eigenvalues of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
         """
         return self.e_tj.reshape([self.nspin] + list(self.kfolding) + [self.nbands])
 
@@ -1002,7 +1011,7 @@ class ElecData:
     def occ_tj(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return occupations of calculation.
 
-        Return occupations of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
+        Return occupations of calculation in shape (nstates, nbands), per state in [0, 1].
         """
         if self._occ_tj is None:
             if self.fillingsfile_filepath is None:
@@ -1135,7 +1144,8 @@ class ElecData:
         """Return the signed state-resolved Hamiltonian <chi_u|H|chi_v> of the band-projected orbitals, (nstates, nproj, nproj).
 
         Eigenvalues are shifted by -mu when norm_eigs_for_h is True. That only changes the diagonal when los_orbs is
-        True, but in the non-orthogonal basis it shifts the COHP by -mu * COOP.
+        True (unless the Löwdin step dropped an orbital direction at that state, where S is a projector instead of
+        the identity), but in the non-orthogonal basis it shifts the COHP by -mu * COOP.
         """
         if self._h_t_uv is None:
             self.set_mat_uv()
@@ -1327,7 +1337,7 @@ class ElecData:
     def wk_t(self) -> np.ndarray[REAL_DTYPE]:
         """Return kpoint weights.
 
-        Return kpoint weights in shape (kfolding[0], kfolding[1], kfolding[2]).
+        Return kpoint weights in shape (nstates,). They carry the spin factor and sum to 2, as in JDFTx.
         """
         if self._wk_t is None:
             if self.jdftx:
@@ -1361,7 +1371,7 @@ class ElecData:
     def ks_t(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return kpoint coordinates.
 
-        Return kpoint coordinates in shape (nspin, kfolding[0], kfolding[1], kfolding[2], 3).
+        Return kpoint coordinates in shape (nstates, 3), in reciprocal-lattice coordinates.
         """
         if self._ks_t is None:
             if self.jdftx:

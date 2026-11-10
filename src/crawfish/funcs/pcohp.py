@@ -528,9 +528,10 @@ def get_pcoop(
     use_cached_spectrum: bool = True,
     save_spectrum: bool = True,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
-    """Get the PDOS spectrum for the system of interest.
+    """Get the pCOOP spectrum for the system of interest.
 
-    Get the energy array / PDOS spectrum pair for the system of interest.
+    Get the energy array / pCOOP spectrum pair for the system of interest. pCOOP between different orbitals is
+    zero in the default orthonormal basis; use los_orbs=False with non-orthogonal projections (see the README).
 
     Parameters
     ----------
@@ -683,9 +684,11 @@ def get_pcobi(
     use_cached_spectrum: bool = True,
     save_spectrum: bool = True,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
-    """Get the PDOS spectrum for the system of interest.
+    """Get the pCOBI spectrum for the system of interest.
 
-    Get the energy array / PDOS spectrum pair for the system of interest.
+    Get the energy array / pCOBI spectrum pair for the system of interest. The weights use the density matrix
+    built from occupations in [0, 1], so the integrated pCOBI of two atoms is half the Wiberg/Mayer bond index
+    (a single bond gives about 0.5; see the README).
 
     Parameters
     ----------

@@ -147,7 +147,9 @@ def get_generic_spectrum(
     spin_pol : bool
         Return separate spectra for up/down intensities if True.
     sig : REAL_DTYPE
-        The standard deviation of the Gaussian/Lorentzian-Tetrahedron smearing.
+        Width parameter of the Gaussian kernel exp(-(E - e)^2 / sig), i.e. 2 * (standard deviation)^2. Not used
+        with lti. The default (standard deviation 2.2e-3 Ha) is narrower than the default `res`, so pass a finer
+        `res`/`erange` or a larger `sig` when peak heights or areas matter.
     res : REAL_DTYPE
         The resolution of the energy range if erange is None.
     lti : bool
@@ -213,8 +215,6 @@ def get_generic_lti_spectrum(
         The energy range of interest.
     spin_pol : bool
         Return separate spectra for up/down intensities if True.
-    sig : REAL_DTYPE
-        The standard deviation of the Lorentzian-Tetrahedron smearing.
     res : REAL_DTYPE
         The resolution of the energy range if erange is None.
     rattle_eigenvals : bool
