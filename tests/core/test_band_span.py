@@ -94,3 +94,32 @@ def test_legacy_lowdin_path_reports_no_dropped_directions():
     assert "dropped 4 of these combination" in msgs[0]
     _, msgs = _load("graphene_zspin_full", legacy_lowdin_cutoff=True)
     assert msgs and "dropped" not in msgs[-1]
+
+
+def test_warning_says_energy_zero_matters_where_lowdin_dropped():
+    # Where the Löwdin step dropped a direction, S is a projector, so H - mu S changes off-diagonal H (finding F15)
+    from crawfish.funcs import get_ipcohp
+
+    edata, msgs = _load("N2_nospin_10bands")
+    assert len(msgs) == 1 and "dropped 2 of these" in msgs[0] and "norm_eigs_for_h" in msgs[0] and "F15" in msgs[0]
+    shifted = float(get_ipcohp(edata, idcs1=0, idcs2=1, use_cache=False)[1][-1])
+    edata.norm_eigs_for_h = False
+    unshifted = float(get_ipcohp(edata, idcs1=0, idcs2=1, use_cache=False)[1][-1])
+    assert shifted == pytest.approx(-0.8497, abs=2e-4) and unshifted == pytest.approx(-0.8622, abs=2e-4)
+    # With enough bands nothing is dropped, nothing warns, and the energy zero doesn't matter
+    edata, msgs = _load("N2_nospin")
+    assert msgs == []
+
+
+def test_fewer_bands_than_orbitals_warns(tmp_path):
+    from crawfish.core.elecdata import ElecData
+    from crawfish.utils.testing import write_band_truncated_copy
+
+    calc_dir = write_band_truncated_copy(calc_dirs / "N2_nospin", 6, tmp_path / "N2_6bands")  # 6 bands, 8 orbitals
+    with pytest.warns(UserWarning, match="fewer bands"):
+        edata = ElecData(calc_dir)
+    assert not edata.los_orbs and "lou_False" in edata.cache_sub_dir.name
+    # Asking for the Löwdin basis warns again, and the settings string keeps saying what is done
+    with pytest.warns(UserWarning, match="fewer bands"):
+        edata.los_orbs = True
+    assert not edata.los_orbs and "lou_False" in edata.cache_sub_dir.name

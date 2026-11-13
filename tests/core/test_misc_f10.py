@@ -45,8 +45,11 @@ def test_mu_skips_lcao_lines(tmp_path):
     out = calc_dirs / "Si_nosmear_nospin" / "out"
     assert "FillingsUpdate:  mu: +0.267051037" in out.read_text()
     assert get_mu_from_outfile_filepath(out) is None
-    with pytest.raises(ValueError, match="No chemical potential"):
-        _ = _edata("Si_nosmear_nospin").mu
+    # Since F20, ElecData.mu is the HOMO-LUMO midpoint for such runs (eigStats: HOMO +0.229427, LUMO +0.255089), not
+    # the LCAO value
+    edata = _edata("Si_nosmear_nospin")
+    with pytest.warns(UserWarning, match="midpoint of the HOMO"):
+        assert edata.mu == pytest.approx(0.5 * (0.229427 + 0.255089), abs=1e-6)
     lines = out.read_text().split("\n")
     start = next(i for i, line in enumerate(lines) if line.startswith("Dumping 'eigStats'"))
     end = next(i for i in range(start + 1, len(lines)) if not lines[i].startswith("\t"))

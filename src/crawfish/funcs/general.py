@@ -13,12 +13,47 @@ import numpy as np
 from scipy.integrate import trapezoid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+import warnings
 
 if TYPE_CHECKING:
     from typing import Any
 
+# Gaussian width parameter sig (kernel exp(-(E - e)^2 / sig)): standard deviation sqrt(sig / 2) = 2.2e-3 Ha
 SIGMA_DEFAULT = REAL_DTYPE(0.00001)
-RES_DEFAULT = REAL_DTYPE(0.01)
+# Grid step (Ha) of an automatic energy range. 1e-3 Ha is under half the default standard deviation, so the area of
+# a peak on the grid is its weight to well below 1e-6. It was 0.01 Ha (4.5 standard deviations) before finding F17,
+# when a peak's area on the grid ranged from 0.29 to 1.78 of its weight; pass res=0.01 for that grid.
+RES_DEFAULT = REAL_DTYPE(0.001)
+# A Gaussian peak's area on a grid of step h is off by up to 2 exp(-2 pi^2 (std / h)^2): 1.4% at h = 2 std
+GRID_STEP_WARN_STD = 2.0
+
+
+def _resolve_erange(edata: ElecData, erange, res, sig, lti: bool) -> np.ndarray[REAL_DTYPE]:
+    """Return the energy grid of a spectrum: `erange` as given, or the automatic one (finding F17).
+
+    Every function that needs the grid of one spectrum call (the spectrum itself, its cache path, the returned
+    erange) gets it from here, so they always agree. The automatic range is padded by max(10 res, 5 standard
+    deviations) for Gaussian spectra and by 10 res for LTI (see utils/arg_correction.get_erange).
+    """
+    return get_erange(edata, erange, res=res, sig=None if lti else sig)
+
+
+def _warn_if_grid_too_coarse(erange: np.ndarray, sig) -> None:
+    """Warn when the grid step exceeds GRID_STEP_WARN_STD standard deviations of the Gaussian (finding F17)."""
+    if len(erange) < 2:
+        return
+    step = float(np.max(np.diff(np.asarray(erange, dtype=np.float64))))
+    std = float(np.sqrt(float(sig) / 2))
+    if step > GRID_STEP_WARN_STD * std:
+        warnings.warn(
+            f"The energy grid step ({step:.2g} Ha) is more than {GRID_STEP_WARN_STD:g} standard deviations of the "
+            f"Gaussian ({std:.2g} Ha, from sig={float(sig):g} Ha^2), so the area of each peak on the grid depends on "
+            "where its eigenvalue falls between grid points, by more than 1% (up to several times its weight for "
+            f"steps of 4 or more standard deviations). Pass a finer `res` or `erange` (step <= "
+            f"{GRID_STEP_WARN_STD * std:.2g} Ha) or a larger `sig`. Integrated spectra (get_i*) are exact sums and "
+            "aren't affected (finding F17).",
+            stacklevel=4,
+        )
 
 
 def get_generic_integrate(
@@ -81,6 +116,8 @@ def evaluate_or_retrieve_generic_spectrum(
     use_cached_spectrum: bool = True,
     save_spectrum: bool = True,
 ):
+    # Resolved once, so the cache path, the spectrum and the returned erange share one grid (finding F17)
+    erange = _resolve_erange(edata, erange, res, sig, lti)
     spectrum_file_path = get_spectrum_file_path(
         edata,
         func_name,
@@ -98,6 +135,8 @@ def evaluate_or_retrieve_generic_spectrum(
     if spectrum_file_path.is_file() and use_cached_spectrum:
         # print(f"Using cached spectrum at {spectrum_file_path}")
         spectrum = np.load(spectrum_file_path)
+        if not lti:
+            _warn_if_grid_too_coarse(erange, sig)
     else:
         erange, spectrum = get_generic_spectrum(
             edata,
@@ -114,8 +153,6 @@ def evaluate_or_retrieve_generic_spectrum(
         )
         if save_spectrum:
             np.save(spectrum_file_path, spectrum)
-    if erange is None:
-        erange = get_erange(edata, erange, res=res)
     return erange, spectrum
 
 
@@ -148,10 +185,12 @@ def get_generic_spectrum(
         Return separate spectra for up/down intensities if True.
     sig : REAL_DTYPE
         Width parameter of the Gaussian kernel exp(-(E - e)^2 / sig), i.e. 2 * (standard deviation)^2. Not used
-        with lti. The default (standard deviation 2.2e-3 Ha) is narrower than the default `res`, so pass a finer
-        `res`/`erange` or a larger `sig` when peak heights or areas matter.
+        with lti. The default is a standard deviation of 2.2e-3 Ha. A grid step above 2 standard deviations warns,
+        since peak areas on the grid then depend on where each eigenvalue falls (finding F17).
     res : REAL_DTYPE
-        The resolution of the energy range if erange is None.
+        The resolution of the energy range if erange is None (default 1e-3 Ha; it was 1e-2 Ha before finding F17,
+        and res=0.01 still gives that grid). The automatic range is padded by max(10 res, 5 standard deviations)
+        beyond the extreme eigenvalues, or 10 res with lti.
     lti : bool
         Use the linear tetrahedron integration method.
     rattle_eigenvals : bool
@@ -164,7 +203,9 @@ def get_generic_spectrum(
     sep_channels : bool
         Return separate spectra for positive/negative intensities if True.
     """
-    erange = get_erange(edata, erange, res=res)
+    erange = _resolve_erange(edata, erange, res, sig, lti)
+    if not lti:
+        _warn_if_grid_too_coarse(erange, sig)
     weights_sabcj = weights_tj.reshape([edata.nspin] + list(edata.kfolding) + [edata.nbands])
     if not sep_channels:
         spectrum = _get_generic_spectrum_helper(edata, weights_sabcj, erange, spin_pol, sig, res, lti, rattle_eigenvals, norm_max, norm_intg)
@@ -198,7 +239,7 @@ def get_generic_lti_spectrum(
     weights_sabcj: np.ndarray[REAL_DTYPE],
     erange: np.ndarray[REAL_DTYPE] | None,
     spin_pol: bool,
-    res: REAL_DTYPE = REAL_DTYPE(0.00001),
+    res: REAL_DTYPE = RES_DEFAULT,
     rattle_eigenvals: bool = False,
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
     """Return a generic linear-tetrahedron integrated spectrum.
@@ -216,12 +257,13 @@ def get_generic_lti_spectrum(
     spin_pol : bool
         Return separate spectra for up/down intensities if True.
     res : REAL_DTYPE
-        The resolution of the energy range if erange is None.
+        The resolution of the energy range if erange is None (padded by 10 res). The default was 1e-5 Ha before
+        finding F17; get_generic_spectrum always passed its own res and erange, so that only affected direct calls.
     rattle_eigenvals : bool
         Randomly perturb the eigenvalues up to magnitude of twice the energy array resolution.
         (Needed for fully localized bands to appear in LTI spectra.)
     """
-    erange = get_erange(edata, erange, res=res)
+    erange = _resolve_erange(edata, erange, res, None, lti=True)
     res = erange[1] - erange[0]
     bvec = edata.structure.lattice.reciprocal_lattice.matrix
     # vbz = abs(numpy.linalg.det(bvec))
@@ -266,9 +308,9 @@ def get_generic_gsmear_spectrum(
     sig : REAL_DTYPE
         Width parameter of the Gaussian kernel exp(-(E - e)^2 / sig), i.e. 2 * (standard deviation)^2.
     res : REAL_DTYPE
-        The resolution of the energy range if erange is None.
+        The resolution of the energy range if erange is None (padded by max(10 res, 5 standard deviations)).
     """
-    erange = get_erange(edata, erange, res=res)
+    erange = _resolve_erange(edata, erange, res, sig, lti=False)
     cs = get_gauss_smear_spectrum(erange, edata.e_sabcj, weights_sabcj, sig, normalize=not edata.legacy_normalization)
     spectrum = cs_formatter(cs, spin_pol)
     return erange, spectrum
@@ -279,16 +321,16 @@ def get_spectrum_file_path(
     func_args_dict: dict,
     erange: np.ndarray[REAL_DTYPE] | None = None,
     spin_pol: bool = False,
-    sig: REAL_DTYPE = 0.0,
-    res: REAL_DTYPE = 0.0,
+    sig: REAL_DTYPE = SIGMA_DEFAULT,
+    res: REAL_DTYPE = RES_DEFAULT,
     lti: bool = False,
     rattle_eigenvals: bool = False,
     norm_max: bool = False,
     norm_intg: bool = False,
     sep_channels: bool = False,
 ):
-    if erange is None:
-        erange = get_erange(edata, erange, res=res)
+    # The cache is keyed by the grid (erange_* directory) and these settings (metadata)
+    erange = _resolve_erange(edata, erange, res, sig, lti)
     erange_cache_dir = get_erange_cache_dir(edata.cache_sub_dir, erange)
     metadata_dict = func_args_dict.copy()
     metadata_dict["spin_pol"] = spin_pol

@@ -79,11 +79,13 @@ def test_broadening_type_accepts_jdftx_spellings():
         edata.broadening_type = "Lorentz"
 
 
-def test_mu_without_smearing_raises_clear_error():
+def test_mu_without_smearing_is_gap_midpoint():
+    # Without smearing JDFTx prints no mu; since F20 crawfish uses the HOMO-LUMO midpoint (it used to raise here)
     from crawfish.core.elecdata import ElecData
 
     edata = ElecData(calc_dirs / "Si_nosmear_nospin")
-    with pytest.raises(ValueError, match="No chemical potential"):
-        _ = edata.mu
+    with pytest.warns(UserWarning, match="midpoint of the HOMO"):
+        assert edata.mu == pytest.approx(0.242258, abs=1e-6)
+    assert edata.mu_is_estimated
     edata.mu = 0.24  # e.g. from eigStats
-    assert edata.mu == pytest.approx(0.24)
+    assert edata.mu == pytest.approx(0.24) and not edata.mu_is_estimated

@@ -14,7 +14,7 @@ from crawfish.utils.lattice import get_orb_atom_idx_u, get_pair_image_map, norma
 from crawfish.core.elecdata import ElecData
 from crawfish.utils.typing import REAL_DTYPE
 from crawfish.utils.indexing import get_orb_idcs
-from crawfish.utils.arg_correction import edata_input_to_edata, get_use_cache, assert_complex_bandprojections
+from crawfish.utils.arg_correction import edata_input_to_edata, get_use_cache, _assert_complex_bandprojections
 from crawfish.funcs.general import evaluate_or_retrieve_generic_spectrum, get_generic_integrate
 from pathlib import Path
 import numpy as np
@@ -26,6 +26,16 @@ from crawfish.utils.typing import COMPLEX_DTYPE
 def _resolve_image(state_sep: bool, image) -> str | list[int]:
     """Return the image to use: state_sep=True is the older spelling of image="all" and takes precedence."""
     return "all" if state_sep else normalize_image(image)
+
+
+def _image_cache_key(image: str | list[int]) -> str:
+    """Return a normalized image as the string stored in the spectrum-cache metadata.
+
+    Lists in that metadata are compared as unordered collections (utils/caching.is_matching_list), so lattice
+    vectors that are permutations of each other, e.g. (1, 0, 0) and (0, 1, 0), used to share a cached spectrum.
+    A string keeps the order.
+    """
+    return image if isinstance(image, str) else str(tuple(int(x) for x in image))
 
 
 def _legacy_state_sep(image) -> bool:
@@ -63,9 +73,14 @@ def _compute_signed_tj(
     image="nearest" or a lattice vector: for each atom pair (a, b), only the image of b at tau_b + R_ab, through
     M_ab(R_ab) exp(2 pi i k_t.R_ab). "nearest" picks R_ab by distance (R=0 for every pair when
     edata.legacy_lattice_image is True); see crawfish.utils.lattice.get_pair_image_map.
+    An orbital paired with itself (u == v) is left out where it is the on-site term: image="all" and pairs at
+    R_ab = 0. For R_ab != 0 it pairs orbital u in cell 0 with its copy in cell R_ab, an interaction between two
+    atoms, and is included (finding F19; before, it was always left out, so an atom's interaction with its own
+    image lacked its u == v part and the public functions refused it).
     """
     orbs_u = np.asarray(orbs_u, dtype=np.int64)
     orbs_v = np.asarray(orbs_v, dtype=np.int64)
+    include_ab = orbs_u[:, None] != orbs_v[None, :]
     if image == "all":
         if mat_name is None:
             raise ValueError("pCOMO is defined for one lattice image at a time; use image='nearest' or a lattice vector.")
@@ -95,7 +110,9 @@ def _compute_signed_tj(
                 ib = np.flatnonzero(atom_u[orbs_v] == b)
                 block_sab = mat_suv[:, orbs_u[ia]][:, :, orbs_v[ib]]
                 mat_t_ab[np.ix_(all_t, ia, ib)] = block_sab[spin_t] * phase_t[:, None, None]
-    return _get_gen_tj_block(edata.coef_tju, mat_t_ab, edata.wk_t, orbs_u, orbs_v)
+                if R != (0, 0, 0):
+                    include_ab[np.ix_(ia, ib)] = True  # u == v here is u with its image in cell R (F19)
+    return _get_gen_tj_block(edata.coef_tju, mat_t_ab, edata.wk_t, orbs_u, orbs_v, include_ab)
 
 
 def _retrieve_weights(edata: ElecData, name: str, orbs_u, orbs_v, compute_func, use_cache: bool, image):
@@ -178,7 +195,6 @@ def _warn_if_coop_is_artifact(edata: ElecData, orbs: list[int] | None = None):
                 stacklevel=3,
             )
 
-#@assert_complex_bandprojections
 def get_pcohp(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -222,12 +238,18 @@ def get_pcohp(
         "nearest" (default): for each atom pair, the image of the second atom nearest to the first (check which
         with `get_pair_images`). "all": the interaction summed over every image. A lattice vector (n1, n2, n3):
         that image for every pair. Images other than the same cell need the full k-mesh (`symmetries none`).
+        The two orbital sets may share orbitals only for a lattice vector other than (0, 0, 0): that is an
+        atom's bond with its own periodic image, including each orbital with its own copy (finding F19;
+        `get_nearest_images` lists the nearest ones).
     erange: np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
     sig : REAL_DTYPE
-        The sigma value for the Gaussian smearing (if lti is False).
+        The width parameter of the Gaussian smearing (if lti is False), exp(-(E - e)^2 / sig): a standard
+        deviation of sqrt(sig / 2), 2.2e-3 Ha by default. A grid step above 2 standard deviations warns (F17).
     res : REAL_DTYPE
-        The resolution of the energy range (if erange is None)
+        The step (Ha) of the automatic energy range (if erange is None): 1e-3 Ha by default (1e-2 Ha
+        before finding F17; res=0.01 gives that grid). The range is padded beyond the extreme eigenvalues by
+        max(10 res, 5 standard deviations of the Gaussian).
     spin_pol : bool
         If the spectrum should be returned with up/down intensities separated.
     lti : bool
@@ -273,14 +295,13 @@ def get_pcohp(
             "elements2": elements2,
             "orbs2": orbs2,
             "state_sep": state_sep,
-            "image": _resolve_image(state_sep, image),
+            "image": _image_cache_key(_resolve_image(state_sep, image)),
         },
     }
     return evaluate_or_retrieve_generic_spectrum(edata, pcohp_tj, "pcohp", **kwargs)
 
 
 
-#@assert_complex_bandprojections
 def get_ipcohp(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -320,10 +341,11 @@ def _get_pcohp_tj(
         state_sep: bool = False,
         image: str | list[int] | tuple[int, int, int] = "nearest",
         ):
+    _assert_complex_bandprojections(edata)  # |projection|^2 files have no phases (F18)
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
-    check_repeat(orbs_u, orbs_v)
     image = _resolve_image(state_sep, image)
+    check_repeat(orbs_u, orbs_v, image)
     check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOHP", image)
     compute_func = lambda u, v: _compute_pcohp_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcohp", orbs_u, orbs_v, compute_func, use_cache, image)
@@ -348,7 +370,6 @@ def _compute_pcohp_tj(
 
 
 # Cite (C. A. Coulson, Proc. Roy. Soc. (London) 169A, 419 (1939).)
-#@assert_complex_bandprojections
 def get_pcomo(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -388,12 +409,16 @@ def get_pcomo(
     image : str | list[int] | tuple[int, int, int]
         Which periodic image of the second atom set pairs with the first (notes/theory_audit.md, finding F3).
         "nearest" (default) or a lattice vector (n1, n2, n3); see get_pcohp. ("all" is not defined for pCOMO.)
+        The orbital sets may share orbitals only for a lattice vector other than (0, 0, 0) (finding F19).
     erange: np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
     sig : REAL_DTYPE
-        The sigma value for the Gaussian smearing (if lti is False).
+        The width parameter of the Gaussian smearing (if lti is False), exp(-(E - e)^2 / sig): a standard
+        deviation of sqrt(sig / 2), 2.2e-3 Ha by default. A grid step above 2 standard deviations warns (F17).
     res : REAL_DTYPE
-        The resolution of the energy range (if erange is None)
+        The step (Ha) of the automatic energy range (if erange is None): 1e-3 Ha by default (1e-2 Ha
+        before finding F17; res=0.01 gives that grid). The range is padded beyond the extreme eigenvalues by
+        max(10 res, 5 standard deviations of the Gaussian).
     spin_pol : bool
         If the spectrum should be returned with up/down intensities separated.
     lti : bool
@@ -439,12 +464,11 @@ def get_pcomo(
             "idcs2": idcs2,
             "elements2": elements2,
             "orbs2": orbs2,
-            "image": normalize_image(image),
+            "image": _image_cache_key(normalize_image(image)),
         },
     }
     return evaluate_or_retrieve_generic_spectrum(edata, pcomo_tj, "pcomo", **kwargs)
 
-#@assert_complex_bandprojections
 def get_ipcomo(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -480,10 +504,11 @@ def _get_pcomo_tj(
         use_cache: bool = False,
         image: str | list[int] | tuple[int, int, int] = "nearest",
         ):
+    _assert_complex_bandprojections(edata)  # |projection|^2 files have no phases (F18)
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
-    check_repeat(orbs_u, orbs_v)
     image = normalize_image(image)
+    check_repeat(orbs_u, orbs_v, image)
     check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOMO", image)
     compute_func = lambda u, v: _compute_pcomo_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcomo", orbs_u, orbs_v, compute_func, use_cache, image)
@@ -504,7 +529,6 @@ def _compute_pcomo_tj(
     return pcohp_tj
 
 
-#@assert_complex_bandprojections
 def get_pcoop(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -550,12 +574,18 @@ def get_pcoop(
         "nearest" (default): for each atom pair, the image of the second atom nearest to the first (check which
         with `get_pair_images`). "all": the interaction summed over every image. A lattice vector (n1, n2, n3):
         that image for every pair. Images other than the same cell need the full k-mesh (`symmetries none`).
+        The two orbital sets may share orbitals only for a lattice vector other than (0, 0, 0): that is an
+        atom's bond with its own periodic image, including each orbital with its own copy (finding F19;
+        `get_nearest_images` lists the nearest ones).
     erange: np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
     sig : REAL_DTYPE
-        The sigma value for the Gaussian smearing (if lti is False).
+        The width parameter of the Gaussian smearing (if lti is False), exp(-(E - e)^2 / sig): a standard
+        deviation of sqrt(sig / 2), 2.2e-3 Ha by default. A grid step above 2 standard deviations warns (F17).
     res : REAL_DTYPE
-        The resolution of the energy range (if erange is None)
+        The step (Ha) of the automatic energy range (if erange is None): 1e-3 Ha by default (1e-2 Ha
+        before finding F17; res=0.01 gives that grid). The range is padded beyond the extreme eigenvalues by
+        max(10 res, 5 standard deviations of the Gaussian).
     spin_pol : bool
         If the spectrum should be returned with up/down intensities separated.
     rattle_eigenvals : bool
@@ -589,12 +619,11 @@ def get_pcoop(
             "elements2": elements2,
             "orbs2": orbs2,
             "state_sep": state_sep,
-            "image": _resolve_image(state_sep, image),
+            "image": _image_cache_key(_resolve_image(state_sep, image)),
         },
     }
     return evaluate_or_retrieve_generic_spectrum(edata, pcoop_tj, "pcoop", **kwargs)
 
-#@assert_complex_bandprojections
 def get_ipcoop(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -631,23 +660,23 @@ def _get_pcoop_tj(
         use_cache: bool = False,
         image: str | list[int] | tuple[int, int, int] = "nearest",
         ):
+    _assert_complex_bandprojections(edata)  # |projection|^2 files have no phases (F18)
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
     _warn_if_coop_is_artifact(edata, list(orbs_u) + list(orbs_v))
-    check_repeat(orbs_u, orbs_v)
     image = _resolve_image(state_sep, image)
+    check_repeat(orbs_u, orbs_v, image)
     check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOOP", image)
     compute_func = lambda u, v: _compute_pcoop_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcoop", orbs_u, orbs_v, compute_func, use_cache, image)
 
-#@assert_complex_bandprojections
 def _compute_pcoop_tj(
         edata: ElecData,
         orbs_u: list[int],
         orbs_v: list[int],
         image: str | list[int],
         ):
-    check_repeat(orbs_u, orbs_v)
+    check_repeat(orbs_u, orbs_v, image)
     if not edata.legacy_matrices:
         return _compute_signed_tj(edata, orbs_u, orbs_v, "s", image)
     # Legacy (pre-F2) path
@@ -660,7 +689,6 @@ def _compute_pcoop_tj(
     return pcoop_tj
 
 ##
-#@assert_complex_bandprojections
 def get_pcobi(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -686,9 +714,11 @@ def get_pcobi(
 ) -> tuple[np.ndarray[REAL_DTYPE], np.ndarray[REAL_DTYPE]]:
     """Get the pCOBI spectrum for the system of interest.
 
-    Get the energy array / pCOBI spectrum pair for the system of interest. The weights use the density matrix
-    built from occupations in [0, 1], so the integrated pCOBI of two atoms is half the Wiberg/Mayer bond index
-    (a single bond gives about 0.5; see the README).
+    Get the energy array / pCOBI spectrum pair for the system of interest. The weights are
+    2 w_t Re[conj(C_u) D_uv C_v], with D the density matrix of one spin channel, so the integrated pCOBI
+    (get_ipcobi) of two atoms is the Wiberg/Mayer bond index that COBI is built on: a single bond gives about 1
+    (Müller et al., J. Phys. Chem. C 125, 7959 (2021)). Before finding F16 it was half that; the
+    edata.legacy_cobi_scale setting restores the old scale (see the README).
 
     Parameters
     ----------
@@ -707,12 +737,18 @@ def get_pcobi(
         "nearest" (default): for each atom pair, the image of the second atom nearest to the first (check which
         with `get_pair_images`). "all": the interaction summed over every image. A lattice vector (n1, n2, n3):
         that image for every pair. Images other than the same cell need the full k-mesh (`symmetries none`).
+        The two orbital sets may share orbitals only for a lattice vector other than (0, 0, 0): that is an
+        atom's bond with its own periodic image, including each orbital with its own copy (finding F19;
+        `get_nearest_images` lists the nearest ones).
     erange: np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
     sig : REAL_DTYPE
-        The sigma value for the Gaussian smearing (if lti is False).
+        The width parameter of the Gaussian smearing (if lti is False), exp(-(E - e)^2 / sig): a standard
+        deviation of sqrt(sig / 2), 2.2e-3 Ha by default. A grid step above 2 standard deviations warns (F17).
     res : REAL_DTYPE
-        The resolution of the energy range (if erange is None)
+        The step (Ha) of the automatic energy range (if erange is None): 1e-3 Ha by default (1e-2 Ha
+        before finding F17; res=0.01 gives that grid). The range is padded beyond the extreme eigenvalues by
+        max(10 res, 5 standard deviations of the Gaussian).
     spin_pol : bool
         If the spectrum should be returned with up/down intensities separated.
     rattle_eigenvals : bool
@@ -746,12 +782,11 @@ def get_pcobi(
             "elements2": elements2,
             "orbs2": orbs2,
             "state_sep": state_sep,
-            "image": _resolve_image(state_sep, image),
+            "image": _image_cache_key(_resolve_image(state_sep, image)),
         },
     }
     return evaluate_or_retrieve_generic_spectrum(edata, pcobi_tj, "pcobi", **kwargs)
 
-#@assert_complex_bandprojections
 def get_ipcobi(
     edata_input: ElecData | str | Path,
     idcs1: list[int] | int | None = None,
@@ -766,6 +801,12 @@ def get_ipcobi(
     state_sep: bool = False,
     image: str | list[int] | tuple[int, int, int] = "nearest",
 ):
+    """Get the integrated pCOBI up to each eigenvalue, (energies, running sum).
+
+    With use_fillings=True (default), the final value summed over the orbitals of two atoms is their Wiberg/Mayer
+    bond index (about 1 for a single bond; finding F16, edata.legacy_cobi_scale for the old half scale). Takes the
+    same selection and `image` arguments as get_pcobi.
+    """
     edata = edata_input_to_edata(edata_input)
     pcobi_tj = _get_pcobi_tj(edata, idcs1, elements1, orbs1, idcs2, elements2, orbs2, state_sep=state_sep, image=image, use_cache=use_cache)
     kwargs = {
@@ -789,10 +830,11 @@ def _get_pcobi_tj(
         use_cache: bool = False,
         image: str | list[int] | tuple[int, int, int] = "nearest",
         ):
+    _assert_complex_bandprojections(edata)  # |projection|^2 files have no phases (F18)
     orbs_u = get_orb_idcs(edata, idcs1, elements1, orbs1)
     orbs_v = get_orb_idcs(edata, idcs2, elements2, orbs2)
-    check_repeat(orbs_u, orbs_v)
     image = _resolve_image(state_sep, image)
+    check_repeat(orbs_u, orbs_v, image)
     check_reduced_kmesh(edata, list(orbs_u) + list(orbs_v), "pCOBI", image)
     compute_func = lambda u, v: _compute_pcobi_tj(edata, u, v, image)
     return _retrieve_weights(edata, "pcobi", orbs_u, orbs_v, compute_func, use_cache, image)
@@ -803,9 +845,16 @@ def _compute_pcobi_tj(
         orbs_v: list[int],
         image: str | list[int],
         ):
-    check_repeat(orbs_u, orbs_v)
+    check_repeat(orbs_u, orbs_v, image)
     if not edata.legacy_matrices:
-        return _compute_signed_tj(edata, orbs_u, orbs_v, "d", image)
+        pcobi_tj = _compute_signed_tj(edata, orbs_u, orbs_v, "d", image)
+        if not edata.legacy_cobi_scale:
+            # Finding F16: d_t_uv is the density matrix of one spin channel (occupations in [0, 1]), so these
+            # weights sum to W_s |D^s_uv|^2 over spin channels (W_s = sum_{t in s} w_t: 2 for no-spin, 1 per
+            # channel for z-spin), half the Wiberg/Mayer bond index (sum P_uv^2 with P = 2D; 2 sum_s |D^s_uv|^2)
+            # that COBI is built on. The factor 2 gives that index; edata.legacy_cobi_scale leaves it out.
+            pcobi_tj = pcobi_tj * REAL_DTYPE(2)
+        return pcobi_tj
     # Legacy (pre-F2) path
     if _legacy_state_sep(image):
         # p_t_uu already carries the k-point weight, so it is not applied again
