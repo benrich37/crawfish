@@ -155,12 +155,15 @@ def _warn_if_coop_is_artifact(edata: ElecData, orbs: list[int] | None = None):
     """
     if edata.legacy_matrices:
         return
-    if edata.los_orbs:
+    if edata.los_orbs or (edata.ao_matrices_used and edata.bandprojfile_is_ortho):
         warnings.warn(
             "pCOOP between different orbitals is identically zero in an orthonormal (Löwdin) basis "
-            "(los_orbs=True). Use los_orbs=False with projections from 'band-projection-params no no'.",
+            "(los_orbs=True, or ortho projections with JDFTx's AO matrices). Use los_orbs=False with projections "
+            "from 'band-projection-params no no'.",
             stacklevel=3,
         )
+    elif edata.ao_matrices_used:
+        return  # the overlap is exact, so the band completeness checks below don't apply
     elif edata.jdftx and edata.bandprojfile_is_ortho:
         warnings.warn(
             "These projections are onto orthonormalized orbitals ('band-projection-params yes ...'), so the true "

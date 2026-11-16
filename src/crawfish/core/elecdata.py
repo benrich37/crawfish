@@ -17,6 +17,7 @@ from crawfish.core.operations.matrix import (
     get_h_s_d_t_uv,
     get_r0_suv,
     get_mat_r_suv,
+    get_inv_sqrt_t_uv,
 )
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
@@ -44,6 +45,7 @@ from crawfish.io.data_parsing import (
     save_bandfile_header,
     check_spintype_supported,
     get_spintype_from_outfile_filepath,
+    get_ao_mat_tuv_from_file,
 )
 from crawfish.utils.caching import CachedFunction, validate_cache_dir
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
@@ -74,7 +76,7 @@ SPAN_WARN_RTOL = 1e-4
 signed_mat_names = ["h_t_uv", "s_t_uv", "d_t_uv"]
 cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
 # Output files read during analysis - changes to any of these invalidate the cache (Gvectors/wfns are located but never read)
-source_filetypes = ["band", "eig", "out", "kpts", "fillings", "sym"]
+source_filetypes = ["band", "eig", "out", "kpts", "fillings", "sym", "aooverlap", "aohamiltonian"]
 
 edata_setting_key_shorthand_dict = {
     "legacy_orbital_phase": "lgph",
@@ -89,7 +91,8 @@ edata_setting_key_shorthand_dict = {
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
-    "norm_eigs_for_h": "h-en"
+    "norm_eigs_for_h": "h-en",
+    "use_ao_matrices": "aom",
 }
 
 def get_edata_settings_str(edata: ElecData) -> str:
@@ -112,6 +115,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
         "norm_eigs_for_h": edata.norm_eigs_for_h,
+        "use_ao_matrices": edata.use_ao_matrices,
     }
     # Sort the keys by alphabetical order
     sorted_keys = sorted(parts_dict.keys())
@@ -139,6 +143,8 @@ class ElecData:
     gvecfile_suffix: str = "Gvectors"
     wfnfile_suffix: str = "wfns"
     symfile_suffix: str = "sym"
+    aooverlapfile_suffix: str = "aoOverlap"
+    aohamiltonianfile_suffix: str = "aoHamiltonian"
     #
     bandfile_filepath: Path | None = None
     kptsfile_filepath: Path | None = None
@@ -148,6 +154,8 @@ class ElecData:
     gvecfile_filepath: Path | None = None
     wfnfile_filepath: Path | None = None
     symfile_filepath: Path | None = None
+    aooverlapfile_filepath: Path | None = None
+    aohamiltonianfile_filepath: Path | None = None
     ##
     proj_tju_filename: str = "proj_tju.npy"
     bandfile_header_filename: str = "bandProjections_header"
@@ -175,6 +183,8 @@ class ElecData:
     _h_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _s_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _d_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _ao_s_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _ao_h_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _occ_tj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
@@ -246,6 +256,7 @@ class ElecData:
     def legacy_orbital_phase(self, value: bool):
         if value != self._legacy_orbital_phase:
             self._legacy_orbital_phase = value
+            self._ao_s_t_uv = self._ao_h_t_uv = None  # read in the phase convention of proj_tju
             # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
             self.alloc_elec_data()
@@ -461,7 +472,8 @@ class ElecData:
     def _reset_kpoint_arrays(self) -> None:
         """Drop every array indexed by state, so they are rebuilt for the current k-point settings."""
         for name in ["_proj_tju", "_e_tj", "_occ_tj", "_wk_t", "_ks_t", "_kfolding", "_lti_allowed", "_nstates",
-                     "_nbands", "_kmesh_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t"]:
+                     "_nbands", "_kmesh_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t",
+                     "_ao_s_t_uv", "_ao_h_t_uv"]:
             setattr(self, name, None)
 
     def _get_unfolding_ops(self) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -576,6 +588,21 @@ class ElecData:
             out[t] = p_ju
         return out
 
+    def _unfold_mat(self, m_tuv: np.ndarray, raw_phase: bool) -> np.ndarray:
+        """Return an orbital matrix <phi_u|M|phi_v> of every full-mesh state from the computed states' ones.
+
+        _unfold_proj maps each band's projections as T' = A_t op(T), op being conj where time reversal is used, so
+        the orbitals' own matrix maps as M' = A_t op(M) A_t^dag. A_t is read off by unfolding identity projections.
+        """
+        unfolding = self.kmesh_unfolding
+        if unfolding is None:
+            return m_tuv
+        eye_tuv = np.broadcast_to(np.eye(np.shape(m_tuv)[-1], dtype=COMPLEX_DTYPE), np.shape(m_tuv))
+        a_tuv = self._unfold_proj(eye_tuv, raw_phase=raw_phase).transpose(0, 2, 1)
+        m_tuv = m_tuv[unfolding["src_t"]]
+        m_tuv[unfolding["conj_t"]] = m_tuv[unfolding["conj_t"]].conj()
+        return a_tuv @ m_tuv @ a_tuv.conj().transpose(0, 2, 1)
+
     @property
     def kmesh_is_reduced(self) -> bool:
         """Return True if JDFTx reduced the k-point mesh by symmetry (fewer states than nspin * prod(kpoint-folding))."""
@@ -681,6 +708,69 @@ class ElecData:
             self.alloc_elec_data()
             
     _norm_eigs_for_h: bool = True
+
+    """
+    use_ao_matrices: If True (default) and the calculation directory holds JDFTx's `aoOverlap` and `aoHamiltonian`
+    files (`dump End AO`), the signed matrices (h_t_uv, s_t_uv) are the exact orbital matrices <phi|O|phi> and
+    <phi|H|phi> (ao_s_t_uv, ao_h_t_uv) instead of sums over the computed bands, and the bands' coefficients come from
+    the exact overlap. The basis is that of the projections: the Löwdin orbitals phi S^-1/2 for 'band-projection-params
+    yes ...' or with los_orbs (H = S^-1/2 H_AO S^-1/2, S = 1, coefficients = those orbitals' projections), else the
+    bare orbitals (H_AO, S_AO, coefficients S^-1 T). Results then no longer depend on elec-n-bands, apart from which
+    bands are listed, and need no more bands than orbitals (notes/wannier_and_adaptive_basis.md, sections 6.2 and 10;
+    notes/theory_audit.md, U1 and F14). Ultrasoft non-orthogonal projections still carry F13. Only for complex
+    projections; the legacy matrices (legacy_matrices=True) and the band diagnostics stay band sums.
+    """
+
+    @property
+    def use_ao_matrices(self) -> bool:
+        return self._use_ao_matrices
+
+    @use_ao_matrices.setter
+    def use_ao_matrices(self, value: bool):
+        if value != self._use_ao_matrices:
+            self._use_ao_matrices = value
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _use_ao_matrices: bool = True
+
+    @property
+    def ao_matrices_used(self) -> bool:
+        """Return True if the signed matrices come from JDFTx's AO dumps (see use_ao_matrices)."""
+        return bool(
+            self.jdftx and self.use_ao_matrices and self.aooverlapfile_filepath is not None
+            and self.aohamiltonianfile_filepath is not None and self.bandprojfile_is_complex
+        )
+
+    @property
+    def ao_s_t_uv(self) -> np.ndarray[COMPLEX_DTYPE] | None:
+        """Return JDFTx's exact orbital overlap <phi_u|O|phi_v> per state (`aoOverlap`), (nstates, nproj, nproj).
+
+        In the orbital phase of proj_tju (legacy_orbital_phase) and on every state of an unfolded k-mesh
+        (kmesh_unfolding). None without the file.
+        """
+        if self._ao_s_t_uv is None and self.aooverlapfile_filepath is not None:
+            self._ao_s_t_uv = self._read_ao_mat_tuv(self.aooverlapfile_filepath)
+        return self._ao_s_t_uv
+
+    @property
+    def ao_h_t_uv(self) -> np.ndarray[COMPLEX_DTYPE] | None:
+        """Return JDFTx's exact orbital Hamiltonian <phi_u|H|phi_v> per state (`aoHamiltonian`), as ao_s_t_uv.
+
+        Not shifted by mu (norm_eigs_for_h only applies to h_t_uv). JDFTx leaves out exact exchange.
+        """
+        if self._ao_h_t_uv is None and self.aohamiltonianfile_filepath is not None:
+            self._ao_h_t_uv = self._read_ao_mat_tuv(self.aohamiltonianfile_filepath)
+        return self._ao_h_t_uv
+
+    def _read_ao_mat_tuv(self, filepath: Path) -> np.ndarray[COMPLEX_DTYPE]:
+        """Read a `dump End AO` matrix into the conventions of proj_tju: i^l phase (F1), unfolded k-mesh (F5, F12)."""
+        m_tuv = get_ao_mat_tuv_from_file(filepath, self.nstates_file, self.nproj)
+        if not self.legacy_orbital_phase:
+            # T_real = p T_raw, with p_u = i^l_u, means phi_real = conj(p) phi_raw, so M_real = p M_raw p^dag
+            phase_u = apply_jdftx_orbital_phase(np.ones((1, 1, self.nproj)), self.orb_l_u)[0, 0]
+            m_tuv = phase_u[None, :, None] * m_tuv * phase_u.conj()[None, None, :]
+        return self._unfold_mat(m_tuv, raw_phase=self.legacy_orbital_phase)
 
     @property
     def infile(self) -> JDFTXInfile | None:
@@ -1112,7 +1202,18 @@ class ElecData:
         arrs = {name: safe_load(self.cache_sub_dir / f"{name}.npy", allow_pickle=False) for name in signed_mat_names}
         if any(arr is None for arr in arrs.values()):
             e_tj = self.e_tj - self.mu if self.norm_eigs_for_h else self.e_tj
-            h_t_uv, s_t_uv, d_t_uv = get_h_s_d_t_uv(self.proj_tju, self.coef_tju, e_tj, self.occ_tj)
+            if self.ao_matrices_used:
+                # JDFTx's exact <phi|H|phi> and <phi|O|phi> in the projections' basis (see use_ao_matrices)
+                h_t_uv, s_t_uv = self.ao_h_t_uv, self.ao_s_t_uv
+                if self.los_orbs or self.bandprojfile_is_ortho:
+                    x_tuv = get_inv_sqrt_t_uv(s_t_uv)
+                    h_t_uv, s_t_uv = x_tuv @ h_t_uv @ x_tuv, np.broadcast_to(np.eye(self.nproj), np.shape(s_t_uv))
+                if self.norm_eigs_for_h:
+                    h_t_uv = h_t_uv - self.mu * s_t_uv  # the operator H - mu O, as e - mu in the band sums
+                _, _, d_t_uv = get_h_s_d_t_uv(self.coef_tju, self.coef_tju, e_tj, self.occ_tj)
+                h_t_uv, s_t_uv = np.asarray(h_t_uv, dtype=COMPLEX_DTYPE), np.asarray(s_t_uv, dtype=COMPLEX_DTYPE)
+            else:
+                h_t_uv, s_t_uv, d_t_uv = get_h_s_d_t_uv(self.proj_tju, self.coef_tju, e_tj, self.occ_tj)
             arrs = {"h_t_uv": h_t_uv, "s_t_uv": s_t_uv, "d_t_uv": d_t_uv}
             for name, arr in arrs.items():
                 np.save(self.cache_sub_dir / f"{name}.npy", arr)
@@ -1124,10 +1225,17 @@ class ElecData:
         """Return the expansion coefficients of each band in the band-projected orbitals, in shape (nstates, nbands, nproj).
 
         Equal to proj_tju when los_orbs is True (orthonormal orbitals). Otherwise C_t = P_t pinv(P_t^dag P_t).
-        See `crawfish.core.operations.matrix.get_coef_tju`.
+        See `crawfish.core.operations.matrix.get_coef_tju`. With JDFTx's AO matrices (ao_matrices_used) the overlap is
+        exact: C = proj_tju in an orthonormal basis, C = S_AO^-1 T for the bare orbitals.
         """
         if self._coef_tju is None:
-            self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs)
+            if not self.ao_matrices_used:
+                self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs)
+            elif self.los_orbs or self.bandprojfile_is_ortho:
+                self._coef_tju = self.proj_tju
+            else:
+                s_inv_tuv = np.linalg.inv(np.asarray(self.ao_s_t_uv, dtype=np.complex128))
+                self._coef_tju = np.asarray(self.proj_tju @ s_inv_tuv.transpose(0, 2, 1), dtype=COMPLEX_DTYPE)
         return self._coef_tju
 
     @property
@@ -1700,10 +1808,11 @@ class ElecData:
     
         
 
-    def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings", "sym"]):
+    def _set_files_paths(
+            self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings", "sym", "aooverlap", "aohamiltonian"]):
         if self.fprefix is None:
             raise RuntimeError("File prefix (fprefix) must be set before setting file paths")
-        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn", "sym"]:
+        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn", "sym", "aooverlap", "aohamiltonian"]:
             suffix = getattr(self, f"{filetype}file_suffix")
             filepath = self._get_filepath_generic(suffix)
             if filepath is None and filetype not in optional_sufficies:
@@ -1784,7 +1893,8 @@ class ElecData:
         if self.nbands < self.nproj:
             # Set private values directly - callers re-init caches after this returns
             self._trim_excess_bands = False
-            self._los_orbs = False
+            if not self.ao_matrices_used:  # the exact AO overlap needs no band space
+                self._los_orbs = False
         if self.trim_excess_bands:
             self._untrimmed_bands = (self.e_tj, self.occ_tj, self.nbands)
             bestj = get_best_bands(self.proj_tju)
@@ -1796,13 +1906,19 @@ class ElecData:
             self._proj_tju = _proj_tju
             self._occ_tj = _occ_tj
             self._nbands = self.nproj
-        ndropped_t = None
-        if self.los_orbs:
-            self._proj_tju, ndropped_t = los_projs_for_orbs(
-                self.proj_tju, legacy=self.legacy_lowdin_cutoff, return_ndropped=True
-            )
-        # One warning for unspanned orbitals (F11) and the directions Löwdin dropped (F10; not counted on the legacy path)
-        self._warn_if_bands_too_few(None if self.legacy_lowdin_cutoff else ndropped_t)
+        if self.ao_matrices_used:
+            if self.los_orbs and not self.bandprojfile_is_ortho:
+                # Projections onto the exact Löwdin orbitals phi S^-1/2, what 'band-projection-params yes' dumps
+                x_tuv = get_inv_sqrt_t_uv(self.ao_s_t_uv)
+                self._proj_tju = np.asarray(self.proj_tju @ x_tuv.transpose(0, 2, 1), dtype=COMPLEX_DTYPE)
+        else:
+            ndropped_t = None
+            if self.los_orbs:
+                self._proj_tju, ndropped_t = los_projs_for_orbs(
+                    self.proj_tju, legacy=self.legacy_lowdin_cutoff, return_ndropped=True
+                )
+            # One warning for unspanned orbitals (F11) and the directions Löwdin dropped (F10; not counted on the legacy path)
+            self._warn_if_bands_too_few(None if self.legacy_lowdin_cutoff else ndropped_t)
         self.reval_mat_uu()
 
     #################

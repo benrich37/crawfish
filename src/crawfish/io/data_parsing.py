@@ -1092,6 +1092,27 @@ def get_e_tj_helper(eigfile_filepath: str | Path, nstates: int, nbands: int) -> 
     return e_tj
 
 
+def get_ao_mat_tuv_from_file(filepath: str | Path, nstates: int, nproj: int) -> np.ndarray[COMPLEX_DTYPE]:
+    r"""Return an atomic-orbital matrix dumped by JDFTx's `dump End AO` (file aoOverlap or aoHamiltonian).
+
+    JDFTx (ElecInfo::write) writes one nproj x nproj complex128 matrix per state, column-major, in the state order
+    of the bandProjections file. Element [t, u, v] is <phi_u|M|phi_v> at state t, with M = O (aoOverlap) or the
+    Kohn-Sham Hamiltonian (aoHamiltonian), in JDFTx's raw orbital phase (no i^l; see apply_jdftx_orbital_phase).
+
+    Returns
+    -------
+    np.ndarray
+        Shape (nstates, nproj, nproj)
+    r"""
+    m = np.fromfile(filepath, dtype=np.complex128)
+    if m.size != nstates * nproj**2:
+        raise ValueError(
+            f"{filepath} holds {m.size} complex numbers, not nstates * nproj^2 = {nstates} * {nproj}^2 (is it from "
+            "the same calculation as the bandProjections file?)"
+        )
+    return np.asarray(m.reshape(nstates, nproj, nproj).transpose(0, 2, 1), dtype=COMPLEX_DTYPE)
+
+
 def get_proj_sabcju_helper(
     bandfile_filepath: Path | str, nspin: int, kfolding: list[int] | np.ndarray[int], nbands: int, nproj: int
 ) -> np.ndarray[COMPLEX_DTYPE] | np.ndarray[REAL_DTYPE]:
