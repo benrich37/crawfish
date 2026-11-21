@@ -34,7 +34,7 @@ def test_bandprojections_parsing():
         _parse_bandfile_complex,
     )
 
-    bandfile_filepath = exfdir / "bandprojections"
+    bandfile_filepath = exfdir / "bandProjections"
     assert get_nbands_from_bandfile_filepath(bandfile_filepath) == 15
     assert get_nstates_from_bandfile_filepath(bandfile_filepath) == 54
     assert get_nspecies_from_bandfile_filepath(bandfile_filepath) == 1
@@ -44,7 +44,7 @@ def test_bandprojections_parsing():
     assert is_complex_bandfile_filepath(bandfile_filepath)
     # TODO: Get a non-complex bandfile to test
     with pytest.raises(RuntimeError):
-        _parse_bandfile_complex(bandfile_filepath=exfdir / "bandprojections_corrupted")
+        _parse_bandfile_complex(bandfile_filepath=exfdir / "bandProjections_corrupted")
         is_complex_bandfile_filepath(exfdir / "out")
 
 
