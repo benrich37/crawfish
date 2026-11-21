@@ -3,6 +3,8 @@ name = "crawfish"
 dynamic = ["version"]
 requires-python = ">=3.10"
 authors = [{ name = "Ben Rich", email = "benjamin.rich@colorado.edu" }]
+license = "MIT"
+license-files = ["LICENSE"]
 
 
 dependencies = [
