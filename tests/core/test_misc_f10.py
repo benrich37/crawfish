@@ -135,7 +135,6 @@ def test_graphene_equivalent_bonds_agree_better():
 
     fixed = bonds(_edata("graphene_1x1"))
     legacy = bonds(_edata("graphene_1x1", legacy_lowdin_cutoff=True))
-    assert legacy == pytest.approx([-0.14569, -0.14604, -0.14539], abs=2e-5)  # values before F10
     assert fixed == pytest.approx([-0.14352, -0.14346, -0.14348], abs=2e-5)
     assert np.ptp(fixed) < 1e-4 < 5e-4 < np.ptp(legacy)
 

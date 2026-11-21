@@ -1,0 +1,85 @@
+# Run the test suite on Linux, macOS and Windows.
+# Modelled on pymatgen-core's test workflow; notes/ci_setup.md says what was kept and dropped.
+name: test
+
+on:
+  push:
+    branches: [master]
+    paths:
+      [
+        "src/**",
+        "tests/**",
+        ".github/workflows/*",
+        "pyproject.toml",
+        ".gitattributes",
+      ]
+  pull_request:
+    branches: [master]
+    paths:
+      [
+        "src/**",
+        "tests/**",
+        ".github/workflows/*",
+        "pyproject.toml",
+        ".gitattributes",
+      ]
+  workflow_dispatch:
+  workflow_call: # make this workflow reusable by a release workflow
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.config.os }} py${{ matrix.config.python }}${{ matrix.config.stock && ' (stock pymatgen-core)' || '' }}
+    defaults:
+      run:
+        shell: bash # the install step uses bash syntax, also on Windows
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same platforms and Python versions as pymatgen-core's CI: the lowest and highest
+        # supported Python on Ubuntu, one version each on macOS and Windows.
+        config:
+          - os: windows-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.13"
+          - os: ubuntu-latest
+            python: "3.12" # lowest Python that pymatgen-core supports
+          - os: ubuntu-latest
+            python: "3.14" # highest Python that pymatgen-core supports
+          # Released pymatgen-core from PyPI. Fails until materialsproject/pymatgen-core #319-#324
+          # are released, so it does not fail the run. When it turns green, follow
+          # "Switching to stock pymatgen-core" in notes/ci_setup.md.
+          - os: ubuntu-latest
+            python: "3.13"
+            stock: true
+
+    runs-on: ${{ matrix.config.os }}
+    continue-on-error: ${{ matrix.config.stock == true }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v6
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: ${{ matrix.config.python }}
+          activate-environment: true # later steps run in this venv
+
+      - name: Install crawfish and dependencies via uv
+        env:
+          # The pymatgen-core fork branch that carries the JDFTx fixes crawfish needs.
+          PYMATGEN: ${{ matrix.config.stock && 'pymatgen-core' || 'pymatgen-core @ git+https://github.com/benrich37/pymatgen-core@misc_fixes_D' }}
+        run: |
+          # pyproject.toml still depends on the old `pymatgen` fork, which would be installed on
+          # top of pymatgen-core. Leave it out of the resolution. Delete this line and `--excludes`
+          # once pyproject.toml depends on pymatgen-core.
+          echo pymatgen > uv-excludes.txt
+          # Editable: crawfish.utils.testing finds tests/files relative to the source tree.
+          uv pip install -e . pytest "$PYMATGEN" --excludes uv-excludes.txt
+
+      - name: pytest
+        run: pytest tests --color=yes

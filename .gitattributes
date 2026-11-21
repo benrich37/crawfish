@@ -1,0 +1,4 @@
+# Test fixtures are JDFTx output: binary dumps (eigenvals, fillings, aoOverlap, ...) next to text files.
+# Never convert their line endings, so every platform checks out the same bytes (Windows runners
+# set core.autocrlf, and the cache stamp records each file's size and sha256).
+tests/files/** -text

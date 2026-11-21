@@ -798,6 +798,16 @@ def apply_jdftx_orbital_phase(proj_tju: np.ndarray[COMPLEX_DTYPE], l_u: np.ndarr
     return np.asarray(proj_tju * phase_u[np.newaxis, np.newaxis, :], dtype=COMPLEX_DTYPE)
 
 
+def get_inv_sqrt_t_uv(s_t_uv: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[np.complex128]:
+    """Return S_t^(-1/2) for each state's Hermitian positive-definite S_t, in float64, shape (nstates, n, n).
+
+    No eigenvalue cutoff, as in JDFTx's ortho projections (`invsqrt(psi ^ O(psi))` in dumpProjections), so it suits
+    the exact orbital overlap from `dump End AO` (ElecData.ao_s_t_uv), not band-space overlaps (los_projs_for_orbs).
+    """
+    eigs_tu, vecs_tuv = np.linalg.eigh(np.asarray(s_t_uv, dtype=np.complex128))
+    return (vecs_tuv / np.sqrt(eigs_tu)[:, None, :]) @ vecs_tuv.conj().transpose(0, 2, 1)
+
+
 # Overlap eigenvalues below this fraction of the largest are dropped by the Löwdin step (as in get_coef_tju)
 LOWDIN_RTOL = 1e-6
 
