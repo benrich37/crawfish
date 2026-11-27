@@ -17,6 +17,7 @@ from crawfish.core.operations.matrix import (
     get_h_s_d_t_uv,
     get_r0_suv,
     get_mat_r_suv,
+    get_inv_sqrt_t_uv,
 )
 from crawfish.io.data_parsing import (
     get_mu_from_outfile_filepath,
@@ -44,6 +45,7 @@ from crawfish.io.data_parsing import (
     save_bandfile_header,
     check_spintype_supported,
     get_spintype_from_outfile_filepath,
+    get_ao_mat_tuv_from_file,
 )
 from crawfish.utils.caching import CachedFunction, validate_cache_dir
 from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
@@ -74,7 +76,7 @@ SPAN_WARN_RTOL = 1e-4
 signed_mat_names = ["h_t_uv", "s_t_uv", "d_t_uv"]
 cache_mats = ["pcohp_tj", "pcoop_tj", "pcobi_tj", "tsep_pcohp_tj", "tsep_pcoop_tj", "tsep_pcobi_tj", "pcomo_tj", "pdos_tj"]
 # Output files read during analysis - changes to any of these invalidate the cache (Gvectors/wfns are located but never read)
-source_filetypes = ["band", "eig", "out", "kpts", "fillings", "sym"]
+source_filetypes = ["band", "eig", "out", "kpts", "fillings", "sym", "aooverlap", "aohamiltonian"]
 
 edata_setting_key_shorthand_dict = {
     "legacy_orbital_phase": "lgph",
@@ -86,10 +88,12 @@ edata_setting_key_shorthand_dict = {
     "unfold_point_group": "upg",
     "legacy_normalization": "lgnm",
     "legacy_lowdin_cutoff": "lglw",
+    "legacy_cobi_scale": "lgcb",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
-    "norm_eigs_for_h": "h-en"
+    "norm_eigs_for_h": "h-en",
+    "use_ao_matrices": "aom",
 }
 
 def get_edata_settings_str(edata: ElecData) -> str:
@@ -108,10 +112,12 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "unfold_point_group": edata.unfold_point_group,
         "legacy_normalization": edata.legacy_normalization,
         "legacy_lowdin_cutoff": edata.legacy_lowdin_cutoff,
+        "legacy_cobi_scale": edata.legacy_cobi_scale,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
         "norm_eigs_for_h": edata.norm_eigs_for_h,
+        "use_ao_matrices": edata.use_ao_matrices,
     }
     # Sort the keys by alphabetical order
     sorted_keys = sorted(parts_dict.keys())
@@ -139,6 +145,8 @@ class ElecData:
     gvecfile_suffix: str = "Gvectors"
     wfnfile_suffix: str = "wfns"
     symfile_suffix: str = "sym"
+    aooverlapfile_suffix: str = "aoOverlap"
+    aohamiltonianfile_suffix: str = "aoHamiltonian"
     #
     bandfile_filepath: Path | None = None
     kptsfile_filepath: Path | None = None
@@ -148,6 +156,8 @@ class ElecData:
     gvecfile_filepath: Path | None = None
     wfnfile_filepath: Path | None = None
     symfile_filepath: Path | None = None
+    aooverlapfile_filepath: Path | None = None
+    aohamiltonianfile_filepath: Path | None = None
     ##
     proj_tju_filename: str = "proj_tju.npy"
     bandfile_header_filename: str = "bandProjections_header"
@@ -175,6 +185,8 @@ class ElecData:
     _h_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _s_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _d_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _ao_s_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
+    _ao_h_t_uv: np.ndarray[COMPLEX_DTYPE] | None = None
     _occ_tj: np.ndarray[REAL_DTYPE] | None = None
     _mu: REAL_DTYPE | None = None
     _norbsperatom: list[int] | None = None
@@ -231,8 +243,11 @@ class ElecData:
     legacy_orbital_phase: If False (default), JDFTx band projections are multiplied by i^l for each orbital of
     angular momentum l on load, converting them from JDFTx's convention (real-space orbitals are i^l times a
     real orbital, as JDFTx omits the i^l of the plane-wave expansion) to real orbitals. If True, the raw dumped
-    projections are used, which reproduces crawfish results from before this fix: Re[T*_u T_v] is then ~0 for
-    orbital pairs with odd l_u - l_v (s-p, p-d), so those interactions are missing from every pair spectrum.
+    projections are used: Re[T*_u T_v] is then ~0 for orbital pairs with odd l_u - l_v (s-p, p-d) and has the
+    wrong sign for l_u - l_v = +/-2 (s-d). With the signed matrices (legacy_matrices False, the default), pCOHP,
+    pCOOP and pCOBI don't depend on a phase per orbital, so this setting alone only changes pCOMO. Together with
+    legacy_matrices=True it reproduces crawfish results from before this fix, where those interactions were
+    missing from (or had the wrong sign in) every pair spectrum.
     Kept so the effect of the fix can be measured without checking out old code.
     Only applies to complex JDFTx projections (never to user_proj_tju). pDOS is unaffected either way.
     See notes/theory_audit.md, finding F1.
@@ -246,6 +261,7 @@ class ElecData:
     def legacy_orbital_phase(self, value: bool):
         if value != self._legacy_orbital_phase:
             self._legacy_orbital_phase = value
+            self._ao_s_t_uv = self._ao_h_t_uv = None  # read in the phase convention of proj_tju
             # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
             self.alloc_elec_data()
@@ -454,6 +470,31 @@ class ElecData:
             self.alloc_elec_data()
 
     _legacy_lowdin_cutoff: bool = False
+
+    """
+    legacy_cobi_scale: If False (default), pCOBI weights are 2 w_t Re[conj(C_u) D_uv C_v], with D the density matrix
+    of one spin channel (occupations in [0, 1]; d_t_uv). Integrated over the occupied states and summed over the
+    orbitals of two atoms, that is the Wiberg bond index (sum P_uv^2 with the spin-summed P = 2D, closed shells) or
+    its open-shell form, the Mayer index (2 sum_s |D^s_uv|^2), on which COBI is built (Müller, Ertural, Hempelmann,
+    Dronskowski, J. Phys. Chem. C 125, 7959 (2021)): a single bond gives about 1. If True, the factor 2 is left out,
+    which is what crawfish did before: half the bond index (W_s |D^s_uv|^2 summed over spin channels s, with
+    W_s = sum_{t in s} w_t = 2 for no-spin and 1 per channel for z-spin). Only the signed matrices are affected
+    (legacy_matrices False). Kept so the effect of the fix can be measured without checking out old code.
+    See finding F16.
+    """
+
+    @property
+    def legacy_cobi_scale(self) -> bool:
+        return self._legacy_cobi_scale
+
+    @legacy_cobi_scale.setter
+    def legacy_cobi_scale(self, value: bool):
+        if value != self._legacy_cobi_scale:
+            self._legacy_cobi_scale = value
+            # Only pCOBI weights are scaled (no matrices change), but the weight and spectrum caches are per setting
+            self._init_caches()
+
+    _legacy_cobi_scale: bool = False
     _kmesh_unfolding: dict | bool | None = None
     # (e_tj, occ_tj, nbands) from before trim_excess_bands cut them, so a later alloc_elec_data can restore them
     _untrimmed_bands: tuple | None = None
@@ -461,7 +502,8 @@ class ElecData:
     def _reset_kpoint_arrays(self) -> None:
         """Drop every array indexed by state, so they are rebuilt for the current k-point settings."""
         for name in ["_proj_tju", "_e_tj", "_occ_tj", "_wk_t", "_ks_t", "_kfolding", "_lti_allowed", "_nstates",
-                     "_nbands", "_kmesh_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t"]:
+                     "_nbands", "_kmesh_unfolding", "_coef_tju", "_h_t_uv", "_s_t_uv", "_d_t_uv", "_orbital_span_t",
+                     "_ao_s_t_uv", "_ao_h_t_uv"]:
             setattr(self, name, None)
 
     def _get_unfolding_ops(self) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -576,6 +618,21 @@ class ElecData:
             out[t] = p_ju
         return out
 
+    def _unfold_mat(self, m_tuv: np.ndarray, raw_phase: bool) -> np.ndarray:
+        """Return an orbital matrix <phi_u|M|phi_v> of every full-mesh state from the computed states' ones.
+
+        _unfold_proj maps each band's projections as T' = A_t op(T), op being conj where time reversal is used, so
+        the orbitals' own matrix maps as M' = A_t op(M) A_t^dag. A_t is read off by unfolding identity projections.
+        """
+        unfolding = self.kmesh_unfolding
+        if unfolding is None:
+            return m_tuv
+        eye_tuv = np.broadcast_to(np.eye(np.shape(m_tuv)[-1], dtype=COMPLEX_DTYPE), np.shape(m_tuv))
+        a_tuv = self._unfold_proj(eye_tuv, raw_phase=raw_phase).transpose(0, 2, 1)
+        m_tuv = m_tuv[unfolding["src_t"]]
+        m_tuv[unfolding["conj_t"]] = m_tuv[unfolding["conj_t"]].conj()
+        return a_tuv @ m_tuv @ a_tuv.conj().transpose(0, 2, 1)
+
     @property
     def kmesh_is_reduced(self) -> bool:
         """Return True if JDFTx reduced the k-point mesh by symmetry (fewer states than nspin * prod(kpoint-folding))."""
@@ -625,6 +682,9 @@ class ElecData:
     at individual bands (<u|j><j|v> != 0), only over the sum of all bands present (sum_j <u|j><j|v> = d_{u,v}).
     This is an incredibly useful technique when trying to reformulate our calculation in a LCAO picture, as it
     ensures that for each bond, there is an equal antibond.
+    It needs complex projections and at least as many bands as orbitals: alloc_elec_data switches it off, with a
+    warning, for fewer bands than orbitals and for |projection|^2 files (finding F18), and this setter refuses to
+    switch it on for the latter.
     """
 
     @property
@@ -634,6 +694,12 @@ class ElecData:
     @los_orbs.setter
     def los_orbs(self, value: bool):
         if value != self._los_orbs:
+            if value and self.projections_are_norms:
+                raise ValueError(
+                    "los_orbs can't be used with this bandProjections file: it holds |projection|^2 "
+                    "(band-projection-params <ortho> yes), whose phases are lost, so the orbitals can't be "
+                    "orthonormalized within the band space (finding F18)."
+                )
             self._los_orbs = value
             # Caches first, so re-evaluated matrices are saved to (and loaded from) the new settings directory
             self._init_caches()
@@ -666,7 +732,17 @@ class ElecData:
     _p_uu_consistent: bool = True
 
     """
-    norm_eigs_for_h: WRITE ME
+    norm_eigs_for_h: If True (default), eigenvalues are measured from the Fermi level (e - mu) when the Hamiltonian
+    matrices are built (h_t_uv, and the legacy h_uu/h_t_uu). For the signed matrices this is H -> H - mu S. In the
+    orthonormal basis (los_orbs True) S is the identity, so only diagonal elements change and pair spectra don't,
+    except at states where the Löwdin step dropped an orbital direction (S is then a projector, and pair values
+    depend on the energy zero). In the non-orthogonal basis (los_orbs False) it shifts pCOHP by -mu * pCOOP
+    (Glassey & Hoffmann, J. Chem. Phys. 113, 1698 (2000)). Needs mu, which JDFTx only prints with elec-smearing.
+    Without smearing, mu is the midpoint of the HOMO and LUMO (edata.mu_is_estimated; it warns once when used).
+    Only if that doesn't exist either (no empty band) does alloc_elec_data switch this off, so the settings string
+    says so, warning when that can change pair values (los_orbs False, or a Löwdin direction dropped); setting it
+    to True then raises until edata.mu is set. Before finding F20, pair spectra of calculations without smearing
+    raised.
     """
 
     @property
@@ -676,11 +752,76 @@ class ElecData:
     @norm_eigs_for_h.setter
     def norm_eigs_for_h(self, value: bool):
         if value != self._norm_eigs_for_h:
+            if value:
+                self._resolve_mu()  # raises, saying how to set it, when there is no mu and none can be estimated (F20)
             self._norm_eigs_for_h = value
             self._init_caches()
             self.alloc_elec_data()
             
     _norm_eigs_for_h: bool = True
+
+    """
+    use_ao_matrices: If True (default) and the calculation directory holds JDFTx's `aoOverlap` and `aoHamiltonian`
+    files (`dump End AO`), the signed matrices (h_t_uv, s_t_uv) are the exact orbital matrices <phi|O|phi> and
+    <phi|H|phi> (ao_s_t_uv, ao_h_t_uv) instead of sums over the computed bands, and the bands' coefficients come from
+    the exact overlap. The basis is that of the projections: the Löwdin orbitals phi S^-1/2 for 'band-projection-params
+    yes ...' or with los_orbs (H = S^-1/2 H_AO S^-1/2, S = 1, coefficients = those orbitals' projections), else the
+    bare orbitals (H_AO, S_AO, coefficients S^-1 T). Results then no longer depend on elec-n-bands, apart from which
+    bands are listed, and need no more bands than orbitals (notes/wannier_and_adaptive_basis.md, sections 6.2 and 10;
+    notes/theory_audit.md, U1 and F14). Ultrasoft non-orthogonal projections still carry F13. Only for complex
+    projections; the legacy matrices (legacy_matrices=True) and the band diagnostics stay band sums.
+    """
+
+    @property
+    def use_ao_matrices(self) -> bool:
+        return self._use_ao_matrices
+
+    @use_ao_matrices.setter
+    def use_ao_matrices(self, value: bool):
+        if value != self._use_ao_matrices:
+            self._use_ao_matrices = value
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _use_ao_matrices: bool = True
+
+    @property
+    def ao_matrices_used(self) -> bool:
+        """Return True if the signed matrices come from JDFTx's AO dumps (see use_ao_matrices)."""
+        return bool(
+            self.jdftx and self.use_ao_matrices and self.aooverlapfile_filepath is not None
+            and self.aohamiltonianfile_filepath is not None and self.bandprojfile_is_complex
+        )
+
+    @property
+    def ao_s_t_uv(self) -> np.ndarray[COMPLEX_DTYPE] | None:
+        """Return JDFTx's exact orbital overlap <phi_u|O|phi_v> per state (`aoOverlap`), (nstates, nproj, nproj).
+
+        In the orbital phase of proj_tju (legacy_orbital_phase) and on every state of an unfolded k-mesh
+        (kmesh_unfolding). None without the file.
+        """
+        if self._ao_s_t_uv is None and self.aooverlapfile_filepath is not None:
+            self._ao_s_t_uv = self._read_ao_mat_tuv(self.aooverlapfile_filepath)
+        return self._ao_s_t_uv
+
+    @property
+    def ao_h_t_uv(self) -> np.ndarray[COMPLEX_DTYPE] | None:
+        """Return JDFTx's exact orbital Hamiltonian <phi_u|H|phi_v> per state (`aoHamiltonian`), as ao_s_t_uv.
+
+        Not shifted by mu (norm_eigs_for_h only applies to h_t_uv). JDFTx leaves out exact exchange.
+        """
+        if self._ao_h_t_uv is None and self.aohamiltonianfile_filepath is not None:
+            self._ao_h_t_uv = self._read_ao_mat_tuv(self.aohamiltonianfile_filepath)
+        return self._ao_h_t_uv
+
+    def _read_ao_mat_tuv(self, filepath: Path) -> np.ndarray[COMPLEX_DTYPE]:
+        """Read a `dump End AO` matrix into the conventions of proj_tju: i^l phase (F1), unfolded k-mesh (F5, F12)."""
+        m_tuv = get_ao_mat_tuv_from_file(filepath, self.nstates_file, self.nproj)
+        if not self.legacy_orbital_phase:
+            # T_real = p T_raw, with p_u = i^l_u, means phi_real = conj(p) phi_raw, so M_real = p M_raw p^dag
+            phase_u = apply_jdftx_orbital_phase(np.ones((1, 1, self.nproj)), self.orb_l_u)[0, 0]
+            m_tuv = phase_u[None, :, None] * m_tuv * phase_u.conj()[None, None, :]
+        return self._unfold_mat(m_tuv, raw_phase=self.legacy_orbital_phase)
 
     @property
     def infile(self) -> JDFTXInfile | None:
@@ -829,10 +970,52 @@ class ElecData:
 
     @property
     def mu(self) -> REAL_DTYPE:
-        """Return chemical potential of calculation.
+        """Return chemical potential (Fermi level) of calculation, in Hartree.
 
-        Return chemical potential (fermi level) of calculation.
+        From the last converged `FillingsUpdate` line of the outfile, or as set by the user. JDFTx prints it only with
+        elec-smearing; without smearing, crawfish uses the midpoint of the HOMO and LUMO instead (mu_is_estimated;
+        see _estimate_mu_from_gap) and warns the first time it is read. Raises ValueError when neither is available.
+        A value set by hand isn't part of the cache key (the settings string): matrices, weights and spectra cached
+        with another mu (e.g. the estimate) are still loaded, so call reset_cache() after setting it.
         """
+        mu = self._resolve_mu()
+        if self._mu_is_estimated and not self._warned_estimated_mu:
+            self._warned_estimated_mu = True
+            homo, lumo = self._mu_gap
+            note = ""
+            if homo > lumo:
+                note = (" The HOMO lies above the LUMO (spin channels or k-points filled separately), so these fillings "
+                        "have no single Fermi level and this value is only an energy zero.")
+            warnings.warn(
+                f"No chemical potential in the outfile (JDFTx prints one only with elec-smearing), so edata.mu is the "
+                f"midpoint of the HOMO ({homo:+.6f} Ha) and LUMO ({lumo:+.6f} Ha): {mu:+.6f} Ha.{note} To override, set edata.mu and "
+                "call edata.reset_cache() (cached results don't record mu; finding F20).",
+                stacklevel=2,
+            )
+        return mu
+
+    @mu.setter
+    def mu(self, value: REAL_DTYPE):
+        if np.isreal(value):
+            self._mu = value
+            self._mu_is_estimated = False
+        else:
+            raise ValueError(f"Invalid chemical potential value {value} (must be real)")
+
+    @property
+    def mu_is_estimated(self) -> bool:
+        """Return True if edata.mu is crawfish's HOMO-LUMO midpoint (no mu in the outfile, none set by the user)."""
+        if not self._mu_available():
+            return False
+        return self._mu_is_estimated
+
+    # Set when mu is the HOMO-LUMO midpoint, with (HOMO, LUMO), and once that has been warned about (finding F20)
+    _mu_is_estimated: bool = False
+    _mu_gap: tuple[float, float] | None = None
+    _warned_estimated_mu: bool = False
+
+    def _resolve_mu(self) -> REAL_DTYPE:
+        """Return mu (see the mu property) without the warning about an estimated value."""
         if self._mu is None:
             if self.jdftx:
                 # Read in Hartree from the outfile, not pymatgen's outfile.mu, whose fallback is in Hartree while its
@@ -840,21 +1023,43 @@ class ElecData:
                 mu = get_mu_from_outfile_filepath(self.outfile_filepath)
                 if mu is None:
                     # JDFTx prints mu (FillingsUpdate) only with smearing; occupations don't need it (F8)
-                    raise ValueError(
-                        "No chemical potential in the outfile (calculation without elec-smearing). "
-                        "Set edata.mu by hand, e.g. from the eigStats dump."
-                    )
+                    estimate = self._estimate_mu_from_gap()
+                    if estimate is None:
+                        raise ValueError(
+                            "No chemical potential in the outfile, and none can be estimated: the occupations need "
+                            "one (elec-smearing without a fillings file), or no band is empty (no LUMO). Set edata.mu "
+                            "by hand, e.g. from the eigStats dump, or leave edata.norm_eigs_for_h False (crawfish "
+                            "switches it off when there is no LUMO; finding F20)."
+                        )
+                    mu, homo, lumo = estimate
+                    self._mu_gap = (homo, lumo)
+                    self._mu_is_estimated = True
                 self._mu = mu
             else:
                 raise ValueError("mu (Fermi level) must be set by user for non-JDFTx calculations")
         return self._mu
 
-    @mu.setter
-    def mu(self, value: REAL_DTYPE):
-        if np.isreal(value):
-            self._mu = value
-        else:
-            raise ValueError(f"Invalid chemical potential value {value} (must be real)")
+    def _estimate_mu_from_gap(self) -> tuple[float, float, float] | None:
+        """Return (mu, HOMO, LUMO) with mu = (HOMO + LUMO) / 2, for a calculation that printed no mu (finding F20).
+
+        HOMO is the highest eigenvalue with occupation >= 0.5 and LUMO the lowest with occupation <= 0.5, over every
+        state and band, as in JDFTx's eigStats dump (Dump.cpp; the Si test calculations' eigStats files give the same
+        HOMO and LUMO). That dump's "mu" line is something else: the level that gives the electron count
+        (ElecInfo::findMu), which lies elsewhere in the gap. Computed in float64 from all bands (before
+        trim_excess_bands). Returns None when the occupations themselves need mu (elec-smearing without a fillings
+        file), or when no band is occupied or none is empty. Spin channels or k-points filled separately (constant
+        fillings with a magnetization) can put the HOMO above the LUMO; the midpoint is then only an energy zero.
+        """
+        btype = self.outfile.broadening_type
+        if self.fillingsfile_filepath is None and btype is not None and btype.lower() != "none":
+            return None  # occupations from the smearing need mu: no estimate (and no recursion)
+        e_tj, occ_tj = (self.e_tj, self.occ_tj) if self._untrimmed_bands is None else self._untrimmed_bands[:2]
+        e_tj, occ_tj = np.asarray(e_tj, dtype=np.float64), np.asarray(occ_tj, dtype=np.float64)
+        occupied, empty = occ_tj >= 0.5, occ_tj <= 0.5
+        if not occupied.any() or not empty.any():
+            return None
+        homo, lumo = float(e_tj[occupied].max()), float(e_tj[empty].min())
+        return 0.5 * (homo + lumo), homo, lumo
 
 
 
@@ -888,7 +1093,7 @@ class ElecData:
     def e_sabcj(self) -> np.ndarray[REAL_DTYPE]:
         """Return eigenvalues of calculation.
 
-        Return eigenvalues of calculation in shape (nstate, nbands).
+        Return eigenvalues of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
         """
         return self.e_tj.reshape([self.nspin] + list(self.kfolding) + [self.nbands])
 
@@ -912,7 +1117,8 @@ class ElecData:
         Set the _proj_tju variable. Loads from a precompiled binary file if available.
         Else, loads from the dumped text file and backs it up as a binary file, along
         with a stripped text file only containing the header. The backup always holds the raw
-        dumped projections; the orbital phase convention (see legacy_orbital_phase) is applied after.
+        dumped projections; the orbital phase convention (see legacy_orbital_phase) is applied after, and so is the
+        square root that turns a |projection|^2 file into amplitudes |T| (see projections_are_norms).
         """
         loaded_from_bandfile = False
         proj_tju = safe_load(self.proj_tju_filepath, allow_pickle=False)
@@ -922,6 +1128,7 @@ class ElecData:
         self._proj_tju = proj_tju
         if loaded_from_bandfile:
             self._cache_proj_tju()
+        self._proj_tju = self._file_proj_to_amplitude(self._proj_tju)
         if self.jdftx and not self.legacy_orbital_phase and self.bandprojfile_is_complex:
             self._proj_tju = apply_jdftx_orbital_phase(self._proj_tju, self.orb_l_u)
         if self.jdftx:
@@ -940,7 +1147,28 @@ class ElecData:
         """
         np.save(self.proj_tju_filepath, self._proj_tju)
         save_bandfile_header(self.bandfile_filepath, self.bandfile_header_filepath)
-            
+
+    @property
+    def projections_are_norms(self) -> bool:
+        """Return True if the JDFTx bandProjections file holds |projection|^2 instead of complex projections.
+
+        JDFTx writes that with `band-projection-params <ortho> yes`, which is also its default when the command is
+        absent (Dump.cpp: bandProjectionNorm(true)). Such files have no phases, so they support pDOS and DOS only:
+        crawfish uses the amplitudes |T| = sqrt(file value) as a real proj_tju, skips the Löwdin step (los_orbs is
+        switched off) and the band-span check, and the pair functions raise. See finding F18.
+        """
+        return bool(self.jdftx and not self.bandprojfile_is_complex)
+
+    def _file_proj_to_amplitude(self, proj_tju: np.ndarray) -> np.ndarray:
+        """Return the projections JDFTx wrote (or their cached copy) as amplitudes: sqrt of a |projection|^2 file.
+
+        The cache (proj_tju.npy) keeps the raw file values, as written before finding F18, so it stays valid. Before
+        F18 the raw |T|^2 was used as if it were T: pDOS squared it again and the Löwdin step ran on it.
+        """
+        if not self.projections_are_norms:
+            return proj_tju
+        return np.sqrt(np.maximum(np.asarray(proj_tju, dtype=REAL_DTYPE), REAL_DTYPE(0)))
+
 
 
     @property
@@ -1002,7 +1230,7 @@ class ElecData:
     def occ_tj(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return occupations of calculation.
 
-        Return occupations of calculation in shape (nspin, kfolding[0], kfolding[1], kfolding[2], nbands).
+        Return occupations of calculation in shape (nstates, nbands), per state in [0, 1].
         """
         if self._occ_tj is None:
             if self.fillingsfile_filepath is None:
@@ -1109,10 +1337,23 @@ class ElecData:
 
     def set_mat_uv(self) -> None:
         """Load the signed matrices h_t_uv, s_t_uv, d_t_uv from the cache, or compute and cache them."""
+        # mu is read only when H is shifted (F20), and before the cache, so an estimated mu is announced either way
+        mu = self.mu if self.norm_eigs_for_h else None
         arrs = {name: safe_load(self.cache_sub_dir / f"{name}.npy", allow_pickle=False) for name in signed_mat_names}
         if any(arr is None for arr in arrs.values()):
-            e_tj = self.e_tj - self.mu if self.norm_eigs_for_h else self.e_tj
-            h_t_uv, s_t_uv, d_t_uv = get_h_s_d_t_uv(self.proj_tju, self.coef_tju, e_tj, self.occ_tj)
+            e_tj = self.e_tj - mu if self.norm_eigs_for_h else self.e_tj
+            if self.ao_matrices_used:
+                # JDFTx's exact <phi|H|phi> and <phi|O|phi> in the projections' basis (see use_ao_matrices)
+                h_t_uv, s_t_uv = self.ao_h_t_uv, self.ao_s_t_uv
+                if self.los_orbs or self.bandprojfile_is_ortho:
+                    x_tuv = get_inv_sqrt_t_uv(s_t_uv)
+                    h_t_uv, s_t_uv = x_tuv @ h_t_uv @ x_tuv, np.broadcast_to(np.eye(self.nproj), np.shape(s_t_uv))
+                if self.norm_eigs_for_h:
+                    h_t_uv = h_t_uv - mu * s_t_uv  # the operator H - mu O, as e - mu in the band sums
+                _, _, d_t_uv = get_h_s_d_t_uv(self.coef_tju, self.coef_tju, e_tj, self.occ_tj)
+                h_t_uv, s_t_uv = np.asarray(h_t_uv, dtype=COMPLEX_DTYPE), np.asarray(s_t_uv, dtype=COMPLEX_DTYPE)
+            else:
+                h_t_uv, s_t_uv, d_t_uv = get_h_s_d_t_uv(self.proj_tju, self.coef_tju, e_tj, self.occ_tj)
             arrs = {"h_t_uv": h_t_uv, "s_t_uv": s_t_uv, "d_t_uv": d_t_uv}
             for name, arr in arrs.items():
                 np.save(self.cache_sub_dir / f"{name}.npy", arr)
@@ -1124,10 +1365,17 @@ class ElecData:
         """Return the expansion coefficients of each band in the band-projected orbitals, in shape (nstates, nbands, nproj).
 
         Equal to proj_tju when los_orbs is True (orthonormal orbitals). Otherwise C_t = P_t pinv(P_t^dag P_t).
-        See `crawfish.core.operations.matrix.get_coef_tju`.
+        See `crawfish.core.operations.matrix.get_coef_tju`. With JDFTx's AO matrices (ao_matrices_used) the overlap is
+        exact: C = proj_tju in an orthonormal basis, C = S_AO^-1 T for the bare orbitals.
         """
         if self._coef_tju is None:
-            self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs)
+            if not self.ao_matrices_used:
+                self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs)
+            elif self.los_orbs or self.bandprojfile_is_ortho:
+                self._coef_tju = self.proj_tju
+            else:
+                s_inv_tuv = np.linalg.inv(np.asarray(self.ao_s_t_uv, dtype=np.complex128))
+                self._coef_tju = np.asarray(self.proj_tju @ s_inv_tuv.transpose(0, 2, 1), dtype=COMPLEX_DTYPE)
         return self._coef_tju
 
     @property
@@ -1135,7 +1383,9 @@ class ElecData:
         """Return the signed state-resolved Hamiltonian <chi_u|H|chi_v> of the band-projected orbitals, (nstates, nproj, nproj).
 
         Eigenvalues are shifted by -mu when norm_eigs_for_h is True. That only changes the diagonal when los_orbs is
-        True, but in the non-orthogonal basis it shifts the COHP by -mu * COOP.
+        True (unless the Löwdin step dropped an orbital direction at that state, where S is a projector instead of
+        the identity), but in the non-orthogonal basis it shifts the COHP by -mu * COOP. Without smearing, mu is the
+        HOMO-LUMO midpoint (see the mu property).
         """
         if self._h_t_uv is None:
             self.set_mat_uv()
@@ -1167,6 +1417,8 @@ class ElecData:
         return get_mat_r_suv(getattr(self, f"{name}_t_uv"), self.wk_t, self.ks_t, self.nspin, R)
 
     def set_mat_uu(self) -> None:
+        # mu is read only when the eigenvalues are shifted (F20), and before the cache, as in set_mat_uv
+        mu = self.mu if self.norm_eigs_for_h else None
         missing = False
         mat_names = ["h_t_uu", "p_t_uu", "s_t_uu", "h_uu", "p_uu", "s_uu"]
         for arr_name in mat_names:
@@ -1183,7 +1435,7 @@ class ElecData:
                 self.wk_t,
                 p_sc=self.p_uu_consistent,
                 norm_eigs_for_h=self.norm_eigs_for_h,
-                mu=self.mu,
+                mu=mu,
             )
             print("saving to", self.cache_sub_dir)
             np.save(self.cache_sub_dir / f"h_t_uu.npy", h_t_uu)
@@ -1327,7 +1579,7 @@ class ElecData:
     def wk_t(self) -> np.ndarray[REAL_DTYPE]:
         """Return kpoint weights.
 
-        Return kpoint weights in shape (kfolding[0], kfolding[1], kfolding[2]).
+        Return kpoint weights in shape (nstates,). They carry the spin factor and sum to 2, as in JDFTx.
         """
         if self._wk_t is None:
             if self.jdftx:
@@ -1361,7 +1613,7 @@ class ElecData:
     def ks_t(self) -> np.ndarray[REAL_DTYPE] | None:
         """Return kpoint coordinates.
 
-        Return kpoint coordinates in shape (nspin, kfolding[0], kfolding[1], kfolding[2], 3).
+        Return kpoint coordinates in shape (nstates, 3), in reciprocal-lattice coordinates.
         """
         if self._ks_t is None:
             if self.jdftx:
@@ -1423,11 +1675,13 @@ class ElecData:
         too few bands (`elec-n-bands`). It is independent of crawfish's settings: |T| doesn't depend on the orbital
         phase. On a k-mesh reduced by symmetry it is taken over the unfolded mesh (kmesh_unfolding), since the point
         group mixes the m of a shell and permutes equivalent atoms. See notes/theory_audit.md, findings F7 and F11.
+        A |projection|^2 file gives |T|^2 directly (finding F18; before that fix it was squared again).
         """
         if self.jdftx:
             proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
             if proj is None:
                 proj = get_proj_tju_from_file(self.bandfile_filepath)
+            proj = self._file_proj_to_amplitude(proj)
             if self.kmesh_unfolded:
                 proj, wk = self._unfold_proj(proj, raw_phase=True), self.wk_t
             else:
@@ -1451,8 +1705,15 @@ class ElecData:
         far below that mean an orbital combination is missing from the bands at that state: crawfish then
         rebuilds it from bands that barely contain it, or drops it (see legacy_lowdin_cutoff). Independent of
         crawfish's settings, like orbital_completeness_u. See notes/theory_audit.md, finding F11.
+        Unavailable for |projection|^2 files, which have no phases (finding F18).
         """
         if self._orbital_span_t is None:
+            if self.projections_are_norms:
+                raise ValueError(
+                    "orbital_span_t is unavailable for this bandProjections file: it holds |projection|^2, and the "
+                    "band-space overlap needs the phases of the projections (finding F18). "
+                    "orbital_completeness_u still works."
+                )
             if self.jdftx:
                 proj = safe_load(self.proj_tju_filepath, allow_pickle=False)
                 if proj is None:
@@ -1499,8 +1760,10 @@ class ElecData:
         names = ", ".join(k for k, v in sorted(share.items(), key=lambda kv: -kv[1]) if v >= 0.15 * total)
         dropped = ""
         if ndropped_t is not None and np.any(ndropped_t):
+            # The band-space overlap is then a projector, not the identity, so H - mu S changes off-diagonal H too (F15)
             dropped = (f" The Löwdin step (los_orbs) dropped {int(np.sum(ndropped_t))} of these combination(s), "
-                       f"below {LOWDIN_RTOL:g}, so they get no weight there.")
+                       f"below {LOWDIN_RTOL:g}, so they get no weight there, and pair values at those states also "
+                       "depend on the energy zero of H (norm_eigs_for_h; finding F15).")
         warnings.warn(
             f"Too few bands: at {int(np.count_nonzero(bad_t))} of {len(bad_t)} states ({100 * frac:.1f}% of the "
             f"k-point weight), an orbital combination is almost missing from the bands (band-space overlap "
@@ -1700,10 +1963,11 @@ class ElecData:
     
         
 
-    def _set_files_paths(self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings", "sym"]):
+    def _set_files_paths(
+            self, optional_sufficies: list[str] = ["gvec", "wfn", "kpts", "fillings", "sym", "aooverlap", "aohamiltonian"]):
         if self.fprefix is None:
             raise RuntimeError("File prefix (fprefix) must be set before setting file paths")
-        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn", "sym"]:
+        for filetype in ["band", "kpts", "eig", "fillings", "out", "gvec", "wfn", "sym", "aooverlap", "aohamiltonian"]:
             suffix = getattr(self, f"{filetype}file_suffix")
             filepath = self._get_filepath_generic(suffix)
             if filepath is None and filetype not in optional_sufficies:
@@ -1781,10 +2045,30 @@ class ElecData:
         #_ = self.proj_tju
         _ = self.occ_tj
         _ = self.e_tj
-        if self.nbands < self.nproj:
-            # Set private values directly - callers re-init caches after this returns
-            self._trim_excess_bands = False
+        # Settings switched off here are set through their private fields, so the settings string (cache key)
+        # reflects what is actually done; the caches are re-pointed below if one changed
+        settings_before = get_edata_settings_str(self)
+        if self.projections_are_norms and self._los_orbs:
+            # |projection|^2 files have no phases: no Löwdin step, no band-span check, pDOS only (finding F18)
             self._los_orbs = False
+            warnings.warn(
+                "This bandProjections file holds |projection|^2 (band-projection-params <ortho> yes, JDFTx's default), "
+                "so it supports DOS and pDOS only, from the amplitudes |T|: los_orbs is switched off (the orbitals "
+                "can't be orthonormalized without phases), and pCOHP, pCOOP, pCOBI and pCOMO raise. For pair spectra, "
+                "rerun with 'band-projection-params yes no' (or 'no no'). See finding F18.",
+                stacklevel=3,
+            )
+        if self.nbands < self.nproj:
+            self._trim_excess_bands = False
+            if not self.ao_matrices_used:  # the exact AO overlap needs no band space
+                if self._los_orbs:
+                    warnings.warn(
+                        f"This calculation has fewer bands ({self.nbands}) than orbitals ({self.nproj}), so the orbitals "
+                        "can't be orthonormalized within the band space: los_orbs is switched off. Increase "
+                        "elec-n-bands to use the Löwdin basis.",
+                        stacklevel=3,
+                    )
+                self._los_orbs = False
         if self.trim_excess_bands:
             self._untrimmed_bands = (self.e_tj, self.occ_tj, self.nbands)
             bestj = get_best_bands(self.proj_tju)
@@ -1797,13 +2081,67 @@ class ElecData:
             self._occ_tj = _occ_tj
             self._nbands = self.nproj
         ndropped_t = None
-        if self.los_orbs:
-            self._proj_tju, ndropped_t = los_projs_for_orbs(
-                self.proj_tju, legacy=self.legacy_lowdin_cutoff, return_ndropped=True
-            )
-        # One warning for unspanned orbitals (F11) and the directions Löwdin dropped (F10; not counted on the legacy path)
-        self._warn_if_bands_too_few(None if self.legacy_lowdin_cutoff else ndropped_t)
+        if self.ao_matrices_used:
+            if self.los_orbs and not self.bandprojfile_is_ortho:
+                # Projections onto the exact Löwdin orbitals phi S^-1/2, what 'band-projection-params yes' dumps
+                x_tuv = get_inv_sqrt_t_uv(self.ao_s_t_uv)
+                self._proj_tju = np.asarray(self.proj_tju @ x_tuv.transpose(0, 2, 1), dtype=COMPLEX_DTYPE)
+        else:
+            if self.los_orbs:
+                self._proj_tju, ndropped_t = los_projs_for_orbs(
+                    self.proj_tju, legacy=self.legacy_lowdin_cutoff, return_ndropped=True
+                )
+            if not self.projections_are_norms:
+                # One warning for unspanned orbitals (F11) and the directions Löwdin dropped (F10; not counted on the
+                # legacy path). The band-space overlap needs phases, so |projection|^2 files skip it (F18).
+                self._warn_if_bands_too_few(None if self.legacy_lowdin_cutoff else ndropped_t)
+        self._switch_off_norm_eigs_without_mu(ndropped_t)
+        if getattr(self, "cache_sub_dir", None) is not None and get_edata_settings_str(self) != settings_before:
+            # A setter pointed the caches at the requested settings before calling this
+            self._init_caches()
         self.reval_mat_uu()
+
+    # Set when alloc_elec_data switched norm_eigs_for_h off for lack of mu, and once that has been warned about (F20)
+    _norm_eigs_off_without_mu: bool = False
+    _warned_energy_zero: bool = False
+
+    def _mu_available(self) -> bool:
+        """Return True if mu is set by the user, printed in the outfile, or can be estimated (no warning)."""
+        try:
+            self._resolve_mu()
+        except ValueError:
+            return False
+        return True
+
+    def _switch_off_norm_eigs_without_mu(self, ndropped_t: np.ndarray | None) -> None:
+        """Switch norm_eigs_for_h off when there is no mu at all, warning where pair values depend on it (F20).
+
+        JDFTx prints mu only with elec-smearing; without one, mu is the HOMO-LUMO midpoint (_estimate_mu_from_gap).
+        This is the fallback for calculations where that estimate doesn't exist either (no empty band, so no LUMO).
+        Before finding F20, the default pair spectra of such calculations raised when the Hamiltonian was built. In
+        the Löwdin basis the energy zero only changes the diagonal of H, so pair values are the same either way,
+        except at states where the Löwdin step dropped an orbital direction (finding F15); in the non-orthogonal
+        basis it shifts pCOHP by -mu * pCOOP. Only those cases warn, once, including when a later setting (e.g.
+        los_orbs False) brings them about.
+        """
+        if self.jdftx and self._norm_eigs_for_h and not self._mu_available():
+            self._norm_eigs_for_h = False
+            self._norm_eigs_off_without_mu = True
+        if not self._norm_eigs_off_without_mu or self._norm_eigs_for_h or self._warned_energy_zero:
+            return
+        dropped = ndropped_t is not None and bool(np.any(ndropped_t))
+        if (self.los_orbs and not dropped) or self._mu_available():
+            return
+        self._warned_energy_zero = True
+        where = (f"At the {int(np.count_nonzero(ndropped_t))} states where the Löwdin step dropped an orbital "
+                 "direction" if self.los_orbs else "In the non-orthogonal basis (los_orbs False)")
+        warnings.warn(
+            "No chemical potential in the outfile, and none can be estimated (no empty band, so no LUMO), so "
+            "norm_eigs_for_h is switched off: H is built from the eigenvalues as JDFTx printed them. "
+            f"{where}, pair values depend on that energy zero. To measure from a Fermi level, set edata.mu by hand "
+            "(e.g. from the eigStats dump) and then edata.norm_eigs_for_h = True (findings F15 and F20).",
+            stacklevel=4,
+        )
 
     #################
 

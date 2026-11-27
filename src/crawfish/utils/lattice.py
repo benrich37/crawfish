@@ -54,6 +54,15 @@ def get_nearest_image(edata: ElecData, atom_a: int, atom_b: int, search: int = 2
     search : int
         Search R within +/- search of the minimum-image guess along each lattice vector
     """
+    candidates, dists = _get_image_candidates(edata, atom_a, atom_b, search)
+    order = np.lexsort((np.abs(candidates).sum(axis=1), dists))  # nearest first; ties prefer small |R|
+    best = order[0]
+    nties = int(np.sum(dists < dists[best] + IMAGE_TIE_TOL))
+    return tuple(int(x) for x in candidates[best]), float(dists[best]), nties
+
+
+def _get_image_candidates(edata: ElecData, atom_a: int, atom_b: int, search: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return lattice vectors R within +/- search of the minimum-image guess, and the distances from a to b + R."""
     frac = edata.structure.frac_coords
     lattice = edata.structure.lattice.matrix
     d_frac = frac[atom_b] - frac[atom_a]
@@ -62,10 +71,36 @@ def get_nearest_image(edata: ElecData, atom_a: int, atom_b: int, search: int = 2
     offsets = np.stack(np.meshgrid(rng, rng, rng, indexing="ij"), -1).reshape(-1, 3)
     candidates = guess[None, :] + offsets
     dists = np.linalg.norm((d_frac[None, :] + candidates) @ lattice, axis=1)
-    order = np.lexsort((np.abs(candidates).sum(axis=1), dists))  # nearest first; ties prefer small |R|
-    best = order[0]
-    nties = int(np.sum(dists < dists[best] + IMAGE_TIE_TOL))
-    return tuple(int(x) for x in candidates[best]), float(dists[best]), nties
+    return candidates, dists
+
+
+def get_nearest_images(edata: ElecData, atom_a: int, atom_b: int, search: int = 2) -> list[dict]:
+    """Return every image of atom b nearest to atom a at a non-zero distance, as pair-spectrum lattice vectors.
+
+    All images within IMAGE_TIE_TOL of the nearest non-zero distance, nearest first (ties by smallest |R|), in the
+    format of `crawfish.funcs.get_pair_images`. With atom_b = atom_a this lists an atom's nearest periodic images
+    of itself, the bonds of a one-atom cell (e.g. the 12 neighbours in fcc). Pass each R as image=R to a pair
+    function to get that bond (finding F19). Images other than the same cell need the full k-mesh.
+
+    Parameters
+    ----------
+    edata : ElecData
+        The ElecData object of the system of interest
+    atom_a, atom_b : int
+        Structure site indices (0-based, as idcs1/idcs2 of the pair functions)
+    search : int
+        Search R within +/- search of the minimum-image guess along each lattice vector
+    """
+    candidates, dists = _get_image_candidates(edata, atom_a, atom_b, search)
+    nonzero = dists > 1e-6
+    d_min = dists[nonzero].min()
+    keep = np.flatnonzero(nonzero & (dists < d_min + IMAGE_TIE_TOL))
+    keep = keep[np.lexsort((np.abs(candidates[keep]).sum(axis=1), dists[keep]))]
+    return [
+        {"atom1": edata.kmap[atom_a], "atom2": edata.kmap[atom_b], "R": tuple(int(x) for x in candidates[i]),
+         "distance": float(dists[i])}
+        for i in keep
+    ]
 
 
 def normalize_image(image) -> str | list[int]:
@@ -87,6 +122,8 @@ def get_pair_image_map(
 
     image="nearest" picks each pair's nearest image (R=(0,0,0) for all pairs when edata.legacy_lattice_image is
     True), and an explicit lattice vector is used for every pair. Warns when a nearest image is not unique.
+    An atom paired with itself is nearest to itself, so "nearest" gives it R=(0,0,0), the on-site terms; its bonds
+    with its own periodic images need an explicit R (see get_nearest_images; finding F19).
     """
     atom_u = get_orb_atom_idx_u(edata)
     pairs = sorted({(int(atom_u[u]), int(atom_u[v])) for u in orbs_u for v in orbs_v})

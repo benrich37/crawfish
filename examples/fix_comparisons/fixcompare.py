@@ -49,12 +49,14 @@ LEGACY_FLAGS = {
     "F6": "legacy_normalization",
     "F10": "legacy_lowdin_cutoff",
     "F12": "unfold_point_group",
+    "F16": "legacy_cobi_scale",
 }
 # Settings whose pre-fix value is False rather than True: switches for new behaviour that is on by default
 LEGACY_VALUES = {"F12": False}
 # F8 (crashing/inverted occupation helpers) is a bug fix without a legacy switch (notes section 4.0); its notebook
 # section compares the helpers and the computed occupations directly against JDFTx. Of F10's items only the
-# Löwdin cutoff changes results, so it is the one with a switch.
+# Löwdin cutoff changes results, so it is the one with a switch. Of F16-F20 only F16 (pCOBI scale) has one: F17
+# changed a default argument (res=0.01 gives the old grid), and F18-F20 are bug fixes or new capabilities.
 
 
 def fix_available(finding: str) -> bool:
@@ -145,12 +147,12 @@ def jdftx_occupations(calc_dir: Path, nspin: int, shape: tuple[int, int]) -> np.
     return f / 2.0 if nspin == 1 else f
 
 
-def _lowdin(proj_tju: np.ndarray) -> np.ndarray:
+def _lowdin(proj_tju: np.ndarray, rtol: float = 1e-10) -> np.ndarray:
     out = np.empty_like(proj_tju)
     for t in range(proj_tju.shape[0]):
         s_uu = proj_tju[t].conj().T @ proj_tju[t]
         eigs, vecs = np.linalg.eigh(s_uu)
-        keep = eigs > 1e-10 * eigs.max()
+        keep = eigs > rtol * eigs.max()
         out[t] = proj_tju[t] @ (vecs[:, keep] / np.sqrt(eigs[keep])) @ vecs[:, keep].conj().T
     return out
 
@@ -161,9 +163,17 @@ class Reference:
     basis="lowdin": band-space Löwdin-orthonormalized orbitals (S = I, so COOP vanishes off-diagonal).
     basis="nonorthogonal": band-projected orbitals, C = S^-1 T.
     All matrices follow crawfish's layout, P[t, j, u] = <phi_u|O|psi_tj>, with H_t[u,v] = <chi_u|H|chi_v>.
+    wiberg_cobi: COBI weights on the Wiberg/Mayer scale, 2 Re[C* D C] with D the per-spin density matrix (crawfish's
+    default since finding F16). False (default) keeps Re[C* D C], half the bond index, which is what crawfish gives
+    with legacy_cobi_scale=True; the notebooks for earlier findings hold F16 at legacy (load_edata_at), so they use
+    that.
+    lowdin_rtol: overlap eigenvalues kept by the Löwdin step, relative to the largest. 1e-10 (default) keeps nearly
+    everything; crawfish drops below crawfish.core.operations.matrix.LOWDIN_RTOL (1e-6), which matters only where
+    the bands leave an orbital combination unspanned (e.g. 4 states of graphene_zspin_full).
     """
 
-    def __init__(self, edata: ElecData, basis: str = "lowdin", energy_shift: float = 0.0):
+    def __init__(self, edata: ElecData, basis: str = "lowdin", energy_shift: float = 0.0, wiberg_cobi: bool = False,
+                 lowdin_rtol: float = 1e-10):
         calc_dir = Path(edata.calc_dir)
         raw = get_proj_tju_from_file(calc_dir / "bandProjections").astype(np.complex128)
         l_u = get_orb_l_u_from_bandfile_filepath(calc_dir / "bandProjections")
@@ -171,9 +181,10 @@ class Reference:
         self.e_tj = np.fromfile(calc_dir / "eigenvals").reshape(raw.shape[:2])
         self.f_tj = jdftx_occupations(calc_dir, edata.nspin, raw.shape[:2])
         self.w_t = np.asarray(edata.wk_t, dtype=np.float64)
+        self.k_t = np.asarray(edata.ks_t, dtype=np.float64)
         e_h = self.e_tj - energy_shift
         if basis == "lowdin":
-            P = _lowdin(P)
+            P = _lowdin(P, lowdin_rtol)
             self.C = P
         elif basis == "nonorthogonal":
             s_conj = np.einsum("tju,tjv->tuv", P.conj(), P)
@@ -185,6 +196,7 @@ class Reference:
         self.D = np.einsum("tj,tju,tjv->tuv", self.f_tj, self.C, self.C.conj())
         self.nproj = P.shape[2]
         self.nspin = edata.nspin
+        self.cobi_factor = 2.0 if wiberg_cobi else 1.0
 
     def _r0(self, mat_tuv: np.ndarray) -> np.ndarray:
         """Per-spin R=0 average sum_{t in s} w_t M_t / sum_{t in s} w_t, broadcast back to every state."""
@@ -196,20 +208,36 @@ class Reference:
             out[sl] = np.tensordot(self.w_t[sl], mat_tuv[sl], axes=1) / self.w_t[sl].sum()
         return out
 
+    def _image(self, mat_tuv: np.ndarray, R) -> np.ndarray:
+        """Per-spin M(R) = sum_{t in s} w_t e^{-2 pi i k.R} M_t / sum_{t in s} w_t, as M(R) e^{2 pi i k_t.R} per state."""
+        phase_t = np.exp(2j * np.pi * self.k_t @ np.asarray(R, dtype=np.float64))
+        if mat_tuv.shape[0] == 1:  # pCOMO's M = 1
+            return np.broadcast_to(mat_tuv, (len(phase_t),) + mat_tuv.shape[1:]) * phase_t[:, None, None]
+        return self._r0(mat_tuv * phase_t.conj()[:, None, None]) * phase_t[:, None, None]
+
     def weights_tj(self, orbs_u: list[int], orbs_v: list[int], mode: str = "cohp", images: str = "all") -> np.ndarray:
         """w_t * sum_{u in A, v in B, u != v} Re[conj(C_u) M_uv C_v] for M = H (cohp), S (coop), D (cobi), 1 (como).
 
+        cobi is multiplied by self.cobi_factor (2 with wiberg_cobi=True, finding F16).
+
         images="all": state-resolved M_t (interaction summed over all lattice images; crawfish state_sep=True).
         images="R0": same-cell element M(R=0), averaged per spin (crawfish state_sep=False).
+        images=(n1, n2, n3): the image of the second set at lattice vector R, M(R) e^{2 pi i k_t.R} (finding F3). For
+        R != 0 the u == v terms are included: orbital u with its own copy in cell R (finding F19).
         """
-        mats = {"cohp": self.H, "coop": self.S, "cobi": self.D, "como": np.ones((1, self.nproj, self.nproj))}
+        mats = {"cohp": self.H, "coop": self.S, "cobi": self.cobi_factor * self.D,
+                "como": np.ones((1, self.nproj, self.nproj))}
         M = mats[mode]
-        if images == "R0" and mode != "como":
+        keep_diagonal = False
+        if isinstance(images, (tuple, list)):
+            keep_diagonal = any(int(x) != 0 for x in images)
+            M = self._image(M, images)
+        elif images == "R0" and mode != "como":
             M = self._r0(M)
         mask = np.zeros((self.nproj, self.nproj))
         for u in orbs_u:
             for v in orbs_v:
-                if u != v:
+                if u != v or keep_diagonal:
                     mask[u, v] = 1.0
         M = M * mask[None]
         val = np.einsum("tju,tuv,tjv->tj", self.C.conj(), np.broadcast_to(M, (self.C.shape[0],) + M.shape[1:]), self.C)

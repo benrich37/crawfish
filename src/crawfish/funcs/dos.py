@@ -35,9 +35,12 @@ def get_dos(
     erange: np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
     sig : REAL_DTYPE
-        The sigma value for the Gaussian smearing (if lti is False).
+        The width parameter of the Gaussian smearing (if lti is False), exp(-(E - e)^2 / sig): a standard
+        deviation of sqrt(sig / 2), 2.2e-3 Ha by default. A grid step above 2 standard deviations warns (F17).
     res : REAL_DTYPE
-        The resolution of the energy range (if erange is None)
+        The step (Ha) of the automatic energy range (if erange is None): 1e-3 Ha by default (1e-2 Ha
+        before finding F17; res=0.01 gives that grid). The range is padded beyond the extreme eigenvalues by
+        max(10 res, 5 standard deviations of the Gaussian).
     spin_pol : bool
         If the spectrum should be returned with up/down intensities separated.
     lti : bool
@@ -111,9 +114,12 @@ def get_pdos(
     erange: np.ndarray[REAL_DTYPE] | None
         The energy range of interest.
     sig : REAL_DTYPE
-        The sigma value for the Gaussian smearing (if lti is False).
+        The width parameter of the Gaussian smearing (if lti is False), exp(-(E - e)^2 / sig): a standard
+        deviation of sqrt(sig / 2), 2.2e-3 Ha by default. A grid step above 2 standard deviations warns (F17).
     res : REAL_DTYPE
-        The resolution of the energy range (if erange is None)
+        The step (Ha) of the automatic energy range (if erange is None): 1e-3 Ha by default (1e-2 Ha
+        before finding F17; res=0.01 gives that grid). The range is padded beyond the extreme eigenvalues by
+        max(10 res, 5 standard deviations of the Gaussian).
     spin_pol : bool
         If the spectrum should be returned with up/down intensities separated.
     lti : bool

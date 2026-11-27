@@ -111,4 +111,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="Löwdin step in float64 with a relative eigenvalue cutoff (notes/theory_audit.md F10; "
         "legacy_lowdin_cutoff restores the old one)",
     ),
+    ResultChange(
+        commit="2794f651064076ae7842c0e8f3ea13f47fd87aaa",
+        version="1.0.0",
+        stage="matrices",
+        description="pCOBI factor 2 (F16), finer default energy grid (F17), |projection|^2 files read as "
+        "amplitudes (F18), HOMO-LUMO midpoint as mu without smearing (F20); notes/theory_audit.md",
+    ),
 ]

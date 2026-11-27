@@ -1,0 +1,82 @@
+# Run the test suite on Linux, macOS and Windows.
+# Modelled on pymatgen-core's test workflow; notes/ci_setup.md says what was kept and dropped.
+name: test
+
+on:
+  push:
+    branches: [master]
+    paths:
+      [
+        "src/**",
+        "tests/**",
+        ".github/workflows/*",
+        "pyproject.toml",
+        ".gitattributes",
+      ]
+  pull_request:
+    branches: [master]
+    paths:
+      [
+        "src/**",
+        "tests/**",
+        ".github/workflows/*",
+        "pyproject.toml",
+        ".gitattributes",
+      ]
+  workflow_dispatch:
+  workflow_call: # make this workflow reusable by a release workflow
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.config.os }} py${{ matrix.config.python }}${{ matrix.config.stock && ' (stock pymatgen-core)' || '' }}
+    defaults:
+      run:
+        shell: bash # the install step uses bash syntax, also on Windows
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same platforms and Python versions as pymatgen-core's CI: the lowest and highest
+        # supported Python on Ubuntu, one version each on macOS and Windows.
+        config:
+          - os: windows-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.13"
+          - os: ubuntu-latest
+            python: "3.12" # lowest Python that pymatgen-core supports
+          - os: ubuntu-latest
+            python: "3.14" # highest Python that pymatgen-core supports
+          # Released pymatgen-core from PyPI. Fails until a release includes materialsproject/pymatgen-core
+          # #319-#324 (merged 2026-11-25), so it does not fail the run. When it turns green, pin that
+          # release in pyproject.toml and delete this job and the overrides in the install step.
+          - os: ubuntu-latest
+            python: "3.13"
+            stock: true
+
+    runs-on: ${{ matrix.config.os }}
+    continue-on-error: ${{ matrix.config.stock == true }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v6
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: ${{ matrix.config.python }}
+          activate-environment: true # later steps run in this venv
+
+      - name: Install crawfish and dependencies via uv
+        env:
+          # The stock job replaces pyproject.toml's pymatgen-core (upstream main, from git) with the PyPI release.
+          OVERRIDE: ${{ matrix.config.stock && 'pymatgen-core' || '' }}
+        run: |
+          echo "$OVERRIDE" > uv-overrides.txt
+          # Editable: crawfish.utils.testing finds tests/files relative to the source tree.
+          uv pip install -e . pytest --overrides uv-overrides.txt
+
+      - name: pytest
+        run: pytest tests --color=yes

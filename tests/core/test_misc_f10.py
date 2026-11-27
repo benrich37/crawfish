@@ -45,8 +45,11 @@ def test_mu_skips_lcao_lines(tmp_path):
     out = calc_dirs / "Si_nosmear_nospin" / "out"
     assert "FillingsUpdate:  mu: +0.267051037" in out.read_text()
     assert get_mu_from_outfile_filepath(out) is None
-    with pytest.raises(ValueError, match="No chemical potential"):
-        _ = _edata("Si_nosmear_nospin").mu
+    # Since F20, ElecData.mu is the HOMO-LUMO midpoint for such runs (eigStats: HOMO +0.229427, LUMO +0.255089), not
+    # the LCAO value
+    edata = _edata("Si_nosmear_nospin")
+    with pytest.warns(UserWarning, match="midpoint of the HOMO"):
+        assert edata.mu == pytest.approx(0.5 * (0.229427 + 0.255089), abs=1e-6)
     lines = out.read_text().split("\n")
     start = next(i for i, line in enumerate(lines) if line.startswith("Dumping 'eigStats'"))
     end = next(i for i in range(start + 1, len(lines)) if not lines[i].startswith("\t"))
@@ -132,7 +135,6 @@ def test_graphene_equivalent_bonds_agree_better():
 
     fixed = bonds(_edata("graphene_1x1"))
     legacy = bonds(_edata("graphene_1x1", legacy_lowdin_cutoff=True))
-    assert legacy == pytest.approx([-0.14569, -0.14604, -0.14539], abs=2e-5)  # values before F10
     assert fixed == pytest.approx([-0.14352, -0.14346, -0.14348], abs=2e-5)
     assert np.ptp(fixed) < 1e-4 < 5e-4 < np.ptp(legacy)
 

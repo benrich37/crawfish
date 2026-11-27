@@ -1,0 +1,21 @@
+# Graphene, no-spin, 6x6x1 k-mesh, SG15 norm-conserving, 16 bands, ortho projections, with JDFTx's exact AO matrices (dump End AO): crawfish test fixture
+lattice \
+    4.6487 -2.32435 0.0 \
+    0.0 4.025892 0.0 \
+    0.0 0.0 20.0
+coords-type Lattice
+ion C  0.333333333333  0.666666666667  0.5 0
+ion C  0.666666666667  0.333333333333  0.5 0
+ion-species /Users/richb/Desktop/jdftx_hold/build_master/pseudopotentials/SG15/C_ONCV_PBE-1.0.upf
+core-overlap-check none
+elec-ex-corr gga-PBE
+elec-cutoff 30
+elec-n-bands 16
+elec-smearing Fermi 0.005
+kpoint-folding 6 6 1
+converge-empty-states yes
+electronic-minimize energyDiffThreshold 1e-9
+symmetries automatic
+band-projection-params yes no
+dump-name $VAR
+dump End BandEigs BandProjections Fillings Kpoints AO Symmetries

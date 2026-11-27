@@ -166,8 +166,11 @@ def test_elecdata_cache_validation(tmp_path, capsys):
     edata = ElecData(calc_dir)
     _ = edata.h_uu
     stamp = json.loads((edata.cache_dir / CACHE_STAMP_FILENAME).read_text())
-    # sym (JDFTx's symmetry operations, finding F12) is optional and missing here; it is stamped as absent
-    assert set(stamp["source_files"]) == {"bandProjections", "eigenvals", "out", "kPts", "fillings", "sym"}
+    # sym (JDFTx's symmetry operations, finding F12) and the AO matrices (`dump End AO`) are optional and missing
+    # here; they are stamped as absent
+    assert set(stamp["source_files"]) == {
+        "bandProjections", "eigenvals", "out", "kPts", "fillings", "sym", "aoOverlap", "aoHamiltonian"
+    }
     assert stamp["source_files"]["sym"] is None
     assert edata.proj_tju_filepath.exists()
     capsys.readouterr()
