@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```sh
-pip install .                                   # install (pymatgen comes from a fork: github.com/benrich37/pymatgen, for pymatgen.io.jdftx)
+pip install .                                   # install (pymatgen-core from upstream GitHub main, for pymatgen.io.jdftx; newer than its PyPI release)
 python -m pytest                                # full suite (~15s)
 python -m pytest tests/funcs/test_pcohp.py      # one file
 python -m pytest tests/utils/test_caching.py::test_name   # one test

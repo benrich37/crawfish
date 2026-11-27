@@ -191,7 +191,7 @@ Any github-url pip installation method should work, but below are the steps I ha
 ```sh
 git clone https://github.com/benrich37/crawfish.git
 ```
-2. Activate the python environment you wish to use when performing pCOHP analysis **NOTE: At the moment, the JDFTx IO module that part of this library depends on only exists on an independent fork of pymatgen. At the time of writing this (10/24/24) this fork is fully up-to-date, but later on this installation may roll back your pymatgen to an older version.** If you are worried about dependency conflicts, I would reccomend creating a conda virtual environment with python version 3.12 (latest as of writing this)
+2. Activate the python environment you wish to use when performing pCOHP analysis **NOTE: crawfish needs the JDFTx IO module of pymatgen-core as it is on GitHub (`main`), which is newer than the latest PyPI release (2026.10.31), so installing crawfish installs pymatgen-core from GitHub.** If you are worried about dependency conflicts, I would reccomend creating a conda virtual environment with python version 3.12 (latest as of writing this)
 3. Navigate to ~/crawfish/ where you cloned this repo (not ~/crawfish/src/crawfish/) and install via pip
 ```sh
 cd ./crawfish
