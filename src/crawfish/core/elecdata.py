@@ -472,9 +472,14 @@ class ElecData:
     legacy_ortho_coefs: If False (default), projections JDFTx already made onto orthonormalized orbitals
     ('band-projection-params yes ...') are used as the band coefficients, C = T, also when los_orbs is off (it is
     forced off when elec-n-bands < number of orbitals). The density matrix D = sum_j f_j T_j T_j^dag then holds only
-    occupied bands. If True, the pre-fix least-squares fit C_t = T_t pinv(T_t^dag T_t) is used: with fewer bands
-    than orbitals it makes D, ipCOBI and ipCOHP depend on the empty bands, so they jump between calculations of
-    the same geometry (bias scans, 2026-11-27). See notes/theory_audit.md, finding F13.
+    occupied bands, so D and ipCOBI no longer depend on the empty bands. If True, the pre-fix least-squares fit
+    C_t = T_t pinv(T_t^dag T_t) is used: with fewer bands than orbitals it makes D, ipCOBI and ipCOHP depend on the
+    empty bands, so they jump between calculations of the same geometry (bias scans, 2026-11-27).
+    Also changes results when los_orbs=False is set by hand with bands >= orbitals (N2 ipCOBI -9 %), and pCOOP/pCOMO.
+    ipCOHP still depends on the band count through the band-sum H (F14), and on the energy zero, since S is the
+    band-space overlap (F15). The band-energy and electron-count sum rules are then no longer exact (0.96-0.98 on the
+    test systems; the least-squares fit kept them exact but over-counted Tr D by 7-11 %).
+    See notes/theory_audit.md, finding F16.
     """
 
     @property
@@ -699,7 +704,8 @@ class ElecData:
     This also coincidentally makes the LCAO hamiltonian matrix preserve energy conservation, as it will ensure
     sum_{u,v} h_tj_uv = e_tj * f_tj (as h_tj_uu = p_tj_uu * e_tj).
     Only used by the legacy matrices (legacy_matrices=True). The signed matrices need no such rescaling: their band
-    energy sum rule holds by construction (notes/theory_audit.md, findings F2 and F10).
+    energy sum rule holds by construction (notes/theory_audit.md, findings F2 and F10), except with ortho
+    projections, fewer bands than orbitals and los_orbs off, where C = T leaves it 2-4 % short (F16).
     """
 
     @property
@@ -1248,8 +1254,8 @@ class ElecData:
     def coef_tju(self) -> np.ndarray[COMPLEX_DTYPE]:
         """Return the expansion coefficients of each band in the band-projected orbitals, in shape (nstates, nbands, nproj).
 
-        Equal to proj_tju when los_orbs is True, or when JDFTx projected onto orthonormalized orbitals (F13; unless
-        legacy_ortho_coefs). Otherwise C_t = P_t pinv(P_t^dag P_t).
+        Equal to proj_tju when los_orbs is True, or when JDFTx projected onto orthonormalized orbitals (unless
+        legacy_ortho_coefs; F16). Otherwise C_t = P_t pinv(P_t^dag P_t).
         See `crawfish.core.operations.matrix.get_coef_tju`. With JDFTx's AO matrices (ao_matrices_used) the overlap is
         exact: C = proj_tju in an orthonormal basis, C = S_AO^-1 T for the bare orbitals.
         """

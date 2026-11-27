@@ -26,16 +26,21 @@ def _ipcohp(edata, o1, o2, state_sep=False):
     return float(np.sum(weights_tj * edata.occ_tj))
 
 
-def _independent_reference(edata, orthonormal: bool, shift: float):
-    """Reference matrices from the raw projections, in float64 (independent of the crawfish kernels)."""
+def _independent_reference(edata, mode: str, shift: float):
+    """Reference matrices from the raw projections, in float64 (independent of the crawfish kernels).
+
+    mode: "lowdin" (C = Löwdin-orthonormalized P), "lsq" (C = P (P^dag P)^-1) or "ortho" (C = P, F16).
+    """
     from crawfish.io.data_parsing import get_proj_tju_from_file
 
     P = get_proj_tju_from_file(edata.bandfile_filepath).astype(np.complex128) * (1j ** edata.orb_l_u)
-    if orthonormal:
+    if mode == "lowdin":
         for t in range(P.shape[0]):
             eigs, vecs = np.linalg.eigh(P[t].conj().T @ P[t])
             P[t] = P[t] @ (vecs / np.sqrt(eigs)) @ vecs.conj().T
         C = P
+    elif mode == "ortho":
+        C = P.copy()
     else:
         C = np.einsum("tjw,twu->tju", P, np.linalg.inv(np.einsum("tju,tjv->tuv", P.conj(), P)))
     H = np.einsum("tju,tj,tjv->tuv", P, edata.e_tj - shift, P.conj())
@@ -61,12 +66,13 @@ def test_band_energy_sum_rule():
     assert total / band_energy == pytest.approx(1.0, abs=0.01)
 
 
-@pytest.mark.parametrize("orthonormal", [True, False])
+@pytest.mark.parametrize("mode", ["lowdin", "lsq", "ortho"])
 @pytest.mark.parametrize("norm_eigs_for_h", [True, False])
-def test_matches_independent_reference(orthonormal, norm_eigs_for_h):
-    # the fixture has ortho projections; legacy_ortho_coefs keeps the least-squares path that 'no no' files use (F13)
-    edata = _get_edata(los_orbs=orthonormal, norm_eigs_for_h=norm_eigs_for_h, legacy_ortho_coefs=not orthonormal)
-    C, H = _independent_reference(edata, orthonormal, edata.mu if norm_eigs_for_h else 0.0)
+def test_matches_independent_reference(mode, norm_eigs_for_h):
+    # The fixture has ortho projections: with los_orbs off the default is C = P (F16); legacy_ortho_coefs gives the
+    # least-squares path that 'no no' files use.
+    edata = _get_edata(los_orbs=mode == "lowdin", norm_eigs_for_h=norm_eigs_for_h, legacy_ortho_coefs=mode == "lsq")
+    C, H = _independent_reference(edata, mode, edata.mu if norm_eigs_for_h else 0.0)
     for o1, o2 in PAIRS:
         u = edata.orbs_idx_dict["N #1"][["s", "py", "pz", "px"].index(o1)]
         v = edata.orbs_idx_dict["N #2"][["s", "py", "pz", "px"].index(o2)]

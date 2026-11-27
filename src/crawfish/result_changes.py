@@ -116,6 +116,6 @@ RESULT_CHANGES: list[ResultChange] = [
         version="1.0.0",
         stage="matrices",
         description="Ortho projections are the band coefficients (C = T) when los_orbs is off "
-        "(notes/theory_audit.md F13; legacy_ortho_coefs restores the least-squares fit)",
+        "(notes/theory_audit.md F16; legacy_ortho_coefs restores the least-squares fit)",
     ),
 ]

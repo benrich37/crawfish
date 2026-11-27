@@ -62,7 +62,7 @@ crawfish's own output was measured here (section 5.1, F13).
 | F10 | `131fd7a` | yes (added with F11, `8943d71`) |
 | F11 | `8943d71` (too-few-bands diagnostic `orbital_span_t` and warning) | not needed: no numbers change |
 | F12 | uncommitted (2026-10-28): point-group unfolding from JDFTx's `sym` file | to add after the commit (stage "matrices") |
-| F13 | P1 | With ortho projections (`band-projection-params yes ...`) and `los_orbs` off (forced when bands < orbitals), the coefficients were the least-squares fit C = T pinv(T^dag T), so D, ipCOBI and ipCOHP depended on the empty bands and jumped between calcs of the same geometry. | bias scans 2026-11-27 | No | **fixed** on branch `ortho_band_coefs` (2026-11-27): C = T for ortho projections; `legacy_ortho_coefs` (cache key `lgoc`) restores the fit. |
+| F16 | `646ef84` (C = T for ortho projections; `legacy_ortho_coefs`) | yes (`fbd6a2d`) |
 
 **New open findings (2026-10-28, from the Wannier session's results):** F13 (P1, ultrasoft non-orthogonal
 projections use a single-centre O, which biases crawfish's pCOOP route) and F14 (P1, pCOHP is 20–25% short of
@@ -129,6 +129,7 @@ Details are in section 3.
 | F10 | P2 | Misc. `los_projs_for_orbs` uses an absolute eigenvalue cutoff of 1e-15 on complex64 data. `trim_excess_bands` selects bands globally by sum of \|T\| (not \|T\|^2, and not per k) and then Sinkhorn-normalizes. `p_uu_consistent` is a non-standard per-band renormalization. The README formula for S (\|T*T\|^2) doesn't match the code ((Re T*T)^2). In the pymatgen fork, the `mu` fallback path (`_mu_backup`) is Hartree while the main path is eV, and crawfish divides by Ha_to_eV unconditionally. | Code | No (pymatgen-fork fix for mu) | **fixed** in `131fd7a`: Löwdin cutoff with legacy via `legacy_lowdin_cutoff=True`; mu, trimming and weights are bug fixes; `result_changes.py` entry added |
 | F11 | P1 | Too few bands (`elec-n-bands` ≈ number of orbitals) leave orbitals unspanned at some k-points. The band-space Löwdin step (and the non-orthogonal S⁻¹) is then ill-conditioned, and pair spectra become silently unreliable. In graphene with 8 bands, the three equivalent bonds differed by 5% and the non-orthogonal H reached ~79 Ha. No warning is given. | Graphene runs, 2026-10-27; band-count series 2026-10-28 | No | **warning added** in `8943d71` (2026-10-28): `orbital_span_t`, warns below 1e-4; no numbers change, so no legacy switch or `result_changes` entry |
 | F12 | P2 | Meshes reduced by a point group (JDFTx `symmetries automatic`) can't give single-bond or m-resolved results; crawfish guards them (F5). Full unfolding with the symmetry operations would lift this. Time-reversal-only reductions are already unfolded (F5). | F5 work | No (`dump End Symmetries` exists) | **fixed** on `theory_check` (uncommitted, 2026-10-28): unfolded with JDFTx's operations from the `sym` file; F5 behaviour via `unfold_point_group=False`; `result_changes.py` entry to add after the commit |
+| F16 | P1 | With ortho projections (`band-projection-params yes ...`) and `los_orbs` off (forced when bands < orbitals), `coef_tju` was the least-squares fit C = T pinv(T^dag T), so D and ipCOBI depended on the empty bands and jumped between calcs of one geometry. | bias-scan studies (research repo, 2026-11-27) | No | **fixed** on branch `ortho_band_coefs` (`646ef84`): C = T; `legacy_ortho_coefs` (cache key `lgoc`) restores the fit. D/ipCOBI only: pCOHP keeps F14/F15. |
 
 Answered question: Q2 (atom positions are not wrapped by pymatgen), at the end of section 3.
 
@@ -1393,22 +1394,39 @@ integral is 1.104 ≈ 30/27, exactly the extra 1/N_k of F6. In the current code 
   pymatgen `Structure` keeps unwrapped fractional coordinates. For N2 the Cartesian coordinates equal the outfile's
   final `ion` lines (13.895656 bohr = 7.3533 Å). F3 uses `edata.structure.frac_coords` as τ.
 
-### F13: least-squares coefficients for ortho projections with too few bands (P1)
+### F16: least-squares coefficients for ortho projections with too few bands (P1)
 
 **Finding (2026-11-27, research repo bias-scan studies, `crawfish/anl/bias_scans/`).** JDFTx's ortho projections
-T_uj = <phi_u|psi_j> are onto orthonormal orbitals, so C = T is the exact expansion of each band in them. When
-`elec-n-bands` < `nproj`, `alloc_elec_data` turns `los_orbs` off, and `coef_tju` then used the least-squares fit
-C_t = T_t pinv(T_t^dag T_t) over the overcomplete band-projected orbitals. That makes D = sum_j f C C^dag depend on
-the empty bands. On slab `ion_opt` runs (0.6 bands per orbital) the default ipCOBI moved by up to 0.43 when the top
-5-20 empty bands were dropped, jumped between potentials at identical geometry (P-C of PGr *H 0.61 -> 1.39 -> 0.42;
-Ag *NO3H N-O 1.44 -> 1.02 -> 1.32), and did not follow bond length (N-O r = -0.07 against -0.97 with C = T). Some
-systems were barely affected (CeramicStudy end-on N2: r 0.99 between the two, magnitudes ~1.35x).
+T_uj = <phi~_u|psi_j> are onto orthonormal (Löwdin) orbitals, so D = sum_j f_j T_j T_j^dag is the density matrix in
+that basis. When `elec-n-bands` < `nproj`, `alloc_elec_data` turns `los_orbs` off, and `coef_tju` then used the
+least-squares fit C_t = T_t pinv(T_t^dag T_t) over the overcomplete band-projected orbitals. That mixes empty bands
+into D and amplifies poorly represented bands. Evidence:
+- NO3_pure slabs (0.87 bands per orbital): dropping the top 5-20 empty bands moved the default ipCOBI by up to 0.43.
+- PGr *H at neighbouring potentials with unchanged geometry (n14V -> n15V, 0.0003 Å): P-C 0.625 -> 0.936.
+- N-O ipCOBI vs bond length over 81 NO3_pure bonds: r = -0.07 (fit) against -0.97 (C = T).
+- Fixtures cut to fewer bands than orbitals: the fit reached ipCOBI 125 to 3e5.
+- Some systems were barely affected (CeramicStudy end-on N2: r 0.995 between the two; the fit's U-slopes ~1.35x).
 
 **Fix.** `coef_tju` uses C = T for ortho projections from JDFTx unless `legacy_ortho_coefs=True`. D then holds only
-the occupied bands (D_t = sum_j f_tj T_tj T_tj^dag), so it can't depend on empty bands. Non-ortho projections
-(`band-projection-params no no`) keep the least-squares fit; `los_orbs=True` and the AO-matrix paths are unchanged;
-pDOS (|T|^2) is unchanged. Tests: `tests/core/test_ortho_coefs.py`; `test_signed_matrices` pins the legacy path for its
-least-squares reference. Real-data check: research repo `crawfish/anl/bias_scans/ortho_coef_fix/`.
+occupied bands, so D and ipCOBI cannot depend on empty bands (tested through `ElecData` by dropping bands). The AO-matrix
+path already used C = T; non-ortho projections (`band-projection-params no no`), `los_orbs=True` and pDOS (|T|^2) are
+unchanged; reduced k-meshes and spin give the same results as the full mesh.
+
+**Side effects and limits (independent review, 2026-11-27).**
+- Also changes results when `los_orbs=False` is set by hand with bands >= orbitals (N2_bare_min ipCOBI 1.5645 ->
+  1.4219, ipCOHP -0.786 -> -0.769; graphene < 2 %), and pCOOP/pCOMO. Justified: the fit over-counts Tr D (1.02 there,
+  1.07-1.11 with too few bands) and converges to C = T as the bands approach completeness.
+- pCOHP still uses the band-sum H, so it still depends on the band count (F14; PGr P-C -0.193 -> -0.174 when 10
+  empty bands above mu + 2.9 eV are dropped) and on the energy zero, since S is the band-space overlap (F15; -0.193 vs
+  -0.247). It is much steadier across potentials than with the fit (PGr P-C -0.193/-0.199/-0.200 against
+  -0.125/-0.086/-0.027). The exact AO matrices (S = 1, exact H) are the candidate cure, under test.
+- The band-energy and electron-count sum rules are no longer exact on this path (0.96-0.98; the fit kept them at 1).
+- `examples/fix_comparisons/F7_coop_basis` passes its asserts but its "ortho projections, 15 bands" rows change
+  (ICOOP 0.4964 -> 0.4679); it needs re-running and its prose on C = S^-1 T for ortho data revising.
+
+Tests: `tests/core/test_ortho_coefs.py` (C = T, occupied-only D, band-drop invariance against the fit, non-ortho path
+untouched); `test_signed_matrices::test_matches_independent_reference` covers all three coefficient modes against a
+float64 reference. Real-data check: research repo `crawfish/anl/bias_scans/ortho_coef_fix/`.
 
 ---------------------------------------------------------------------------------------------------------------
 
