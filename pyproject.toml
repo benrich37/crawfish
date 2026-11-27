@@ -1,7 +1,7 @@
 [project]
 name = "crawfish"
 dynamic = ["version"]
-requires-python = ">=3.10"
+requires-python = ">=3.12"  # pymatgen-core's minimum
 authors = [{ name = "Ben Rich", email = "benjamin.rich@colorado.edu" }]
 license = "MIT"
 license-files = ["LICENSE"]
