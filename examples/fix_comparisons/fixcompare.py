@@ -49,6 +49,7 @@ LEGACY_FLAGS = {
     "F6": "legacy_normalization",
     "F10": "legacy_lowdin_cutoff",
     "F12": "unfold_point_group",
+    "F16": "legacy_ortho_coefs",
 }
 # Settings whose pre-fix value is False rather than True: switches for new behaviour that is on by default
 LEGACY_VALUES = {"F12": False}
