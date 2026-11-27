@@ -49,9 +49,10 @@ jobs:
             python: "3.12" # lowest Python that pymatgen-core supports
           - os: ubuntu-latest
             python: "3.14" # highest Python that pymatgen-core supports
-          # Released pymatgen-core from PyPI. Fails until a release includes materialsproject/pymatgen-core
-          # #319-#324 (merged 2026-11-25), so it does not fail the run. When it turns green, pin that
-          # release in pyproject.toml and delete this job and the overrides in the install step.
+          # Released pymatgen-core from PyPI. Its install fails until PyPI has a release newer than 2026.10.31
+          # (the first with materialsproject/pymatgen-core #319-#324, merged 2026-11-25), so it does not fail
+          # the run. When it turns green, pin that release in pyproject.toml and delete this job and the
+          # override in the install step.
           - os: ubuntu-latest
             python: "3.13"
             stock: true
@@ -71,8 +72,9 @@ jobs:
 
       - name: Install crawfish and dependencies via uv
         env:
-          # The stock job replaces pyproject.toml's pymatgen-core (upstream main, from git) with the PyPI release.
-          OVERRIDE: ${{ matrix.config.stock && 'pymatgen-core' || '' }}
+          # pyproject.toml asks for a pymatgen-core newer than the latest PyPI release. Every job but the
+          # stock one takes it from upstream main instead.
+          OVERRIDE: ${{ !matrix.config.stock && 'pymatgen-core @ git+https://github.com/materialsproject/pymatgen-core.git' || '' }}
         run: |
           echo "$OVERRIDE" > uv-overrides.txt
           # Editable: crawfish.utils.testing finds tests/files relative to the source tree.

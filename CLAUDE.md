@@ -9,7 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```sh
-pip install .                                   # install (pymatgen-core from upstream GitHub main, for pymatgen.io.jdftx; newer than its PyPI release)
+pip install git+https://github.com/materialsproject/pymatgen-core.git   # first: crawfish needs pymatgen.io.jdftx newer than the PyPI release (2026.10.31)
+pip install .                                   # install (the PyPI name is co-crawfish; the import name is crawfish)
 python -m pytest                                # full suite (~15s)
 python -m pytest tests/funcs/test_pcohp.py      # one file
 python -m pytest tests/utils/test_caching.py::test_name   # one test
