@@ -188,17 +188,17 @@ Results remain exact only for selections the point group maps onto themselves: t
 
 ### pip
 
-Any github-url pip installation method should work, but below are the steps I have tested and know should work.
+`crawfish` is on PyPI as `co-crawfish` (the name `crawfish` belongs to another project there). The module you import is still `crawfish`.
 
-1. Clone this repo somewhere
+1. Activate the Python environment you wish to use when performing pCOHP analysis. crawfish needs Python 3.12 or newer (its tests run on 3.12 to 3.14). If you are worried about dependency conflicts, I would recommend creating a conda virtual environment with one of those Python versions.
+2. **Until pymatgen-core's next release:** crawfish needs the JDFTx IO module of pymatgen-core as it is on GitHub (`main`), which is newer than the latest PyPI release (2026.10.31). Install that first, or step 3 fails because pip finds no pymatgen-core version it can use.
    ```sh
-   git clone https://github.com/benrich37/crawfish.git
+   pip install git+https://github.com/materialsproject/pymatgen-core.git
    ```
-2. Activate the Python environment you wish to use when performing pCOHP analysis. **NOTE: crawfish needs the JDFTx IO module of pymatgen-core as it is on GitHub (`main`), which is newer than the latest PyPI release (2026.10.31), so installing crawfish installs pymatgen-core from GitHub.** That pymatgen-core needs Python 3.12 or newer (crawfish's tests run on 3.12 to 3.14). If you are worried about dependency conflicts, I would recommend creating a conda virtual environment with one of those Python versions.
-3. Navigate to ~/crawfish/ where you cloned this repo (not ~/crawfish/src/crawfish/) and install via pip
+   Skip this step once PyPI has a pymatgen-core release newer than 2026.10.31.
+3. Install crawfish
    ```sh
-   cd ./crawfish
+   pip install co-crawfish
    ```
-   ```sh
-   pip install .
-   ```
+
+To install from source instead (for the examples and tests, or to edit the code), do step 2, clone this repo, and run `pip install .` in it.

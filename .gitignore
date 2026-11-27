@@ -10,3 +10,4 @@ debug.ipynb
 build/
 deleteme*
 *.crawfish_cache*
+dist/
