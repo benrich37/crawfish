@@ -88,6 +88,7 @@ edata_setting_key_shorthand_dict = {
     "unfold_point_group": "upg",
     "legacy_normalization": "lgnm",
     "legacy_lowdin_cutoff": "lglw",
+    "legacy_ortho_coefs": "lgoc",
     "trim_excess_bands": "trimj",
     "los_orbs": "lou",
     "p_uu_consistent": "p-c",
@@ -111,6 +112,7 @@ def get_edata_settings_str(edata: ElecData) -> str:
         "unfold_point_group": edata.unfold_point_group,
         "legacy_normalization": edata.legacy_normalization,
         "legacy_lowdin_cutoff": edata.legacy_lowdin_cutoff,
+        "legacy_ortho_coefs": edata.legacy_ortho_coefs,
         "trim_excess_bands": edata.trim_excess_bands,
         "los_orbs": edata.los_orbs,
         "p_uu_consistent": edata.p_uu_consistent,
@@ -465,6 +467,28 @@ class ElecData:
             self.alloc_elec_data()
 
     _legacy_lowdin_cutoff: bool = False
+
+    """
+    legacy_ortho_coefs: If False (default), projections JDFTx already made onto orthonormalized orbitals
+    ('band-projection-params yes ...') are used as the band coefficients, C = T, also when los_orbs is off (it is
+    forced off when elec-n-bands < number of orbitals). The density matrix D = sum_j f_j T_j T_j^dag then holds only
+    occupied bands. If True, the pre-fix least-squares fit C_t = T_t pinv(T_t^dag T_t) is used: with fewer bands
+    than orbitals it makes D, ipCOBI and ipCOHP depend on the empty bands, so they jump between calculations of
+    the same geometry (bias scans, 2026-11-27). See notes/theory_audit.md, finding F13.
+    """
+
+    @property
+    def legacy_ortho_coefs(self) -> bool:
+        return self._legacy_ortho_coefs
+
+    @legacy_ortho_coefs.setter
+    def legacy_ortho_coefs(self, value: bool):
+        if value != self._legacy_ortho_coefs:
+            self._legacy_ortho_coefs = value
+            self._init_caches()
+            self.alloc_elec_data()
+
+    _legacy_ortho_coefs: bool = False
     _kmesh_unfolding: dict | bool | None = None
     # (e_tj, occ_tj, nbands) from before trim_excess_bands cut them, so a later alloc_elec_data can restore them
     _untrimmed_bands: tuple | None = None
@@ -1224,13 +1248,15 @@ class ElecData:
     def coef_tju(self) -> np.ndarray[COMPLEX_DTYPE]:
         """Return the expansion coefficients of each band in the band-projected orbitals, in shape (nstates, nbands, nproj).
 
-        Equal to proj_tju when los_orbs is True (orthonormal orbitals). Otherwise C_t = P_t pinv(P_t^dag P_t).
+        Equal to proj_tju when los_orbs is True, or when JDFTx projected onto orthonormalized orbitals (F13; unless
+        legacy_ortho_coefs). Otherwise C_t = P_t pinv(P_t^dag P_t).
         See `crawfish.core.operations.matrix.get_coef_tju`. With JDFTx's AO matrices (ao_matrices_used) the overlap is
         exact: C = proj_tju in an orthonormal basis, C = S_AO^-1 T for the bare orbitals.
         """
         if self._coef_tju is None:
             if not self.ao_matrices_used:
-                self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs)
+                ortho_file = not self.legacy_ortho_coefs and self.jdftx and self.bandprojfile_is_ortho
+                self._coef_tju = get_coef_tju(self.proj_tju, orthonormal=self.los_orbs or ortho_file)
             elif self.los_orbs or self.bandprojfile_is_ortho:
                 self._coef_tju = self.proj_tju
             else:

@@ -62,6 +62,7 @@ crawfish's own output was measured here (section 5.1, F13).
 | F10 | `131fd7a` | yes (added with F11, `8943d71`) |
 | F11 | `8943d71` (too-few-bands diagnostic `orbital_span_t` and warning) | not needed: no numbers change |
 | F12 | uncommitted (2026-10-28): point-group unfolding from JDFTx's `sym` file | to add after the commit (stage "matrices") |
+| F13 | P1 | With ortho projections (`band-projection-params yes ...`) and `los_orbs` off (forced when bands < orbitals), the coefficients were the least-squares fit C = T pinv(T^dag T), so D, ipCOBI and ipCOHP depended on the empty bands and jumped between calcs of the same geometry. | bias scans 2026-11-27 | No | **fixed** on branch `ortho_band_coefs` (2026-11-27): C = T for ortho projections; `legacy_ortho_coefs` (cache key `lgoc`) restores the fit. |
 
 **New open findings (2026-10-28, from the Wannier session's results):** F13 (P1, ultrasoft non-orthogonal
 projections use a single-centre O, which biases crawfish's pCOOP route) and F14 (P1, pCOHP is 20–25% short of
@@ -1391,6 +1392,23 @@ integral is 1.104 ≈ 30/27, exactly the extra 1/N_k of F6. In the current code 
   wrapping)?** **Answered (2026-10-27):** yes. `JDFTXOutfile.structure` (pymatgen fork) never calls `to_unit_cell`, and
   pymatgen `Structure` keeps unwrapped fractional coordinates. For N2 the Cartesian coordinates equal the outfile's
   final `ion` lines (13.895656 bohr = 7.3533 Å). F3 uses `edata.structure.frac_coords` as τ.
+
+### F13: least-squares coefficients for ortho projections with too few bands (P1)
+
+**Finding (2026-11-27, research repo bias-scan studies, `crawfish/anl/bias_scans/`).** JDFTx's ortho projections
+T_uj = <phi_u|psi_j> are onto orthonormal orbitals, so C = T is the exact expansion of each band in them. When
+`elec-n-bands` < `nproj`, `alloc_elec_data` turns `los_orbs` off, and `coef_tju` then used the least-squares fit
+C_t = T_t pinv(T_t^dag T_t) over the overcomplete band-projected orbitals. That makes D = sum_j f C C^dag depend on
+the empty bands. On slab `ion_opt` runs (0.6 bands per orbital) the default ipCOBI moved by up to 0.43 when the top
+5-20 empty bands were dropped, jumped between potentials at identical geometry (P-C of PGr *H 0.61 -> 1.39 -> 0.42;
+Ag *NO3H N-O 1.44 -> 1.02 -> 1.32), and did not follow bond length (N-O r = -0.07 against -0.97 with C = T). Some
+systems were barely affected (CeramicStudy end-on N2: r 0.99 between the two, magnitudes ~1.35x).
+
+**Fix.** `coef_tju` uses C = T for ortho projections from JDFTx unless `legacy_ortho_coefs=True`. D then holds only
+the occupied bands (D_t = sum_j f_tj T_tj T_tj^dag), so it can't depend on empty bands. Non-ortho projections
+(`band-projection-params no no`) keep the least-squares fit; `los_orbs=True` and the AO-matrix paths are unchanged;
+pDOS (|T|^2) is unchanged. Tests: `tests/core/test_ortho_coefs.py`; `test_signed_matrices` pins the legacy path for its
+least-squares reference. Real-data check: research repo `crawfish/anl/bias_scans/ortho_coef_fix/`.
 
 ---------------------------------------------------------------------------------------------------------------
 

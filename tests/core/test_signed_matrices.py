@@ -64,7 +64,8 @@ def test_band_energy_sum_rule():
 @pytest.mark.parametrize("orthonormal", [True, False])
 @pytest.mark.parametrize("norm_eigs_for_h", [True, False])
 def test_matches_independent_reference(orthonormal, norm_eigs_for_h):
-    edata = _get_edata(los_orbs=orthonormal, norm_eigs_for_h=norm_eigs_for_h)
+    # the fixture has ortho projections; legacy_ortho_coefs keeps the least-squares path that 'no no' files use (F13)
+    edata = _get_edata(los_orbs=orthonormal, norm_eigs_for_h=norm_eigs_for_h, legacy_ortho_coefs=not orthonormal)
     C, H = _independent_reference(edata, orthonormal, edata.mu if norm_eigs_for_h else 0.0)
     for o1, o2 in PAIRS:
         u = edata.orbs_idx_dict["N #1"][["s", "py", "pz", "px"].index(o1)]

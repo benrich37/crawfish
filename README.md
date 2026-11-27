@@ -72,7 +72,7 @@ $$
 S_{\mu\nu}(t) = \sum_j T_{\mu,j}T_{\nu,j}^*, \qquad H_{\mu\nu}(t) = \sum_j T_{\mu,j}\,\epsilon_j\,T_{\nu,j}^*, \qquad D_{\mu\nu}(t) = \sum_j f_j\, C_{\mu,j}C_{\nu,j}^*
 $$
 
-(`edata.s_t_uv`, `edata.h_t_uv`, `edata.d_t_uv`, which are complex and Hermitian). $C_{\mu,j}(t)$ are the coefficients of $\psi_j$ in the $\chi_\mu$ (`edata.coef_tju`). With `los_orbs=True` (default) the orbitals are Löwdin-orthonormalized within the band space first, so $S=1$ and $C=T$. With `los_orbs=False`, $C = S^{-1}T$ (least squares). For a spectral mode with matrix $M$:
+(`edata.s_t_uv`, `edata.h_t_uv`, `edata.d_t_uv`, which are complex and Hermitian). $C_{\mu,j}(t)$ are the coefficients of $\psi_j$ in the $\chi_\mu$ (`edata.coef_tju`). With `los_orbs=True` (default) the orbitals are Löwdin-orthonormalized within the band space first, so $S=1$ and $C=T$. With `los_orbs=False`, $C = S^{-1}T$ (least squares), except for projections JDFTx already made onto orthonormalized orbitals (`band-projection-params yes ...`), which are used as they are, $C=T$, so that $D$ holds only occupied bands (F13 in `notes/theory_audit.md`; `legacy_ortho_coefs=True` restores the least-squares fit). `los_orbs` is forced off when `elec-n-bands` is below the number of orbitals. For a spectral mode with matrix $M$:
 
 $$
 pX(E,\mu,\nu)=\sum_{j,t} w_t\, Re\left[C_{\mu,j}^*\, M_{\mu\nu}\, C_{\nu,j}\right]\delta(E-\epsilon_j(t))
