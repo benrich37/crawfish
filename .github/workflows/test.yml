@@ -49,9 +49,10 @@ jobs:
             python: "3.12" # lowest Python that pymatgen-core supports
           - os: ubuntu-latest
             python: "3.14" # highest Python that pymatgen-core supports
-          # Released pymatgen-core from PyPI. Fails until materialsproject/pymatgen-core #319-#324
-          # are released, so it does not fail the run. When it turns green, follow
-          # "Switching to stock pymatgen-core" in notes/ci_setup.md.
+          # Released pymatgen-core from PyPI. Its install fails until PyPI has a release newer than 2026.10.31
+          # (the first with materialsproject/pymatgen-core #319-#324, merged 2026-11-25), so it does not fail
+          # the run. When it turns green, pin that release in pyproject.toml and delete this job and the
+          # override in the install step.
           - os: ubuntu-latest
             python: "3.13"
             stock: true
@@ -71,15 +72,13 @@ jobs:
 
       - name: Install crawfish and dependencies via uv
         env:
-          # The pymatgen-core fork branch that carries the JDFTx fixes crawfish needs.
-          PYMATGEN: ${{ matrix.config.stock && 'pymatgen-core' || 'pymatgen-core @ git+https://github.com/benrich37/pymatgen-core@misc_fixes_D' }}
+          # pyproject.toml asks for a pymatgen-core newer than the latest PyPI release. Every job but the
+          # stock one takes it from upstream main instead.
+          OVERRIDE: ${{ !matrix.config.stock && 'pymatgen-core @ git+https://github.com/materialsproject/pymatgen-core.git' || '' }}
         run: |
-          # pyproject.toml still depends on the old `pymatgen` fork, which would be installed on
-          # top of pymatgen-core. Leave it out of the resolution. Delete this line and `--excludes`
-          # once pyproject.toml depends on pymatgen-core.
-          echo pymatgen > uv-excludes.txt
+          echo "$OVERRIDE" > uv-overrides.txt
           # Editable: crawfish.utils.testing finds tests/files relative to the source tree.
-          uv pip install -e . pytest "$PYMATGEN" --excludes uv-excludes.txt
+          uv pip install -e . pytest --overrides uv-overrides.txt
 
       - name: pytest
         run: pytest tests --color=yes

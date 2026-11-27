@@ -1,4 +1,4 @@
-"""F16: projections onto JDFTx's orthonormalized orbitals are the band coefficients (C = T) when los_orbs is off."""
+"""F21: projections onto JDFTx's orthonormalized orbitals are the band coefficients (C = T) when los_orbs is off."""
 
 import warnings
 from pathlib import Path

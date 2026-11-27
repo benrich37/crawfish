@@ -1,7 +1,13 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]  # first setuptools that takes `license = "MIT"` as an SPDX string
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "crawfish"
+name = "co-crawfish"  # the PyPI name ("crawfish" is taken there); the import name is still `crawfish`
 dynamic = ["version"]
-requires-python = ">=3.10"
+description = "Bonding analysis (pDOS, pCOHP, pCOOP, pCOBI, pCOMO) on JDFTx calculations"
+readme = "README.md"
+requires-python = ">=3.12"  # pymatgen-core's minimum
 authors = [{ name = "Ben Rich", email = "benjamin.rich@colorado.edu" }]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -11,10 +17,19 @@ dependencies = [
     "matplotlib>=3.8",
     "numpy>=1.25.0,<3",
     "numba>=0.55",
+    "scipy",
     "ase>=3.23.0",
-    "pymatgen@git+https://github.com/benrich37/pymatgen.git",
+    # crawfish needs the JDFTx IO of pymatgen-core PRs 319-324 (merged 2026-11-25), which the latest PyPI
+    # release (2026.10.31) lacks, and PyPI accepts no git URL here. This takes anything newer: the next
+    # release, or a build of GitHub main (2026.10.31.post1.dev..., which ">2026.10.31" would refuse).
+    # Switch to "pymatgen-core>=<release>" once that release exists.
+    "pymatgen-core>=2026.10.31,!=2026.10.31",
     "libtetrabz>=0.1.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/benrich37/crawfish"
+Issues = "https://github.com/benrich37/crawfish/issues"
 
 [tool.setuptools.dynamic]
 version = { attr = "crawfish.__version__" }

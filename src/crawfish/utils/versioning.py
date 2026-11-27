@@ -37,7 +37,7 @@ def get_crawfish_commit() -> str | None:
     if repo_dir is not None:
         return _run_git(["rev-parse", "HEAD"], repo_dir)
     try:
-        direct_url = metadata.distribution("crawfish").read_text("direct_url.json")
+        direct_url = metadata.distribution("co-crawfish").read_text("direct_url.json")
     except metadata.PackageNotFoundError:
         return None
     if direct_url is None:

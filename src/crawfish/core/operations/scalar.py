@@ -24,7 +24,8 @@ def gauss(x: REAL_DTYPE, mu: REAL_DTYPE, sig: REAL_DTYPE) -> REAL_DTYPE:
     mu : REAL_DTYPE
         The mean of the Gaussian
     sig : REAL_DTYPE
-        The standard deviation of the Gaussian
+        The width parameter of the kernel exp(-(x - mu)^2 / sig), i.e. 2 * (standard deviation)^2. The kernel is
+        not normalized here (see get_gauss_smear_spectrum).
     """
     return np.exp(-((x - mu) ** 2) / sig)
 

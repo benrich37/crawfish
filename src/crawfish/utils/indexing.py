@@ -107,10 +107,11 @@ def get_atom_orb_labels_dict(bandfile_filepath: str | Path) -> dict[str, list[st
     (eg
     {
     "H": ["s"],
-    "O": ["s", "px", "py", "pz", "dxy", "dxz", "dyz", "dx2y2", "dz2"],
-    "Pt": ["0s", "1s", "0px", "0py", "0pz", "1px", "1py", "1pz", "dxy", "dxz", "dyz", "dx2y2", "dz2", "fx3-3xy2", "fyx2-yz2", "fxz2", "fz3", "fyz2", "fxyz", "f3yx2-y3"]
+    "O": ["s", "py", "pz", "px", "dxy", "dyz", "dz2", "dxz", "dx2-y2"],
+    "Pt": ["0s", "1s", "0py", "0pz", "0px", "1py", "1pz", "1px", "dxy", "dyz", "dz2", "dxz", "dx2-y2", "fy(3x2-y2)", "fxyz", "fyz2", "fz3", "fxz2", "fz(x2-y2)", "fx(x2-3y2)"]
     }, where the numbers are needed when using pseudopotentials with multiple valence shells of the same angular momentum
     are are NOT REPRESENTATIVE OF THE TRUE PRINCIPAL QUANTUM NUMBER.
+    The order within a shell is JDFTx's real-harmonic order, m = -l..l (`orb_ref_list`).
     )
 
     Parameters

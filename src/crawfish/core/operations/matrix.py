@@ -10,14 +10,15 @@ from crawfish.utils.typing import REAL_DTYPE, COMPLEX_DTYPE
 
 
 def get_s_tj_uu(proj_tju: np.ndarray[COMPLEX_DTYPE]) -> np.ndarray[REAL_DTYPE]:
-    r"""Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
+    r"""Get the legacy (pre-F2, unsigned) overlap tensor S_{t,j,u,v} = (Re[T_{t,j,u}^* T_{t,j,v}])^2.
 
-    Get the real part of the overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*).
+    The real part of the projection product is taken first and then squared, so the tensor carries no sign
+    (README, "Legacy formalism"). Kept as a test reference for `get_h_p_s_t_uu_and_uu`.
 
     Parameters
     ----------
     proj_tju : np.ndarray
-        The projection tensor T_{t,j,u} = <\phi_{t,j} | u>
+        The projection tensor T_{t,j,u} = <u | O | \psi_{t,j}>
     r"""
     t, j, u = np.shape(proj_tju)
     s_tj_uu = np.zeros([t, j, u, u], dtype=COMPLEX_DTYPE)
@@ -33,17 +34,17 @@ def get_p_tj_uu(
     wk_t: np.ndarray[REAL_DTYPE],
     sys_consistent: bool = True,
 ) -> np.ndarray[REAL_DTYPE]:
-    r"""Get the projected density of states tensor P_{t,j,u,u} = Sum_{u} |T_{t,j,u}|^2 w_{t}.
+    r"""Get the legacy (pre-F2, unsigned) population tensor P_{t,j,u,v} = S_{t,j,u,v} occ_{t,j} w_{t}.
 
-    Get the projected density of states tensor P_{t,j,u,u} = Sum_{u} |T_{t,j,u}|^2 w_{t}.
-    Creates with restriction of electron conservation (sum_{u,v}P_{t,j,u,v} = occ_{t,j}*wk_{t}).
+    With sys_consistent=True (ElecData.p_uu_consistent), each band's S is first divided by sum_{u,v} S_{t,j,u,v},
+    so that sum_{u,v} P_{t,j,u,v} = occ_{t,j} * wk_{t}. Kept as a test reference (README, "Legacy formalism").
 
     Parameters
     ----------
     s_tj_uu : np.ndarray
-        The overlap tensor S_{t,j,u,u} = 0.5 * (T_{t,j,u}^* T_{t,j,u} + T_{t,j,u} T_{t,j,u}^*)
+        The legacy overlap tensor S_{t,j,u,v} = (Re[T_{t,j,u}^* T_{t,j,v}])^2 from `get_s_tj_uu`
     occ_tj : np.ndarray
-        The occupation tensor occ_{t,j} = <\phi_{t,j} | \phi_{t,j}>
+        The occupations f_{t,j}
     wk_t : np.ndarray
         The k-point weights w_{t}
     r"""
@@ -552,28 +553,38 @@ def _get_gen_tj_block(
     wk_t: np.ndarray[REAL_DTYPE],
     orbs_u: list[int],
     orbs_v: list[int],
+    include_ab: np.ndarray[bool] | None = None,
 ) -> np.ndarray[REAL_DTYPE]:
-    r"""Get gen_{t,j} = w_t Sum_{a,b; orbs_u[a]!=orbs_v[b]} Re[conj(C[t,j,orbs_u[a]]) M[t,a,b] C[t,j,orbs_v[b]]].
+    r"""Get gen_{t,j} = w_t Sum_{a,b; include_ab[a,b]} Re[conj(C[t,j,orbs_u[a]]) M[t,a,b] C[t,j,orbs_v[b]]].
 
     `mat_t_ab` is the effective matrix restricted to the requested orbitals, shape (nstates, len(orbs_u),
     len(orbs_v)). It is either the state-resolved block (all lattice images) or M_ab(R_ab) e^{2 pi i k_t.R_ab}
     for one chosen image per atom pair.
+    `include_ab` (shape (len(orbs_u), len(orbs_v))) selects the terms. The default, orbs_u[a] != orbs_v[b], leaves
+    out an orbital paired with itself, which within one cell is its on-site energy, not a pair interaction. An
+    orbital paired with its own image in another cell (R != 0) is a pair interaction between two atoms, and the
+    caller includes it (`funcs.pcohp._compute_signed_tj`; finding F19).
     r"""
     t, j, _ = np.shape(coef_tju)
+    orbs_u = np.asarray(orbs_u, dtype=np.int64)
+    orbs_v = np.asarray(orbs_v, dtype=np.int64)
+    if include_ab is None:
+        include_ab = orbs_u[:, None] != orbs_v[None, :]
     gen_tj = np.zeros([t, j], dtype=REAL_DTYPE)
     _get_gen_tj_block_jit(
         gen_tj,
         coef_tju,
         np.asarray(mat_t_ab, dtype=COMPLEX_DTYPE),
         wk_t,
-        np.asarray(orbs_u, dtype=np.int64),
-        np.asarray(orbs_v, dtype=np.int64),
+        orbs_u,
+        orbs_v,
+        np.asarray(include_ab, dtype=np.bool_),
     )
     return gen_tj
 
 
 @jit(nopython=True)
-def _get_gen_tj_block_jit(gen_tj, coef_tju, mat_t_ab, wk_t, orbs_u, orbs_v):
+def _get_gen_tj_block_jit(gen_tj, coef_tju, mat_t_ab, wk_t, orbs_u, orbs_v, include_ab):
     _t, _j, _ = np.shape(coef_tju)
     for t in range(_t):
         for j in range(_j):
@@ -581,7 +592,7 @@ def _get_gen_tj_block_jit(gen_tj, coef_tju, mat_t_ab, wk_t, orbs_u, orbs_v):
             for a in range(len(orbs_u)):
                 cu = np.conj(coef_tju[t, j, orbs_u[a]])
                 for b in range(len(orbs_v)):
-                    if not orbs_u[a] == orbs_v[b]:
+                    if include_ab[a, b]:
                         val += (cu * mat_t_ab[t, a, b] * coef_tju[t, j, orbs_v[b]]).real
             gen_tj[t, j] = REAL_DTYPE(val * wk_t[t])
 
