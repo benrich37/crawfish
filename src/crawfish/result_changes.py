@@ -111,4 +111,11 @@ RESULT_CHANGES: list[ResultChange] = [
         description="Löwdin step in float64 with a relative eigenvalue cutoff (notes/theory_audit.md F10; "
         "legacy_lowdin_cutoff restores the old one)",
     ),
+    ResultChange(
+        commit="646ef84de44e9efa85ac8a5c846dce7e612f209f",
+        version="1.0.0",
+        stage="matrices",
+        description="Ortho projections are the band coefficients (C = T) when los_orbs is off "
+        "(notes/theory_audit.md F13; legacy_ortho_coefs restores the least-squares fit)",
+    ),
 ]
